@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Loyalty Dashboard — Despegar</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg:      #f1f5f9;
+  --surface: #ffffff;
+  --border:  #e2e8f0;
+  --text:    #1e293b;
+  --muted:   #64748b;
+  --accent:  #5626e9;
+  --green:   #16a34a;
+  --red:     #dc2626;
+  --amber:   #d97706;
+  --radius:  10px;
+  --proj-bg: #fafaf7;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; }
+
+/* ---- Header ---- */
+.header { background: #1e293b; color: #fff; padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.header-title { font-size: 17px; font-weight: 800; }
+.header-sub   { font-size: 11px; color: #94a3b8; margin-top: 2px; }
+.header-sync  { font-size: 11px; color: #94a3b8; }
+
+/* ---- Country tabs ---- */
+.country-tabs { display: flex; gap: 2px; background: #0f172a; padding: 0 20px; border-bottom: 2px solid #1e293b; overflow-x: auto; }
+.ctab { padding: 11px 18px; font-size: 13px; font-weight: 600; color: #94a3b8; cursor: pointer; border: none; background: none; border-bottom: 3px solid transparent; white-space: nowrap; transition: .15s; }
+.ctab:hover  { color: #e2e8f0; }
+.ctab.active { color: #fff; border-bottom-color: var(--accent); }
+
+/* ---- Filters ---- */
+.filters { display: flex; align-items: center; gap: 14px; padding: 10px 24px; background: var(--surface); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.fg { display: flex; flex-direction: column; gap: 3px; }
+.fl { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
+select, input[type=month] {
+  padding: 5px 10px; border: 1px solid var(--border); border-radius: 6px;
+  background: #f8fafc; font-size: 13px; color: var(--text); outline: none; cursor: pointer;
+}
+select:focus, input[type=month]:focus { border-color: var(--accent); }
+.fsep { width: 1px; height: 34px; background: var(--border); margin: 0 4px; }
+
+/* ---- Main ---- */
+.main { padding: 20px 24px; max-width: 1500px; margin: 0 auto; }
+
+/* ---- Banner ---- */
+.banner { display: flex; align-items: flex-start; gap: 10px; border-radius: var(--radius); padding: 14px 18px; margin-bottom: 20px; border-left: 4px solid; }
+.banner.warning { background: #fef3c7; border-color: var(--amber); }
+.banner.warning .bt { color: #92400e; }
+.banner.wip { background: #f0fdf4; border-color: var(--green); }
+.banner.wip .bt { color: #166534; }
+.bt { font-size: 13px; font-weight: 600; line-height: 1.4; }
+.bt strong { font-weight: 800; }
+
+/* ---- Section title ---- */
+.stitle { font-size: 11px; font-weight: 800; color: var(--accent); text-transform: uppercase; letter-spacing: .6px; border-bottom: 2px solid var(--accent); padding-bottom: 5px; margin: 20px 0 14px; }
+
+/* ---- P&L table ---- */
+.pnl-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-bottom: 20px; }
+.tbl-scroll { overflow-x: auto; }
+table.pnl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+table.pnl th {
+  padding: 7px 14px; text-align: right; font-size: 10px; font-weight: 700;
+  color: var(--muted); text-transform: uppercase; letter-spacing: .3px;
+  background: #f8fafc; border-bottom: 1px solid var(--border); white-space: nowrap;
+}
+table.pnl th.lc { text-align: left; min-width: 260px; position: sticky; left: 0; background: #f8fafc; z-index: 2; }
+table.pnl td { padding: 7px 14px; border-bottom: 1px solid #f1f5f9; text-align: right; white-space: nowrap; }
+table.pnl td.lc { text-align: left; position: sticky; left: 0; background: var(--surface); z-index: 1; padding-left: 28px; }
+table.pnl tr:hover td, table.pnl tr:hover td.lc { background: #f8fafc; }
+
+/* Group header row */
+table.pnl tr.grp-hdr td { background: #f0f4ff; font-weight: 700; font-size: 11px; color: var(--accent); text-transform: uppercase; letter-spacing: .4px; border-top: 2px solid #c7d2fe; border-bottom: 1px solid #c7d2fe; padding: 6px 14px; }
+table.pnl tr.grp-hdr td.lc { background: #f0f4ff; padding-left: 14px; }
+
+/* Subtotal row */
+table.pnl tr.subtotal td { background: #eef2ff; font-weight: 700; font-size: 12.5px; border-top: 1px solid #c7d2fe; border-bottom: 2px solid var(--border); }
+table.pnl tr.subtotal td.lc { background: #eef2ff; padding-left: 14px; }
+
+/* Grand total row */
+table.pnl tr.grand-total td { background: #1e293b; color: #fff; font-weight: 800; font-size: 13px; border-top: 2px solid #334155; }
+table.pnl tr.grand-total td.lc { background: #1e293b; color: #fff; padding-left: 14px; }
+
+/* Projection columns */
+table.pnl th.proj { background: var(--proj-bg); color: #94a3b8; font-style: italic; }
+table.pnl td.proj { background: var(--proj-bg); color: #94a3b8; }
+table.pnl tr.grp-hdr td.proj, table.pnl tr.subtotal td.proj { color: #94a3b8; }
+table.pnl tr.grand-total td.proj { color: #94a3b8; }
+table.pnl th.sep, table.pnl td.sep { width: 6px; padding: 0; background: var(--border); }
+
+/* Value colors */
+.vp  { color: var(--green); }
+.vn  { color: var(--red); }
+.vz  { color: #cbd5e1; }
+table.pnl tr.grand-total .vp { color: #86efac; }
+table.pnl tr.grand-total .vn { color: #fca5a5; }
+
+/* Total column */
+td.tc { background: #f0f4ff !important; font-weight: 700; }
+table.pnl tr.grand-total td.tc { background: #0f172a !important; }
+
+/* Proj note */
+.proj-note { font-size: 11px; color: var(--muted); padding: 6px 18px 10px; }
+
+/* ---- KPI row ---- */
+.kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.kc { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; border-top: 3px solid var(--accent); }
+.kc .kl { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 5px; }
+.kc .kv { font-size: 22px; font-weight: 800; line-height: 1; }
+.kc .ks { font-size: 11px; color: var(--muted); margin-top: 5px; }
+.pos { color: var(--green); font-weight: 700; }
+.neg { color: var(--red); font-weight: 700; }
+.neu { color: var(--muted); }
+
+/* ---- Program section ---- */
+.prog-section { margin-bottom: 24px; }
+.prog-title { font-size: 13px; font-weight: 700; color: var(--text); padding: 10px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; border-bottom: 2px solid var(--accent); }
+.prog-body { background: var(--surface); border: 1px solid var(--border); border-top: none; border-radius: 0 0 var(--radius) var(--radius); padding: 16px; }
+
+/* ---- Charts ---- */
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+@media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+.cc { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
+.ct { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 10px; }
+.cw { position: relative; height: 180px; }
+
+/* ---- Breakdown table ---- */
+.bk-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-bottom: 16px; }
+.bk-hdr { padding: 10px 16px; border-bottom: 1px solid var(--border); font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
+table.bk { width: 100%; border-collapse: collapse; }
+table.bk th { padding: 7px 14px; background: #f8fafc; font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .3px; border-bottom: 1px solid var(--border); }
+table.bk th.r, table.bk td.r { text-align: right; }
+table.bk td { padding: 7px 14px; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
+table.bk tr:last-child td { border-bottom: none; }
+table.bk tr:hover td { background: #f8fafc; }
+
+/* ---- Loading ---- */
+.loading { position: fixed; inset: 0; background: rgba(255,255,255,.92); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 100; gap: 12px; }
+.spinner { width: 38px; height: 38px; border: 4px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.lt { font-size: 13px; color: var(--muted); font-weight: 600; }
+.hidden { display: none !important; }
+.empty { text-align: center; padding: 28px; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+
+<div class="loading" id="loading">
+  <div class="spinner"></div>
+  <div class="lt" id="loading-text">Cargando datos...</div>
+</div>
+
+<div class="header">
+  <div>
+    <div class="header-title">Loyalty Dashboard — Despegar</div>
+    <div class="header-sub">P&amp;L Contable · Metricas de Negocio por Programa</div>
+  </div>
+  <div class="header-sync" id="last-sync">—</div>
+</div>
+
+<div class="country-tabs" id="country-tabs"></div>
+
+<div class="filters">
+  <div class="fg">
+    <div class="fl">Desde</div>
+    <input type="month" id="f-from" value="2026-01">
+  </div>
+  <div class="fg">
+    <div class="fl">Hasta</div>
+    <input type="month" id="f-to" value="2026-12">
+  </div>
+  <div class="fsep"></div>
+  <div class="fg">
+    <div class="fl">Formato numeros</div>
+    <select id="f-fmt">
+      <option value="M">Millones (M)</option>
+      <option value="K" selected>Miles (K)</option>
+      <option value="INT">Enteros</option>
+    </select>
+  </div>
+</div>
+
+<div class="main" id="panels"></div>
+
+<script>
+// ============================================================
+// Country & program config
+// ============================================================
+var COUNTRIES = [
+  { key: 'brasil',    label: 'Brasil',    dataKey: 'brasil'    },
+  { key: 'mexico',    label: 'Mexico',    dataKey: 'mexico'    },
+  { key: 'argentina', label: 'Argentina', dataKey: 'argentina' },
+  { key: 'colombia',  label: 'Colombia',  dataKey: 'colombia'  },
+  { key: 'chile',     label: 'Chile',     dataKey: 'chile',
+    banner: { type: 'warning', html: 'El programa <strong>Pasaporte D!</strong> aun no se encuentra activo en Chile.' } },
+  { key: 'peru',      label: 'Peru',      dataKey: 'peru'      },
+  { key: 'ecuador',   label: 'Ecuador',   dataKey: 'ecuador'   },
+  { key: 'uruguay',   label: 'Uruguay',   dataKey: 'uruguay',
+    banner: { type: 'wip', html: 'Seccion en desarrollo <strong>(WIP)</strong> — datos preliminares.' } }
+];
+
+// P&L grouping — keywords matched against P&L N1 (lowercase, stripped of "loyalty -" prefix)
+var PNL_GROUPS = [
+  { label: 'Net Revenue',
+    keywords: ['bank revenue', 'partner revenue', 'flag revenue', 'breakage revenue', 'deferred revenue in', 'deferred revenue out'] },
+  { label: 'Sales & Marketing',
+    keywords: ['marketing', 'rewards', 'benefits', 'personnel'] }
+];
+
+// ============================================================
+// Program dictionary — loaded dynamically from loyalty_dict.json
+// Built from Diccionario.xlsx by loyalty_sync.py
+// ============================================================
+
+// Ordered list of all sections (controls display order)
+var PROGRAMS_ORDER = ['Pasaporte D!', 'IFOOD', 'Cobrand', 'Partners', 'Acciones Marketing', 'Club Despegar', 'Puntos Manuales'];
+var ARGENTINA_ONLY = ['Club Despegar'];
+
+function getProgramFromAcum(row) {
+  var d = (RAW.dict || {}).acum || {};
+  var partner = (row.partner && row.partner !== 'N/D') ? row.partner : '';
+  var pt  = row.point_type || '';
+  var key = partner + pt;
+  return d[key] || d[pt] || 'Otros';
+}
+
+function getProgramFromReden(row) {
+  var d = (RAW.dict || {}).reden || {};
+  var pt = row.point_type || '';
+  return d[pt] || 'Otros';
+}
+
+// Points: use points_distribuidos when available, fallback to points
+function getPts(row) {
+  var v = row.points_distribuidos;
+  if (v !== undefined && v !== null && v !== '' && v !== 0) return Math.abs(+v);
+  return Math.abs(+(row.points) || 0);
+}
+
+// Programs visible for a given country (in display order, filtered by what's in the dict)
+function programsForCountry(countryKey) {
+  var isAR = countryKey === 'argentina';
+  return PROGRAMS_ORDER.filter(function(p) {
+    return isAR ? true : ARGENTINA_ONLY.indexOf(p) === -1;
+  });
+}
+
+// ============================================================
+// State
+// ============================================================
+var RAW = { acum_cy: null, acum_ly: null, reden_cy: null, reden_ly: null, breakage: null, baseline: null, dict: null };
+var LOADED = 0;
+var TOTAL  = 7;
+var ACTIVE_COUNTRY = 'brasil';
+var CHARTS = {};
+
+// ============================================================
+// Number format helpers
+// ============================================================
+function getFmt() { return document.getElementById('f-fmt').value; }
+
+// Format P&L values (data is in USD — check units once baseline explored)
+function fmtPnl(v) {
+  if (v === null || v === undefined) return '—';
+  var fmt = getFmt(), sign = v < 0 ? '-' : '', abs = Math.abs(v);
+  if (fmt === 'M')   return sign + '$' + (abs / 1e6).toFixed(2) + 'M';
+  if (fmt === 'INT') return sign + '$' + Math.round(abs).toLocaleString();
+  return sign + '$' + abs.toFixed(1) + 'K';  // default K
+}
+
+// Format point counts (raw integers)
+function fmtPts(v) {
+  var fmt = getFmt(), abs = Math.abs(v || 0);
+  if (fmt === 'M')   return (abs / 1e6).toFixed(2) + 'M';
+  if (fmt === 'INT') return Math.round(abs).toLocaleString();
+  return (abs / 1e3).toFixed(1) + 'K';
+}
+
+// Format USD values (acum/reden descuento_consumo_puntos_usd — already small USD)
+function fmtUSD(v) {
+  var fmt = getFmt(), sign = v < 0 ? '-' : '', abs = Math.abs(v || 0);
+  if (fmt === 'M')   return sign + '$' + (abs / 1e6).toFixed(3) + 'M';
+  if (fmt === 'INT') return sign + '$' + Math.round(abs).toLocaleString();
+  return sign + '$' + (abs / 1e3).toFixed(1) + 'K';
+}
+
+function fmtPct(v, ref) {
+  if (!ref) return '<span class="neu">—</span>';
+  var p = (v - ref) / Math.abs(ref) * 100;
+  return '<span class="' + (p >= 0 ? 'pos' : 'neg') + '">' + (p >= 0 ? '+' : '') + p.toFixed(1) + '%</span>';
+}
+
+function vc(v) { return v > 0 ? 'vp' : v < 0 ? 'vn' : 'vz'; }
+
+// ============================================================
+// Compact expander
+// ============================================================
+function expand(raw) {
+  if (!raw) return [];
+  var d = raw.data || raw;
+  if (Array.isArray(d)) return d;
+  var cols = d.cols || raw.cols, rows = d.rows || raw.rows;
+  if (!cols || !rows) return [];
+  return rows.map(function(r) {
+    var o = {};
+    for (var i = 0; i < cols.length; i++) o[cols[i]] = r[i];
+    return o;
+  });
+}
+
+function expandBaseline(raw) {
+  if (!raw) return [];
+  if (raw.cols && raw.rows) {
+    return raw.rows.map(function(r) {
+      var o = {};
+      for (var i = 0; i < raw.cols.length; i++) o[raw.cols[i]] = r[i];
+      return o;
+    });
+  }
+  return expand(raw);
+}
+
+// ============================================================
+// Filter state
+// ============================================================
+function getRange() {
+  return { from: document.getElementById('f-from').value, to: document.getElementById('f-to').value };
+}
+
+function inRange(ym, from, to) {
+  if (from && ym < from) return false;
+  if (to   && ym > to)   return false;
+  return true;
+}
+
+var TODAY_YM = '2026-08';  // actuals/projections split
+
+// ============================================================
+// P&L group classifier
+// ============================================================
+function classifyN1(n1) {
+  var norm = (n1 || '').toLowerCase().replace(/^loyalty\s*[-–]\s*/i, '').trim();
+  for (var g = 0; g < PNL_GROUPS.length; g++) {
+    var kws = PNL_GROUPS[g].keywords;
+    for (var k = 0; k < kws.length; k++) {
+      if (norm.indexOf(kws[k]) !== -1) return PNL_GROUPS[g].label;
+    }
+  }
+  return 'Otros';
+}
+
+// ============================================================
+// P&L data builder
+// ============================================================
+function buildPnl(country) {
+  var rows = expandBaseline(RAW.baseline);
+  var r = getRange();
+  var filtered = rows.filter(function(row) {
+    return (row['Pais'] || '').toLowerCase() === country.dataKey
+        && (row['P&L N1'] || '').toLowerCase().indexOf('loyalty') !== -1
+        && inRange((row['Fecha'] || '').substring(0, 7), r.from, r.to);
+  });
+  if (!filtered.length) return null;
+
+  var monthSet = {}, lineSet = {};
+  filtered.forEach(function(row) {
+    monthSet[(row['Fecha'] || '').substring(0, 7)] = 1;
+    lineSet[row['P&L N1'] || 'N/D'] = 1;
+  });
+  var months = Object.keys(monthSet).sort();
+  var lines  = Object.keys(lineSet).sort();
+
+  // agg[line][month] = sum
+  var agg = {};
+  lines.forEach(function(l) { agg[l] = {}; months.forEach(function(m) { agg[l][m] = 0; }); });
+  filtered.forEach(function(row) {
+    var l = row['P&L N1'] || 'N/D', m = (row['Fecha'] || '').substring(0, 7);
+    agg[l][m] += parseFloat(row['Monto USD']) || 0;
+  });
+
+  // Group lines → subtotals
+  var groups = {};
+  PNL_GROUPS.forEach(function(g) { groups[g.label] = { lines: [], totals: {} }; months.forEach(function(m){ groups[g.label].totals[m] = 0; }); });
+  groups['Otros'] = { lines: [], totals: {} }; months.forEach(function(m){ groups['Otros'].totals[m] = 0; });
+
+  lines.forEach(function(l) {
+    var grp = classifyN1(l);
+    if (!groups[grp]) { groups[grp] = { lines: [], totals: {} }; months.forEach(function(m){ groups[grp].totals[m] = 0; }); }
+    groups[grp].lines.push(l);
+    months.forEach(function(m) { groups[grp].totals[m] += agg[l][m] || 0; });
+  });
+
+  // Grand totals
+  var grand = {};
+  months.forEach(function(m) { grand[m] = lines.reduce(function(s, l){ return s + (agg[l][m] || 0); }, 0); });
+  var grandTotal = months.reduce(function(s, m){ return s + (grand[m] || 0); }, 0);
+  var lineTotals = {};
+  lines.forEach(function(l){ lineTotals[l] = months.reduce(function(s,m){ return s+(agg[l][m]||0); }, 0); });
+  var grpTotals = {};
+  Object.keys(groups).forEach(function(g){ grpTotals[g] = months.reduce(function(s,m){ return s+(groups[g].totals[m]||0); }, 0); });
+
+  return { months: months, lines: lines, agg: agg, groups: groups, grand: grand, grandTotal: grandTotal, lineTotals: lineTotals, grpTotals: grpTotals };
+}
+
+// ============================================================
+// Render P&L table
+// ============================================================
+function renderPnl(containerId, country) {
+  var el = document.getElementById(containerId);
+  if (!el) return;
+  var d = buildPnl(country);
+  if (!d || !d.lines.length) {
+    el.innerHTML = '<div class="empty">Sin datos de P&L Loyalty para ' + country.label + ' en el periodo seleccionado.</div>';
+    return;
+  }
+
+  var pastM = [], futM = [];
+  d.months.forEach(function(m){ if (m <= TODAY_YM) pastM.push(m); else futM.push(m); });
+  var hasSep = pastM.length > 0 && futM.length > 0;
+
+  function thMonth(m, isProj) {
+    return '<th class="' + (isProj ? 'proj' : '') + '">' + fmtMonthLbl(m) + (isProj ? '*' : '') + '</th>';
+  }
+  function tdVal(v, isProj, extraClass) {
+    var cls = (isProj ? 'proj ' : '') + vc(v) + (extraClass ? ' ' + extraClass : '');
+    return '<td class="' + cls + '">' + (v !== 0 ? fmtPnl(v) : '—') + '</td>';
+  }
+  function tdGrand(v, isProj) {
+    var cls = 'tc ' + (isProj ? 'proj ' : '') + vc(v);
+    return '<td class="' + cls + '">' + fmtPnl(v) + '</td>';
+  }
+
+  var html = '<div class="tbl-scroll"><table class="pnl"><thead><tr>';
+  html += '<th class="lc">Linea P&L</th>';
+  pastM.forEach(function(m){ html += thMonth(m, false); });
+  if (hasSep) html += '<th class="sep"></th>';
+  futM.forEach(function(m){ html += thMonth(m, true); });
+  html += '<th class="tc">Total</th>';
+  html += '</tr></thead><tbody>';
+
+  var groupOrder = PNL_GROUPS.map(function(g){ return g.label; }).concat(['Otros']);
+
+  groupOrder.forEach(function(grpLabel) {
+    var grp = d.groups[grpLabel];
+    if (!grp || !grp.lines.length) return;
+
+    // Group header
+    html += '<tr class="grp-hdr"><td class="lc">' + grpLabel + '</td>';
+    pastM.forEach(function(){ html += '<td></td>'; });
+    if (hasSep) html += '<td class="sep"></td>';
+    futM.forEach(function(){ html += '<td class="proj"></td>'; });
+    html += '<td class="tc"></td></tr>';
+
+    // Detail lines
+    grp.lines.forEach(function(line) {
+      html += '<tr><td class="lc">' + line + '</td>';
+      pastM.forEach(function(m){ html += tdVal(d.agg[line][m] || 0, false); });
+      if (hasSep) html += '<td class="sep"></td>';
+      futM.forEach(function(m){ html += tdVal(d.agg[line][m] || 0, true); });
+      var lt = d.lineTotals[line] || 0;
+      html += '<td class="tc ' + vc(lt) + '">' + fmtPnl(lt) + '</td>';
+      html += '</tr>';
+    });
+
+    // Subtotal
+    html += '<tr class="subtotal"><td class="lc">Subtotal ' + grpLabel + '</td>';
+    pastM.forEach(function(m){ html += tdVal(grp.totals[m] || 0, false); });
+    if (hasSep) html += '<td class="sep"></td>';
+    futM.forEach(function(m){ html += tdVal(grp.totals[m] || 0, true); });
+    var gt = d.grpTotals[grpLabel] || 0;
+    html += '<td class="tc ' + vc(gt) + '">' + fmtPnl(gt) + '</td></tr>';
+  });
+
+  // Grand total
+  html += '<tr class="grand-total"><td class="lc">TOTAL LOYALTY</td>';
+  pastM.forEach(function(m){ html += tdGrand(d.grand[m] || 0, false); });
+  if (hasSep) html += '<td class="sep"></td>';
+  futM.forEach(function(m){ html += tdGrand(d.grand[m] || 0, true); });
+  html += tdGrand(d.grandTotal, false);
+  html += '</tr>';
+
+  html += '</tbody></table></div>';
+  if (futM.length) html += '<div class="proj-note">* Proyeccion / Baseline</div>';
+  el.innerHTML = html;
+}
+
+// ============================================================
+// Metrics data by program
+// ============================================================
+function buildMetrics(country) {
+  var r = getRange(), ck = country.dataKey;
+
+  function filterCY(rows) {
+    return rows.filter(function(row) {
+      return (row.country_code || '').toLowerCase() === ck
+          && inRange((row.processing_date || '').substring(0, 7), r.from, r.to);
+    });
+  }
+  function filterLY(rows) {
+    return rows.filter(function(row) {
+      var ym = (row.processing_date || '').substring(0, 7);
+      var cy = ym ? (String(+ym.substring(0,4)+1) + ym.substring(4)) : '';
+      return (row.country_code || '').toLowerCase() === ck && inRange(cy, r.from, r.to);
+    });
+  }
+
+  var acCY = filterCY(expand(RAW.acum_cy));
+  var acLY = filterLY(expand(RAW.acum_ly));
+  var rdCY = filterCY(expand(RAW.reden_cy));
+  var rdLY = filterLY(expand(RAW.reden_ly));
+  var bkAll = Array.isArray((RAW.breakage || {}).data) ? RAW.breakage.data : expand(RAW.breakage);
+  var bkCY  = bkAll.filter(function(b){ return (b.country || '').toLowerCase() === ck; });
+
+  function aggAcum(rows) {
+    var pts = 0, usd = 0, byProg = {};
+    rows.forEach(function(row) {
+      var p = getPts(row), u = Math.abs(+(row.descuento_consumo_puntos_usd) || 0);
+      pts += p; usd += u;
+      var prog = getProgramFromAcum(row);
+      if (!byProg[prog]) byProg[prog] = { pts: 0, usd: 0 };
+      byProg[prog].pts += p; byProg[prog].usd += u;
+    });
+    return { pts: pts, usd: usd, byProg: byProg };
+  }
+
+  function aggReden(rows) {
+    var pts = 0, usd = 0, byProg = {};
+    rows.forEach(function(row) {
+      var p = getPts(row), u = Math.abs(+(row.descuento_consumo_puntos_usd) || 0);
+      pts += p; usd += u;
+      var prog = getProgramFromReden(row);
+      if (!byProg[prog]) byProg[prog] = { pts: 0, usd: 0 };
+      byProg[prog].pts += p; byProg[prog].usd += u;
+    });
+    return { pts: pts, usd: usd, byProg: byProg };
+  }
+
+  var bkTotal = bkCY.reduce(function(s, b){ return s + Math.abs(+(b.points) || 0); }, 0);
+
+  return { acCY: aggAcum(acCY), acLY: aggAcum(acLY), rdCY: aggReden(rdCY), rdLY: aggReden(rdLY), bkTotal: bkTotal };
+}
+
+// ============================================================
+// Render metrics
+// ============================================================
+function renderMetrics(country, m) {
+  var suffix = country.key;
+  var programs = programsForCountry(country.key);
+
+  var el = document.getElementById('metrics-' + suffix);
+  if (!el) return;
+
+  var html = '';
+
+  programs.forEach(function(prog) {
+    var acCY = m.acCY.byProg[prog] || { pts: 0, usd: 0 };
+    var acLY = m.acLY.byProg[prog] || { pts: 0, usd: 0 };
+    var rdCY = m.rdCY.byProg[prog] || { pts: 0, usd: 0 };
+    var rdLY = m.rdLY.byProg[prog] || { pts: 0, usd: 0 };
+    var canvasId = 'ch-' + prog.replace(/[^a-z0-9]/gi, '') + '-' + suffix;
+    var canvasRdId = 'ch-rd-' + prog.replace(/[^a-z0-9]/gi, '') + '-' + suffix;
+
+    html += '<div class="prog-section">';
+    html += '<div class="prog-title">' + prog + '</div>';
+    html += '<div class="prog-body">';
+
+    // KPI row
+    html += '<div class="kpi-row">'
+      + kpiHtml('Puntos Acumulados', fmtPts(acCY.pts), 'vs LY ' + fmtPct(acCY.pts, acLY.pts), 'var(--accent)')
+      + kpiHtml('Valor Acumulado', fmtUSD(Math.abs(acCY.usd)), 'vs LY ' + fmtPct(Math.abs(acCY.usd), Math.abs(acLY.usd)), '#d97706')
+      + kpiHtml('Puntos Redimidos', fmtPts(Math.abs(rdCY.pts)), 'vs LY ' + fmtPct(Math.abs(rdCY.pts), Math.abs(rdLY.pts)), 'var(--red)')
+      + kpiHtml('Valor Redimido', fmtUSD(Math.abs(rdCY.usd)), 'vs LY ' + fmtPct(Math.abs(rdCY.usd), Math.abs(rdLY.usd)), '#0891b2')
+      + '</div>';
+
+    // Charts
+    html += '<div class="grid-2">';
+    html += '<div class="cc"><div class="ct">Acumulaciones — Puntos por mes</div><div class="cw"><canvas id="' + canvasId + '"></canvas></div></div>';
+    html += '<div class="cc"><div class="ct">Redenciones — Puntos por mes</div><div class="cw"><canvas id="' + canvasRdId + '"></canvas></div></div>';
+    html += '</div>';
+
+    html += '</div></div>';  // prog-body, prog-section
+  });
+
+  // Breakage summary (no program breakdown — cross-program)
+  html += '<div class="prog-section">';
+  html += '<div class="prog-title">Breakage (vencimiento de puntos)</div>';
+  html += '<div class="prog-body">';
+  html += '<div class="kpi-row">' + kpiHtml('Puntos Vencidos', fmtPts(m.bkTotal), 'total periodo seleccionado', 'var(--muted)') + '</div>';
+  html += '</div></div>';
+
+  el.innerHTML = html;
+
+  // Now that canvases exist in DOM, build charts
+  programs.forEach(function(prog) {
+    var canvasId   = 'ch-' + prog.replace(/[^a-z0-9]/gi, '') + '-' + suffix;
+    var canvasRdId = 'ch-rd-' + prog.replace(/[^a-z0-9]/gi, '') + '-' + suffix;
+
+    var acCY_month = getProgMonthly(expand(RAW.acum_cy),   country.dataKey, prog, getProgramFromAcum);
+    var acLY_month = getProgMonthlyLY(expand(RAW.acum_ly), country.dataKey, prog, getProgramFromAcum);
+    var rdCY_month = getProgMonthly(expand(RAW.reden_cy),   country.dataKey, prog, getProgramFromReden);
+    var rdLY_month = getProgMonthlyLY(expand(RAW.reden_ly), country.dataKey, prog, getProgramFromReden);
+
+    buildBarChart(canvasId,   acCY_month, acLY_month, 'rgba(86,38,233,.75)');
+    buildBarChart(canvasRdId, rdCY_month, rdLY_month, 'rgba(220,38,38,.75)');
+  });
+}
+
+function kpiHtml(label, value, sub, color) {
+  return '<div class="kc" style="border-top-color:' + (color||'var(--accent)') + ';">'
+    + '<div class="kl">' + label + '</div>'
+    + '<div class="kv">' + value + '</div>'
+    + '<div class="ks">' + (sub||'') + '</div>'
+    + '</div>';
+}
+
+function getProgMonthly(rows, dataKey, prog, getProgFn) {
+  var r = getRange(), agg = {};
+  rows.filter(function(row){
+    return (row.country_code||'').toLowerCase() === dataKey
+        && getProgFn(row) === prog
+        && inRange((row.processing_date||'').substring(0,7), r.from, r.to);
+  }).forEach(function(row){
+    var ym = (row.processing_date||'').substring(0,7);
+    agg[ym] = (agg[ym]||0) + getPts(row);
+  });
+  return agg;
+}
+
+function getProgMonthlyLY(rows, dataKey, prog, getProgFn) {
+  var r = getRange(), agg = {};
+  rows.filter(function(row){
+    var ym = (row.processing_date||'').substring(0,7);
+    var cy = ym ? (String(+ym.substring(0,4)+1)+ym.substring(4)) : '';
+    return (row.country_code||'').toLowerCase() === dataKey
+        && getProgFn(row) === prog
+        && inRange(cy, r.from, r.to);
+  }).forEach(function(row){
+    var raw_ym = (row.processing_date||'').substring(0,7);
+    var cy_ym = raw_ym ? (String(+raw_ym.substring(0,4)+1)+raw_ym.substring(4)) : '';
+    agg[cy_ym] = (agg[cy_ym]||0) + getPts(row);
+  });
+  return agg;
+}
+
+function buildBarChart(canvasId, cyData, lyData, color) {
+  var ctx = document.getElementById(canvasId);
+  if (!ctx) return;
+  if (CHARTS[canvasId]) { CHARTS[canvasId].destroy(); }
+  var months = Object.keys(Object.assign({}, cyData, lyData)).sort();
+  if (!months.length) { ctx.parentElement.innerHTML = '<div class="empty" style="padding:20px">Sin datos</div>'; return; }
+  CHARTS[canvasId] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: months.map(fmtMonthLbl),
+      datasets: [
+        { label: '2026', data: months.map(function(m){ return cyData[m]||0; }), backgroundColor: color, borderRadius: 3, order: 1 },
+        { label: '2025', data: months.map(function(m){ return lyData[m]||0; }), backgroundColor: 'rgba(100,116,139,.3)', borderRadius: 3, order: 2 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { font: { size: 10 }, boxWidth: 10 } } },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+        y: { grid: { color: '#f1f5f9' }, ticks: { font: { size: 10 }, callback: function(v){ return fmtPts(v); } } }
+      }
+    }
+  });
+}
+
+// ============================================================
+// Month label helper
+// ============================================================
+var MES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+function fmtMonthLbl(ym) {
+  if (!ym || ym.length < 7) return ym;
+  var p = ym.split('-');
+  return MES[+p[1]-1] + '-' + p[0].substring(2);
+}
+
+// ============================================================
+// Build panels (once on load)
+// ============================================================
+function buildPanels() {
+  var tabsEl = document.getElementById('country-tabs');
+  var panelsEl = document.getElementById('panels');
+  tabsEl.innerHTML = panelsEl.innerHTML = '';
+
+  COUNTRIES.forEach(function(c, idx) {
+    var btn = document.createElement('button');
+    btn.className = 'ctab' + (idx === 0 ? ' active' : '');
+    btn.dataset.key = c.key;
+    btn.textContent = c.label;
+    btn.addEventListener('click', function(){ switchCountry(c.key); });
+    tabsEl.appendChild(btn);
+
+    var div = document.createElement('div');
+    div.id = 'panel-' + c.key;
+    if (idx !== 0) div.classList.add('hidden');
+
+    var inner = '';
+    if (c.banner) {
+      inner += '<div class="banner ' + c.banner.type + '"><div class="bt">' + c.banner.html + '</div></div>';
+    }
+    inner += '<div class="stitle">P&amp;L Contable Loyalty</div>';
+    inner += '<div class="pnl-wrap" id="pnl-' + c.key + '"></div>';
+    inner += '<div class="stitle">Metricas de Negocio</div>';
+    inner += '<div id="metrics-' + c.key + '"></div>';
+
+    div.innerHTML = inner;
+    panelsEl.appendChild(div);
+  });
+}
+
+// ============================================================
+// Switch country
+// ============================================================
+function switchCountry(key) {
+  ACTIVE_COUNTRY = key;
+  document.querySelectorAll('.ctab').forEach(function(b){ b.classList.toggle('active', b.dataset.key === key); });
+  COUNTRIES.forEach(function(c){
+    var p = document.getElementById('panel-' + c.key);
+    if (p) p.classList.toggle('hidden', c.key !== key);
+  });
+  renderCountry(key);
+}
+
+function renderCountry(key) {
+  var c = COUNTRIES.filter(function(x){ return x.key === key; })[0];
+  if (!c) return;
+  renderPnl('pnl-' + key, c);
+  renderMetrics(c, buildMetrics(c));
+}
+
+function renderActive() { renderCountry(ACTIVE_COUNTRY); }
+
+// ============================================================
+// Data loading
+// ============================================================
+function onLoaded(key, data) {
+  RAW[key] = data;
+  LOADED++;
+  document.getElementById('loading-text').textContent = 'Cargando... (' + LOADED + '/' + TOTAL + ')';
+  if (LOADED >= TOTAL) {
+    document.getElementById('loading').classList.add('hidden');
+    var meta = (RAW.acum_cy || {}).meta || {};
+    document.getElementById('last-sync').textContent = 'Ultimo sync: ' + (meta.generated_at || '—');
+    buildPanels();
+    renderActive();
+  }
+}
+
+function onError(key, msg) {
+  console.error(key, msg);
+  RAW[key] = null;
+  LOADED++;
+  if (LOADED >= TOTAL) {
+    document.getElementById('loading').classList.add('hidden');
+    buildPanels();
+    renderActive();
+  }
+}
+
+// Filter listeners
+document.getElementById('f-from').addEventListener('change', renderActive);
+document.getElementById('f-to').addEventListener('change', renderActive);
+document.getElementById('f-fmt').addEventListener('change', renderActive);
+
+// Init
+(function() {
+  google.script.run.withSuccessHandler(function(d){ onLoaded('acum_cy',  d); }).withFailureHandler(function(e){ onError('acum_cy',  e.message); }).getRawAcumCY();
+  google.script.run.withSuccessHandler(function(d){ onLoaded('acum_ly',  d); }).withFailureHandler(function(e){ onError('acum_ly',  e.message); }).getRawAcumLY();
+  google.script.run.withSuccessHandler(function(d){ onLoaded('reden_cy', d); }).withFailureHandler(function(e){ onError('reden_cy', e.message); }).getRawRedenCY();
+  google.script.run.withSuccessHandler(function(d){ onLoaded('reden_ly', d); }).withFailureHandler(function(e){ onError('reden_ly', e.message); }).getRawRedenLY();
+  google.script.run.withSuccessHandler(function(d){ onLoaded('breakage', d); }).withFailureHandler(function(e){ onError('breakage', e.message); }).getRawBreakage();
+  google.script.run.withSuccessHandler(function(d){ onLoaded('baseline', d); }).withFailureHandler(function(e){ onError('baseline', e.message); }).getRawBaseline();
+  google.script.run.withSuccessHandler(function(d){ onLoaded('dict',     d); }).withFailureHandler(function(e){ onError('dict',     e.message); }).getRawDict();
+})();
+</script>
+</body>
+</html>
