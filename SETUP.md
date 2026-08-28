@@ -54,7 +54,12 @@ cd "C:\Users\<tu.usuario>\Proyectos IA\Loyalty_Ecosystem"
 python auth_drive.py
 ```
 Abre el navegador → autorizás con tu cuenta @despegar.com → queda en `token_drive.json`
-(gitignoreado, personal). Requisito: tener acceso *Editor* al folder `1yCPp6…` (lo da Diego).
+(gitignoreado, personal). Requisitos:
+- `credentials_drive.json` en la carpeta del repo. **No está versionado** (GitHub bloquea
+  el client secret por push protection, aunque para apps de escritorio no es realmente
+  confidencial). Te lo pasa Diego o está en el folder Drive **"Loyalty Ecosystem - Ops"**
+  (restringido a operadores).
+- Acceso *Editor* al folder `1yCPp6…` (lo da Diego).
 
 **Opción B — cuenta de servicio (mejor para el agendado; la crea Diego 1 vez):**
 

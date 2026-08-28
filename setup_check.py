@@ -97,7 +97,9 @@ elif tok.exists():
 elif cred.exists():
     add(NO, "Drive: token_drive.json", "correr:  python auth_drive.py  (login con tu cuenta @despegar.com)")
 else:
-    add(NO, "Drive: sin credenciales", "conseguir service_account.json (compartido) o credentials_drive.json + auth_drive.py")
+    add(NO, "Drive: sin credenciales",
+        "conseguir service_account.json (recomendado) o credentials_drive.json de Diego / "
+        "folder Drive 'Ops' (no está en el repo), y despues correr auth_drive.py")
 
 # ── 5) Pruebas de conexión (--full) ────────────────────────────────────────
 if "--full" in sys.argv:
