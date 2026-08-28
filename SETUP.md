@@ -10,6 +10,14 @@ breakage/dict    ─┘        (agendado)         (folder 1yCPp6…)      (webap
 
 ---
 
+## Atajo — `/configurar-entorno`
+
+En Claude Code, dentro de la carpeta del repo, escribí **`/configurar-entorno`**.
+Claude corre el diagnóstico (`setup_check.py`) y te va pidiendo lo que falte
+(credenciales, DSN, Drive). Lo de abajo es la versión manual / referencia.
+
+---
+
 ## A. Correr el pipeline de datos (`loyalty_sync.py`)
 
 ### A.1 — Credenciales del Datalake (1 vez por persona)
