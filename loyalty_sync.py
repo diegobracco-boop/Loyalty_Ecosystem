@@ -40,6 +40,11 @@ BREAKAGE_ESP_CSV = r"C:\Users\diego.bracco\Proyectos IA\Loyalty_Ecosystem\breaka
 # Diccionario.xlsx). Ver SETUP.md sección B.
 CONFIG_SHEET_ID = "1M48FXIAFvyKpP9RSLLSuWh9DgetFPovYfWAM3lQNASI"
 
+# --dry-run / --no-upload: corre queries y arma los JSON en ./_out/ SIN subir a
+# Drive ni leer la planilla de config (usa breakage_esperado.csv / Diccionario.xlsx).
+# Para validar cambios de query sin credenciales de Drive.
+DRY_RUN = ("--dry-run" in sys.argv) or ("--no-upload" in sys.argv)
+
 TODAY        = date.today()
 YESTERDAY    = TODAY - timedelta(days=1)
 CY_YEAR      = TODAY.year
@@ -1283,6 +1288,8 @@ _CONFIG_CACHE = {}
 
 def config_sheet_tab(tab: str):
     """DataFrame de una pestaña de la planilla de config, o None si no se puede leer."""
+    if DRY_RUN:
+        return None
     if "tabs" not in _CONFIG_CACHE:
         tabs = {}
         try:
@@ -1539,13 +1546,32 @@ print(f"  Reden {CY_YEAR}: {len(reden_cy_bytes)//1024:.0f} KB  ({len(df_reden_cy
 print(f"  Reden {LY_YEAR}: {len(reden_ly_bytes)//1024:.0f} KB  ({len(df_reden_ly):,} filas)")
 print(f"  Breakage:       {len(breakage_bytes)//1024:.0f} KB  ({len(df_breakage):,} filas)")
 
-print("\n--- Subiendo a Google Drive ---")
-upload_to_drive(acum_cy_bytes,  ACUM_CY_FILE)
-upload_to_drive(acum_ly_bytes,  ACUM_LY_FILE)
-upload_to_drive(reden_cy_bytes, REDEN_CY_FILE)
-upload_to_drive(reden_ly_bytes, REDEN_LY_FILE)
-upload_to_drive(breakage_bytes, BREAKAGE_FILE)
-upload_to_drive(dict_bytes,    DICT_FILE)
-upload_to_drive(ssp_bytes,     SSP_FILE)
+_OUT = [
+    (acum_cy_bytes,  ACUM_CY_FILE), (acum_ly_bytes,  ACUM_LY_FILE),
+    (reden_cy_bytes, REDEN_CY_FILE), (reden_ly_bytes, REDEN_LY_FILE),
+    (breakage_bytes, BREAKAGE_FILE), (dict_bytes, DICT_FILE), (ssp_bytes, SSP_FILE),
+]
+
+if DRY_RUN:
+    out_dir = Path(__file__).resolve().parent / "_out"
+    out_dir.mkdir(exist_ok=True)
+    print(f"\n--- DRY RUN: escribiendo en {out_dir} (sin subir a Drive) ---")
+    for data, name in _OUT:
+        (out_dir / name).write_bytes(data)
+        print(f"  OK {name}")
+    # Peeks útiles para validar cambios de query
+    _pt = _reden_cy_clean.groupby("point_type")["points"].apply(lambda s: s.abs().sum())
+    print("\n  Redenciones CY por point_type (puntos):")
+    for pt, v in _pt.sort_values(ascending=False).items():
+        print(f"    {pt:20s} {v:15,.0f}")
+    _ssp = json.loads(ssp_bytes)["data"]
+    print("\n  SSP por país (último mes):")
+    for k in sorted(_ssp):
+        last = sorted(_ssp[k])[-1]
+        print(f"    {k:10s} {last}  ssp_facturacion={_ssp[k][last]['ssp_facturacion']}")
+else:
+    print("\n--- Subiendo a Google Drive ---")
+    for data, name in _OUT:
+        upload_to_drive(data, name)
 
 print(f"\nOK Completado: {datetime.now().strftime('%d-%m-%Y %H:%M')}")

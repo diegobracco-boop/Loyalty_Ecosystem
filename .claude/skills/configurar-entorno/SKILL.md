@@ -32,7 +32,14 @@ Preguntale:
    `dashboard.html` / `Código.js` / `loyalty_sync.py` → commit → push → abrir PR.
    Al mergear a `main`, el deploy a Apps Script es automático (GitHub Action).
 
-Con eso el analista está listo. **No corras `setup_check.py` ni pidas credenciales.**
+5. **Si el cambio es en una query SQL** y quiere validarlo localmente antes del PR:
+   `python loyalty_sync.py --dry-run` corre las queries y arma los JSON en `_out/`
+   sin subir a Drive ni leer la planilla. Necesita datalake + DSN + libs, **no**
+   credenciales de Drive → seguí los pasos 2, 3 y 4 del **Perfil Operador** (saltando
+   el paso 5 de Drive). Imprime un resumen (redenciones por point_type, SSP por país)
+   para chequear el efecto del cambio.
+
+Con eso el analista está listo. **No pidas credenciales de Drive.**
 
 ---
 

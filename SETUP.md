@@ -82,10 +82,14 @@ en la carpeta del proyecto.
 
 ```powershell
 cd "C:\Users\<tu.usuario>\Proyectos IA\Loyalty_Ecosystem"
-python loyalty_sync.py
+python loyalty_sync.py              # corrida real (sube a Drive)
+python loyalty_sync.py --dry-run    # valida queries: JSON en _out\, SIN Drive ni planilla
 ```
 
-Al final tiene que decir `OK Drive: actualizado (...)` para los 7 archivos:
+`--dry-run` no necesita credenciales de Drive — sirve para validar un cambio de query
+antes de un PR (imprime redenciones por point_type y SSP por país).
+
+La corrida real, al final, tiene que decir `OK Drive: actualizado (...)` para los 7 archivos:
 `loyalty_acumulaciones_{2026,2025}.json`, `loyalty_redenciones_{2026,2025}.json`,
 `loyalty_breakage.json`, `loyalty_dict.json`, `loyalty_ssp.json`.
 

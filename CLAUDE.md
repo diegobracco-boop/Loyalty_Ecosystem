@@ -14,12 +14,13 @@ Inputs_Planning_PnL (otro repo) ─► baseline/budget/forecast.json ─► fold
 
 Si la persona no se presentó y va a tocar algo, preguntá **qué va a hacer**:
 
-| Perfil | Hace | Flujo |
+| Perfil | Hace | Setup |
 |---|---|---|
-| **Analista** | Editar inputs de negocio (breakage esperado, diccionario de programas) · proponer cambios de dashboard/queries | Edita la **planilla de Drive** · branch + PR para código |
-| **Operador** | Correr / re-correr `loyalty_sync.py` | Setup completo (datalake, DSN, Drive) — ver `SETUP.md` o `/configurar-entorno` |
+| **Analista** | Editar inputs de negocio (planilla) · cambios de dashboard/queries por PR | Acceso a repo + planilla. Nada instalado. |
+| **Analista + query** | Además valida cambios de query con `--dry-run` | + datalake creds + DSN ODBC + libs Python (sin Drive) |
+| **Operador** | Corre la sync real (sube a Drive). En la práctica: **la máquina del Task Scheduler + Diego de backup.** | Setup completo (+ Drive) — `SETUP.md` |
 
-La mayoría es Analista. Para setup de cualquiera de los dos: skill **`/configurar-entorno`**.
+La mayoría es Analista. Para setup: skill **`/configurar-entorno`**.
 
 ## Los dos tipos de cambio
 
@@ -27,7 +28,7 @@ La mayoría es Analista. Para setup de cualquiera de los dos: skill **`/configur
 |---|---|
 | **Inputs de negocio** (breakage esperado, mapeo de programas) | Editar la planilla **"Loyalty Ecosystem - Config"** en Drive. El sync la lee en la próxima corrida. NO tocar `breakage_esperado.csv` / `Diccionario.xlsx` (son solo fallback). |
 | **Dashboard / GAS** (`dashboard.html`, `Código.js`) | branch → editar → commit → push → PR. Al mergear a `main` la GitHub Action hace `clasp push` + `clasp deploy` sola. Deploy manual: `/publicar`. |
-| **Pipeline** (`loyalty_sync.py`, queries SQL) | branch → editar → probar con un operador (`python loyalty_sync.py`) → PR. |
+| **Pipeline** (`loyalty_sync.py`, queries SQL) | branch → editar → validar con **`python loyalty_sync.py --dry-run`** (corre las queries, arma los JSON en `_out/`, NO sube a Drive ni lee la planilla — solo hace falta datalake + DSN, **no** credenciales de Drive) → PR. El operador / scheduler hace la corrida real. |
 
 ## Archivos
 
