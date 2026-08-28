@@ -75,6 +75,13 @@ table.pnl td { padding: 7px 14px; border-bottom: 1px solid #f1f5f9; text-align: 
 table.pnl td.lc { text-align: left; position: sticky; left: 0; background: var(--surface); z-index: 1; padding-left: 28px; }
 table.pnl tr:hover td, table.pnl tr:hover td.lc { background: #f8fafc; }
 
+/* Scenario header row (BASELINE | GOAL | Δ) */
+table.pnl tr.bg-scen th { text-align: center; font-size: 10px; font-weight: 800; letter-spacing: .6px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+table.pnl tr.bg-scen th.bg-b { background: #eef2ff; color: var(--accent); }
+table.pnl tr.bg-scen th.bg-g { background: #f0fdf4; color: #166534; }
+table.pnl tr.bg-scen th.bg-d { background: #fef3c7; color: #92400e; }
+table.pnl tr.bg-scen th.lc { background: #f8fafc; }
+
 /* Group header row */
 table.pnl tr.grp-hdr td { background: #f0f4ff; font-weight: 700; font-size: 11px; color: var(--accent); text-transform: uppercase; letter-spacing: .4px; border-top: 2px solid #c7d2fe; border-bottom: 1px solid #c7d2fe; padding: 6px 14px; }
 table.pnl tr.grp-hdr td.lc { background: #f0f4ff; padding-left: 14px; }
@@ -134,14 +141,14 @@ table.pnl tr.grand-total td.tc { background: #0f172a !important; }
 /* ---- Filas de datos bajo cada grafico evolutivo (YoY, precio/pt) ---- */
 .dtable-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
 .dtable-row + .dtable-row { margin-top: 3px; padding-top: 3px; border-top: none; }
-.dtable-label { flex: 0 0 68px; font-size: 9px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .3px; line-height: 1.25; }
+.dtable-label { flex: 0 0 78px; font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .3px; line-height: 1.25; }
 
 .yoy-row, .ppr-row { flex: 1 1 auto; min-width: 0; display: flex; gap: 2px; overflow-x: auto; }
-.yoy-cell, .ppr-cell { flex: 1 0 auto; min-width: 42px; text-align: center; }
-.yoy-m { font-size: 9px; font-weight: 700; color: var(--muted); text-transform: uppercase; margin-bottom: 2px; }
-.yoy-cell .pos, .yoy-cell .neg, .yoy-cell .neu { font-size: 11px; }
-.ppr-ly { font-size: 9px; color: var(--muted); margin-bottom: 1px; }
-.ppr-cell .pos, .ppr-cell .neg, .ppr-cell .neu { font-size: 10px; }
+.yoy-cell, .ppr-cell { flex: 1 0 auto; min-width: 48px; text-align: center; }
+.yoy-m { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; margin-bottom: 2px; }
+.yoy-cell .pos, .yoy-cell .neg, .yoy-cell .neu { font-size: 13px; }
+.ppr-ly { font-size: 11px; color: var(--muted); margin-bottom: 1px; }
+.ppr-cell .pos, .ppr-cell .neg, .ppr-cell .neu { font-size: 12px; }
 
 /* ---- Segmented toggle (Redenciones Q/$) ---- */
 .seg { display: flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
@@ -201,6 +208,22 @@ table.bk tr:hover td { background: #f8fafc; }
       <option value="M" selected>Millones (M)</option>
       <option value="K">Miles (K)</option>
       <option value="INT">Enteros</option>
+    </select>
+  </div>
+  <div class="fsep"></div>
+  <div class="fg">
+    <div class="fl">Escenario Goal</div>
+    <select id="f-scenario">
+      <option value="forecast" selected>Forecast</option>
+      <option value="budget">Budget</option>
+    </select>
+  </div>
+  <div class="fg">
+    <div class="fl">Periodo P&amp;L</div>
+    <select id="f-period">
+      <option value="month" selected>Mes</option>
+      <option value="quarter">Quarter</option>
+      <option value="half">Half</option>
     </select>
   </div>
 </div>
@@ -271,17 +294,26 @@ function getPts(row) {
 
 function getUsd(row) { return Math.abs(+(row.descuento_consumo_puntos_usd) || 0); }
 
-// Valor USD de Acumulaciones: (comision + fee + descuentos) * (1 - pct_pagado_con_puntos)
-// * (SSP - breakage esperado). El factor (SSP-breakage) es provisorio por pais
-// (SSP_BREAKAGE) hasta que se calcule mes a mes.
+// Factor SSP de Facturación por país y mes (= SSP_Calculado * (1 - breakage esperado)).
+// Fuente: loyalty_ssp.json (loyalty_sync.py, redenciones Pasaporte D! + breakage_esperado.csv).
+// Fallbacks: último mes disponible del país -> constante SSP_BREAKAGE hardcodeada.
+function sspFactor(dataKey, ym) {
+  var byC = (RAW.ssp && RAW.ssp.data) ? RAW.ssp.data[dataKey] : null;
+  if (byC) {
+    if (ym && byC[ym]) return byC[ym].ssp_facturacion;
+    var ks = Object.keys(byC).sort();
+    if (ks.length) return byC[ks[ks.length - 1]].ssp_facturacion;
+  }
+  return SSP_BREAKAGE[dataKey];
+}
+
+// Valor USD de Acumulaciones: acum_usd_base * SSP_Facturación[país][mes del accrual].
+// acum_usd_base = suma de |(comision + fee + descuentos) * (1 - pct_pagado_con_puntos)|
+// pre-calculada por loyalty_sync.py al agregar.
 function getAcumUsd(row, dataKey) {
-  var factor = SSP_BREAKAGE[dataKey];
-  if (factor === undefined) return 0;
-  var comision   = +(row.comision)   || 0;
-  var fee        = +(row.fee)        || 0;
-  var descuentos = +(row.descuentos) || 0;
-  var pct        = +(row.pct_pagado_con_puntos) || 0;
-  return Math.abs((comision + fee + descuentos) * (1 - pct) * factor);
+  var factor = sspFactor(dataKey, (row.processing_date || '').substring(0, 7));
+  if (factor === undefined || factor === null) return 0;
+  return Math.abs((+row.acum_usd_base || 0) * factor);
 }
 
 // Valor segun modo Q/USD, usado por Redenciones (el toggle vive dentro de cada
@@ -299,9 +331,10 @@ function programsForCountry(countryKey) {
 // ============================================================
 // State
 // ============================================================
-var RAW = { acum_cy: null, acum_ly: null, reden_cy: null, reden_ly: null, breakage: null, baseline: null, dict: null };
+var RAW = { acum_cy: null, acum_ly: null, reden_cy: null, reden_ly: null, breakage: null,
+            baseline: null, budget: null, forecast: null, dict: null, ssp: null };
 var LOADED = 0;
-var TOTAL  = 7;
+var TOTAL  = 10;
 var ACTIVE_COUNTRY = 'brasil';
 var CHARTS = {};
 
@@ -312,7 +345,9 @@ var CHARTS = {};
 var FISCAL_MONTHS = ['04','05','06','07','08','09','10','11','12','01','02','03'];
 function fiscalCalYear(mm, startYear) { return mm >= '04' ? startYear : startYear + 1; }
 function fyYears() {
-  return { ly: +((RAW.acum_ly||{}).meta||{}).year, cy: +((RAW.acum_cy||{}).meta||{}).year };
+  var cy = +(((RAW.acum_cy||{}).meta||{}).year) || new Date().getFullYear();
+  var ly = +(((RAW.acum_ly||{}).meta||{}).year) || (cy - 1);
+  return { ly: ly, cy: cy };
 }
 
 // Switch Cantidad (Q) vs Valor ($) por seccion de metrica de negocio (pais+programa).
@@ -329,9 +364,9 @@ function setSecMode(btn) {
 // viene en ISO ('br') — mapa para poder identificar el mismo pais en ambas fuentes.
 var COUNTRY_ISO = { argentina: 'ar', brasil: 'br', colombia: 'co', ecuador: 'ec', mexico: 'mx', peru: 'pe', uruguay: 'uy', chile: 'cl' };
 
-// (SSP - breakage esperado) por pais — provisorio, a validar/recalcular por mes y pais.
-// Uruguay/Other Countries comparten el mismo factor (no listado aparte); se aplica
-// tambien a Chile por ahora ya que no tiene su propio valor.
+// FALLBACK del factor SSP de Facturación por pais (se usa solo si falta loyalty_ssp.json
+// o el mes pedido). Valores del cierre "SSP Facturación" — ojo: MX/CO venían con un
+// swap en el Excel; loyalty_ssp.json ya lo calcula bien.
 var SSP_BREAKAGE = {
   argentina: -0.005498,
   brasil:    -0.003344,
@@ -434,6 +469,28 @@ function getRange() {
   return { from: document.getElementById('f-from').value, to: document.getElementById('f-to').value };
 }
 
+// Escenario "goal" para el P&L Contable comparativo: 'forecast' | 'budget'
+function getScenario() {
+  var el = document.getElementById('f-scenario');
+  return el ? el.value : 'forecast';
+}
+function scenarioLabel(s) { return s === 'budget' ? 'Budget' : 'Forecast'; }
+
+// Agrupacion de columnas del P&L Contable: 'month' | 'quarter' | 'half'
+function getPeriodMode() {
+  var el = document.getElementById('f-period');
+  return el ? el.value : 'month';
+}
+// Trimestre fiscal (Abr->Mar) segun el mes calendario "MM".
+var PNL_Q = { '04':'Q1','05':'Q1','06':'Q1','07':'Q2','08':'Q2','09':'Q2',
+              '10':'Q3','11':'Q3','12':'Q3','01':'Q4','02':'Q4','03':'Q4' };
+var PNL_H = { Q1: 'H1', Q2: 'H1', Q3: 'H2', Q4: 'H2' };
+function pnlPeriodKey(ym, mode) {
+  if (mode === 'month') return ym;
+  var q = PNL_Q[ym.substring(5, 7)];
+  return mode === 'quarter' ? q : PNL_H[q];
+}
+
 function inRange(ym, from, to) {
   if (from && ym < from) return false;
   if (to   && ym > to)   return false;
@@ -475,42 +532,68 @@ function buildPnl(country) {
     lineSet[row['P&L N1'] || 'N/D'] = 1;
   });
   var months = Object.keys(monthSet).sort();
-  var lines  = Object.keys(lineSet).sort();
 
-  // agg[line][month] = sum
+  // Escenarios (budget / forecast) — mapas mensuales por linea, mismo set de
+  // meses que el baseline. Fuente: JSON canonicos de Inputs_Planning_PnL.
+  var scn = scenarioLoyaltyPnl(country, months);
+  Object.keys(scn.budget).forEach(function(l){ lineSet[l] = 1; });
+  Object.keys(scn.forecast).forEach(function(l){ lineSet[l] = 1; });
+  var lines = Object.keys(lineSet).sort();
+
+  // agg[line] = {ym: monto}
   var agg = {};
-  lines.forEach(function(l) { agg[l] = {}; months.forEach(function(m) { agg[l][m] = 0; }); });
+  lines.forEach(function(l) { agg[l] = {}; });
   filtered.forEach(function(row) {
     var l = row['P&L N1'] || 'N/D', m = (row['Fecha'] || '').substring(0, 7);
-    agg[l][m] += parseFloat(row['Monto USD']) || 0;
+    agg[l][m] = (agg[l][m] || 0) + (parseFloat(row['Monto USD']) || 0);
   });
 
-  // Group lines → subtotals
+  // Grupos → lineas ordenadas por PNL_GROUPS + 'Otros'
   var groups = {};
-  PNL_GROUPS.forEach(function(g) { groups[g.label] = { lines: [], totals: {} }; months.forEach(function(m){ groups[g.label].totals[m] = 0; }); });
-  groups['Otros'] = { lines: [], totals: {} }; months.forEach(function(m){ groups['Otros'].totals[m] = 0; });
-
+  PNL_GROUPS.forEach(function(g) { groups[g.label] = { lines: [] }; });
+  groups['Otros'] = { lines: [] };
   lines.forEach(function(l) {
     var grp = classifyN1(l);
-    if (!groups[grp]) { groups[grp] = { lines: [], totals: {} }; months.forEach(function(m){ groups[grp].totals[m] = 0; }); }
+    if (!groups[grp]) groups[grp] = { lines: [] };
     groups[grp].lines.push(l);
-    months.forEach(function(m) { groups[grp].totals[m] += agg[l][m] || 0; });
   });
 
-  // Grand totals
-  var grand = {};
-  months.forEach(function(m) { grand[m] = lines.reduce(function(s, l){ return s + (agg[l][m] || 0); }, 0); });
-  var grandTotal = months.reduce(function(s, m){ return s + (grand[m] || 0); }, 0);
-  var lineTotals = {};
-  lines.forEach(function(l){ lineTotals[l] = months.reduce(function(s,m){ return s+(agg[l][m]||0); }, 0); });
-  var grpTotals = {};
-  Object.keys(groups).forEach(function(g){ grpTotals[g] = months.reduce(function(s,m){ return s+(groups[g].totals[m]||0); }, 0); });
+  return { months: months, lines: lines, agg: agg, groups: groups, scn: scn };
+}
 
-  return { months: months, lines: lines, agg: agg, groups: groups, grand: grand, grandTotal: grandTotal, lineTotals: lineTotals, grpTotals: grpTotals };
+// Por escenario: { line: {ym: monto} } de loyalty para el pais, restringido a
+// monthArr (los meses del baseline ya filtrados por el rango de fecha global).
+function scenarioLoyaltyPnl(country, monthArr) {
+  var monthSet = {};
+  monthArr.forEach(function(m){ monthSet[m] = 1; });
+  var out = { budget: {}, forecast: {} };
+  ['budget', 'forecast'].forEach(function(s) {
+    var byLine = out[s];
+    expandBaseline(RAW[s]).forEach(function(row) {
+      if ((row['Pais'] || '').toLowerCase() !== country.dataKey) return;
+      var l = row['P&L N1'] || 'N/D';
+      if (l.toLowerCase().indexOf('loyalty') === -1) return;
+      var ym = (row['Fecha'] || '').substring(0, 7);
+      if (!monthSet[ym]) return;
+      if (!byLine[l]) byLine[l] = {};
+      byLine[l][ym] = (byLine[l][ym] || 0) + (parseFloat(row['Monto USD']) || 0);
+    });
+  });
+  return out;
+}
+
+// Suma un mapa {ym: val} de varias lineas en un solo {ym: val}.
+function mergeMonthly(maps) {
+  var o = {};
+  maps.forEach(function(mm) {
+    Object.keys(mm || {}).forEach(function(ym){ o[ym] = (o[ym] || 0) + mm[ym]; });
+  });
+  return o;
 }
 
 // ============================================================
-// Render P&L table
+// Render P&L table — Baseline | Goal | Baseline−Goal, agrupado por Mes/Quarter/Half
+// (mismo layout que P&L Accounting de B2B)
 // ============================================================
 function renderPnl(containerId, country) {
   var el = document.getElementById(containerId);
@@ -521,28 +604,66 @@ function renderPnl(containerId, country) {
     return;
   }
 
-  var pastM = [], futM = [];
-  d.months.forEach(function(m){ if (m <= TODAY_YM) pastM.push(m); else futM.push(m); });
-  var hasSep = pastM.length > 0 && futM.length > 0;
+  var mode = getPeriodMode();          // 'month' | 'quarter' | 'half'
+  var GOAL = getScenario();            // 'budget' | 'forecast'
+  var goalMaps = d.scn[GOAL];
 
-  function thMonth(m, isProj) {
-    return '<th class="' + (isProj ? 'proj' : '') + '">' + fmtMonthLbl(m) + (isProj ? '*' : '') + '</th>';
-  }
-  function tdVal(v, isProj, extraClass) {
-    var cls = (isProj ? 'proj ' : '') + vc(v) + (extraClass ? ' ' + extraClass : '');
-    return '<td class="' + cls + '">' + (v !== 0 ? fmtPnl(v) : '—') + '</td>';
-  }
-  function tdGrand(v, isProj) {
-    var cls = 'tc ' + (isProj ? 'proj ' : '') + vc(v);
-    return '<td class="' + cls + '">' + fmtPnl(v) + '</td>';
+  // Periodos presentes (segun los meses del baseline), + columna Total
+  var present = {};
+  d.months.forEach(function(ym){ present[pnlPeriodKey(ym, mode)] = 1; });
+  var periods;
+  if (mode === 'month')        periods = d.months.slice();
+  else if (mode === 'quarter') periods = ['Q1','Q2','Q3','Q4'].filter(function(p){ return present[p]; });
+  else                         periods = ['H1','H2'].filter(function(p){ return present[p]; });
+  var cols = periods.concat(['TOT']);
+  var n = cols.length;
+  function pLabel(p) { return p === 'TOT' ? 'Total' : (mode === 'month' ? fmtMonthLbl(p) : p); }
+
+  // {ym: val} -> {periodKey: val} (incluye TOT = suma de todo)
+  function toPeriods(monthMap) {
+    var o = {}; cols.forEach(function(c){ o[c] = 0; });
+    Object.keys(monthMap || {}).forEach(function(ym){
+      var v = monthMap[ym] || 0, pk = pnlPeriodKey(ym, mode);
+      if (o[pk] !== undefined) o[pk] += v;
+      o.TOT += v;
+    });
+    return o;
   }
 
-  var html = '<div class="tbl-scroll"><table class="pnl"><thead><tr>';
-  html += '<th class="lc">Linea P&L</th>';
-  pastM.forEach(function(m){ html += thMonth(m, false); });
-  if (hasSep) html += '<th class="sep"></th>';
-  futM.forEach(function(m){ html += thMonth(m, true); });
-  html += '<th class="tc">Total</th>';
+  function valCells(pmap) {
+    var s = '';
+    cols.forEach(function(c){
+      var v = pmap[c] || 0;
+      s += '<td class="' + (c === 'TOT' ? 'tc ' : '') + vc(v) + '">' + (v ? fmtPnl(v) : '—') + '</td>';
+    });
+    return s;
+  }
+  // fila completa: baseline | sep | goal | sep | (baseline - goal)
+  function rowBGD(baseMap, goalMap) {
+    var bp = toPeriods(baseMap), gp = toPeriods(goalMap), dp = {};
+    cols.forEach(function(c){ dp[c] = (bp[c] || 0) - (gp[c] || 0); });
+    return valCells(bp) + '<td class="sep"></td>' + valCells(gp)
+         + '<td class="sep"></td>' + valCells(dp);
+  }
+  function emptyRow() {
+    var s = '';
+    for (var b = 0; b < 3; b++) {
+      for (var i = 0; i < n; i++) s += '<td></td>';
+      if (b < 2) s += '<td class="sep"></td>';
+    }
+    return s;
+  }
+
+  var html = '<div class="tbl-scroll"><table class="pnl"><thead>';
+  html += '<tr class="bg-scen"><th class="lc"></th>'
+        + '<th class="bg-b" colspan="' + n + '">BASELINE</th><th class="sep"></th>'
+        + '<th class="bg-g" colspan="' + n + '">GOAL · ' + scenarioLabel(GOAL) + '</th><th class="sep"></th>'
+        + '<th class="bg-d" colspan="' + n + '">&Delta; BASELINE &minus; GOAL</th></tr>';
+  html += '<tr><th class="lc">Linea P&L</th>';
+  for (var blk = 0; blk < 3; blk++) {
+    cols.forEach(function(c){ html += '<th' + (c === 'TOT' ? ' class="tc"' : '') + '>' + pLabel(c) + '</th>'; });
+    if (blk < 2) html += '<th class="sep"></th>';
+  }
   html += '</tr></thead><tbody>';
 
   var groupOrder = PNL_GROUPS.map(function(g){ return g.label; }).concat(['Otros']);
@@ -551,43 +672,27 @@ function renderPnl(containerId, country) {
     var grp = d.groups[grpLabel];
     if (!grp || !grp.lines.length) return;
 
-    // Group header
-    html += '<tr class="grp-hdr"><td class="lc">' + grpLabel + '</td>';
-    pastM.forEach(function(){ html += '<td></td>'; });
-    if (hasSep) html += '<td class="sep"></td>';
-    futM.forEach(function(){ html += '<td class="proj"></td>'; });
-    html += '<td class="tc"></td></tr>';
+    html += '<tr class="grp-hdr"><td class="lc">' + grpLabel + '</td>' + emptyRow() + '</tr>';
 
-    // Detail lines
     grp.lines.forEach(function(line) {
-      html += '<tr><td class="lc">' + line + '</td>';
-      pastM.forEach(function(m){ html += tdVal(d.agg[line][m] || 0, false); });
-      if (hasSep) html += '<td class="sep"></td>';
-      futM.forEach(function(m){ html += tdVal(d.agg[line][m] || 0, true); });
-      var lt = d.lineTotals[line] || 0;
-      html += '<td class="tc ' + vc(lt) + '">' + fmtPnl(lt) + '</td>';
-      html += '</tr>';
+      html += '<tr><td class="lc">' + line + '</td>'
+            + rowBGD(d.agg[line], goalMaps[line]) + '</tr>';
     });
 
-    // Subtotal
-    html += '<tr class="subtotal"><td class="lc">Subtotal ' + grpLabel + '</td>';
-    pastM.forEach(function(m){ html += tdVal(grp.totals[m] || 0, false); });
-    if (hasSep) html += '<td class="sep"></td>';
-    futM.forEach(function(m){ html += tdVal(grp.totals[m] || 0, true); });
-    var gt = d.grpTotals[grpLabel] || 0;
-    html += '<td class="tc ' + vc(gt) + '">' + fmtPnl(gt) + '</td></tr>';
+    var baseGrp = mergeMonthly(grp.lines.map(function(l){ return d.agg[l]; }));
+    var goalGrp = mergeMonthly(grp.lines.map(function(l){ return goalMaps[l]; }));
+    html += '<tr class="subtotal"><td class="lc">Subtotal ' + grpLabel + '</td>'
+          + rowBGD(baseGrp, goalGrp) + '</tr>';
   });
 
-  // Grand total
-  html += '<tr class="grand-total"><td class="lc">TOTAL LOYALTY</td>';
-  pastM.forEach(function(m){ html += tdGrand(d.grand[m] || 0, false); });
-  if (hasSep) html += '<td class="sep"></td>';
-  futM.forEach(function(m){ html += tdGrand(d.grand[m] || 0, true); });
-  html += tdGrand(d.grandTotal, false);
-  html += '</tr>';
+  var baseAll = mergeMonthly(d.lines.map(function(l){ return d.agg[l]; }));
+  var goalAll = mergeMonthly(d.lines.map(function(l){ return goalMaps[l]; }));
+  html += '<tr class="grand-total"><td class="lc">TOTAL LOYALTY</td>'
+        + rowBGD(baseAll, goalAll) + '</tr>';
 
   html += '</tbody></table></div>';
-  if (futM.length) html += '<div class="proj-note">* Proyeccion / Baseline</div>';
+  html += '<div class="proj-note">Baseline = actuals (meses cerrados) + run-rate + forecast · Goal = '
+        + scenarioLabel(GOAL) + ' · Δ = Baseline &minus; Goal</div>';
   el.innerHTML = html;
 }
 
@@ -840,7 +945,7 @@ function buildBarChart(canvasId, prevValues, currValues, prevLabel, currLabel, c
   fmtFn = fmtFn || fmtPts;
   var dataLabelCfg = {
     anchor: 'end', align: 'top', clamp: true, offset: 2,
-    font: { size: 9, weight: '700' }, color: '#475569',
+    font: { size: 11, weight: '700' }, color: '#475569',
     formatter: function(v){ return v ? fmtFn(v) : ''; }
   };
   var datasets = [
@@ -848,8 +953,8 @@ function buildBarChart(canvasId, prevValues, currValues, prevLabel, currLabel, c
     { label: String(currLabel), data: currValues, backgroundColor: color, borderRadius: 3, datalabels: dataLabelCfg }
   ];
   var scales = {
-    x: { grid: { display: false }, ticks: { font: { size: 10 } } },
-    y: { grid: { color: '#f1f5f9' }, ticks: { font: { size: 10 }, callback: function(v){ return fmtFn(v); } } }
+    x: { grid: { display: false }, ticks: { font: { size: 12 } } },
+    y: { grid: { color: '#f1f5f9' }, ticks: { font: { size: 12 }, callback: function(v){ return fmtFn(v); } } }
   };
   if (priceSeries) {
     datasets.push({
@@ -858,15 +963,15 @@ function buildBarChart(canvasId, prevValues, currValues, prevLabel, currLabel, c
       pointBackgroundColor: color, tension: .2, yAxisID: 'y1',
       datalabels: { display: false }
     });
-    scales.y1 = { position: 'right', grid: { display: false }, ticks: { font: { size: 9 }, callback: function(v){ return fmtPricePerPt(v); } } };
+    scales.y1 = { position: 'right', grid: { display: false }, ticks: { font: { size: 11 }, callback: function(v){ return fmtPricePerPt(v); } } };
   }
   CHARTS[canvasId] = new Chart(ctx, {
     type: 'bar',
     data: { labels: FISCAL_LABELS, datasets: datasets },
     options: {
       responsive: true, maintainAspectRatio: false,
-      layout: { padding: { top: 18 } },
-      plugins: { legend: { labels: { font: { size: 10 }, boxWidth: 10 } } },
+      layout: { padding: { top: 20 } },
+      plugins: { legend: { labels: { font: { size: 12 }, boxWidth: 10 } } },
       scales: scales
     }
   });
@@ -971,6 +1076,8 @@ function onError(key, msg) {
 document.getElementById('f-from').addEventListener('change', renderActive);
 document.getElementById('f-to').addEventListener('change', renderActive);
 document.getElementById('f-fmt').addEventListener('change', renderActive);
+document.getElementById('f-scenario').addEventListener('change', renderActive);
+document.getElementById('f-period').addEventListener('change', renderActive);
 
 // Init
 (function() {
@@ -979,8 +1086,11 @@ document.getElementById('f-fmt').addEventListener('change', renderActive);
   google.script.run.withSuccessHandler(function(d){ onLoaded('reden_cy', d); }).withFailureHandler(function(e){ onError('reden_cy', e.message); }).getRawRedenCY();
   google.script.run.withSuccessHandler(function(d){ onLoaded('reden_ly', d); }).withFailureHandler(function(e){ onError('reden_ly', e.message); }).getRawRedenLY();
   google.script.run.withSuccessHandler(function(d){ onLoaded('breakage', d); }).withFailureHandler(function(e){ onError('breakage', e.message); }).getRawBreakage();
-  google.script.run.withSuccessHandler(function(d){ onLoaded('baseline', d); }).withFailureHandler(function(e){ onError('baseline', e.message); }).getRawBaseline();
+  google.script.run.withSuccessHandler(function(d){ onLoaded('baseline', d); }).withFailureHandler(function(e){ onError('baseline', e.message); }).getLoyBaseline();
+  google.script.run.withSuccessHandler(function(d){ onLoaded('budget',   d); }).withFailureHandler(function(e){ onError('budget',   e.message); }).getLoyBudget();
+  google.script.run.withSuccessHandler(function(d){ onLoaded('forecast', d); }).withFailureHandler(function(e){ onError('forecast', e.message); }).getLoyForecast();
   google.script.run.withSuccessHandler(function(d){ onLoaded('dict',     d); }).withFailureHandler(function(e){ onError('dict',     e.message); }).getRawDict();
+  google.script.run.withSuccessHandler(function(d){ onLoaded('ssp',      d); }).withFailureHandler(function(e){ onError('ssp',      e.message); }).getRawSsp();
 })();
 </script>
 </body>

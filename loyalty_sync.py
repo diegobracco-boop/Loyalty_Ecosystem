@@ -6,6 +6,7 @@ import os
 import json
 import warnings
 from datetime import date, timedelta, datetime
+from pathlib import Path
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -22,7 +23,11 @@ DSN_NAME = "DataLake Treasure ODBC"
 DRIVE_FOLDER_ID = "1yCPp6hTusYmhhb17WiB6EuhFmsx7tlxb"
 BREAKAGE_FILE   = "loyalty_breakage.json"
 DICT_FILE       = "loyalty_dict.json"
+SSP_FILE        = "loyalty_ssp.json"
 DICT_XLSX       = r"C:\Users\diego.bracco\Proyectos IA\Loyalty_Ecosystem\Diccionario.xlsx"
+# Input manual (lo mantiene Control de Gestión): country_code, month (YYYY-MM), breakage_esperado (0..1).
+# País/mes sin fila → breakage esperado = 0 → factor reconocido = 1 (como UY/CL en el cierre).
+BREAKAGE_ESP_CSV = r"C:\Users\diego.bracco\Proyectos IA\Loyalty_Ecosystem\breakage_esperado.csv"
 
 TODAY        = date.today()
 YESTERDAY    = TODAY - timedelta(days=1)
@@ -1225,6 +1230,124 @@ def to_compact(df: pd.DataFrame) -> dict:
     return {"cols": list(df.columns), "rows": df.values.tolist()}
 
 
+# ------------------------------------------------------------------------------
+# SSP / precio del punto — factor (SSP − breakage esperado) por país y mes.
+# Reemplaza la constante SSP_BREAKAGE hardcodeada en el dashboard.
+#   SSP_Calculado[país][mes] = Σ descuento_consumo_puntos_usd / Σ points
+#       sobre redenciones "Pasaporte D!" (point_type = 'general'), por país.
+#   SSP_Facturación = SSP_Calculado · (1 − breakage_esperado[país][mes])
+# (mismo criterio que la hoja "SSP Facturación" del cierre mensual de Loyalty).
+# ------------------------------------------------------------------------------
+CC_TO_DATAKEY = {"AR": "argentina", "BR": "brasil", "CO": "colombia", "EC": "ecuador",
+                 "MX": "mexico", "PE": "peru", "UY": "uruguay", "CL": "chile"}
+PASAPORTE_D_REDEN = {"general"}   # point_type que el dashboard mapea a "Pasaporte D!"
+
+
+def load_breakage_esperado() -> dict:
+    """{(country_code, 'YYYY-MM'): factor_reconocido}  con factor = 1 − breakage_esperado."""
+    path = Path(BREAKAGE_ESP_CSV)
+    if not path.exists():
+        print(f"  [SSP] {path.name} no existe → breakage esperado = 0 (factor 1) para todo")
+        return {}
+    df = pd.read_csv(path, dtype=str)
+    df.columns = [c.strip().lower() for c in df.columns]
+    out = {}
+    for _, r in df.iterrows():
+        cc = str(r.get("country_code", "")).strip().upper()
+        ym = str(r.get("month", "")).strip()[:7]
+        be = pd.to_numeric(r.get("breakage_esperado"), errors="coerce")
+        if not cc or len(ym) != 7 or pd.isna(be):
+            continue
+        out[(cc, ym)] = 1.0 - float(be)
+    print(f"  [SSP] breakage esperado: {len(out)} celdas país×mes desde {path.name}")
+    return out
+
+
+def build_ssp_json(*reden_clean_dfs) -> bytes:
+    frames = [d for d in reden_clean_dfs if d is not None and len(d)]
+    df = pd.concat(frames, ignore_index=True)
+    df = df[df["point_type"].astype(str).str.lower().isin(PASAPORTE_D_REDEN)].copy()
+    df["ym"]     = df["processing_date"].str.slice(0, 7)
+    df["points"] = pd.to_numeric(df["points"], errors="coerce").fillna(0).abs()
+    df["usd"]    = pd.to_numeric(df["descuento_consumo_puntos_usd"], errors="coerce").fillna(0).abs()
+    g = (df.groupby(["country_code", "ym"], as_index=False)
+           .agg(points=("points", "sum"), usd=("usd", "sum")))
+    g = g[g["points"] > 0]
+
+    brk = load_breakage_esperado()
+    out = {}
+    for _, r in g.iterrows():
+        dk = CC_TO_DATAKEY.get(str(r["country_code"]).strip().upper())
+        if not dk:
+            continue
+        ym       = r["ym"]
+        ssp_calc = -abs(r["usd"] / r["points"])            # negativo, como en el cierre
+        factor   = brk.get((str(r["country_code"]).strip().upper(), ym), 1.0)
+        out.setdefault(dk, {})[ym] = {
+            "ssp_calculado":     round(ssp_calc, 6),
+            "breakage_esperado": round(1.0 - factor, 4),
+            "ssp_facturacion":   round(ssp_calc * factor, 6),
+            "puntos":            round(float(r["points"]), 0),
+        }
+    payload = {
+        "meta": {"generated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+                 "fuente": "redenciones Pasaporte D! (point_type=general) / breakage_esperado.csv"},
+        "data": out,
+    }
+    for dk in sorted(out):
+        meses = sorted(out[dk])
+        print(f"  [SSP] {dk:10s} {meses[0]}..{meses[-1]}  ({len(meses)} meses)")
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+
+
+# ------------------------------------------------------------------------------
+# Agregación mensual — el dashboard sólo consume nivel
+# mes + país + partner + point_type (programa = partner+point_type). Colapsar
+# acá baja el JSON de ~50 MB a ~1-2 MB y evita el límite de blob de 50 MB de
+# Apps Script (que dejaba la serie LY en cero al no poder leer el archivo).
+# ------------------------------------------------------------------------------
+_AGG_KEYS = ["processing_date", "country", "country_code", "partner", "point_type"]
+
+
+def aggregate_acum(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df["processing_date"] = df["processing_date"].str.slice(0, 7) + "-01"
+    # El dashboard tomaba abs() por fila y luego sumaba — se preserva ese criterio
+    # acá (sumar |valor| por fila) para que los totales no cambien al agregar.
+    df["points"] = pd.to_numeric(df["points"], errors="coerce").fillna(0).abs()
+    for c in ("comision", "fee", "descuentos", "pct_pagado_con_puntos"):
+        if c not in df.columns:
+            df[c] = 0.0
+    # Valor USD base de acumulaciones, pre-calculado por fila (el factor
+    # SSP-breakage por país lo aplica el dashboard sobre este total).
+    df["acum_usd_base"] = (
+        (df["comision"].astype(float) + df["fee"].astype(float) + df["descuentos"].astype(float))
+        * (1.0 - df["pct_pagado_con_puntos"].astype(float))
+    ).abs()
+    out = (df.groupby(_AGG_KEYS, as_index=False, dropna=False)
+             .agg(points=("points", "sum"),
+                  acum_usd_base=("acum_usd_base", "sum")))
+    out["points"] = out["points"].round(2)
+    out["acum_usd_base"] = out["acum_usd_base"].round(4)
+    return out
+
+
+def aggregate_reden(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df["processing_date"] = df["processing_date"].str.slice(0, 7) + "-01"
+    if "descuento_consumo_puntos_usd" not in df.columns:
+        df["descuento_consumo_puntos_usd"] = 0.0
+    df["points"] = pd.to_numeric(df["points"], errors="coerce").fillna(0).abs()
+    df["descuento_consumo_puntos_usd"] = pd.to_numeric(
+        df["descuento_consumo_puntos_usd"], errors="coerce").fillna(0).abs()
+    out = (df.groupby(_AGG_KEYS, as_index=False, dropna=False)
+             .agg(points=("points", "sum"),
+                  descuento_consumo_puntos_usd=("descuento_consumo_puntos_usd", "sum")))
+    out["points"] = out["points"].round(2)
+    out["descuento_consumo_puntos_usd"] = out["descuento_consumo_puntos_usd"].round(2)
+    return out
+
+
 # ==============================================================================
 # 5) GOOGLE DRIVE
 # ==============================================================================
@@ -1296,16 +1419,18 @@ def upload_to_drive(json_bytes: bytes, filename: str):
 # ==============================================================================
 
 print("\n--- Acumulaciones CY ---")
-df_acum_cy = clean_acum(fetch(build_acum_query(ACTUALS_DESDE, ACTUALS_HASTA), f"Acumulaciones {CY_YEAR}"))
+df_acum_cy = aggregate_acum(clean_acum(fetch(build_acum_query(ACTUALS_DESDE, ACTUALS_HASTA), f"Acumulaciones {CY_YEAR}")))
 
 print("\n--- Acumulaciones LY ---")
-df_acum_ly = clean_acum(fetch(build_acum_query(LY_DESDE, LY_HASTA), f"Acumulaciones {LY_YEAR}"))
+df_acum_ly = aggregate_acum(clean_acum(fetch(build_acum_query(LY_DESDE, LY_HASTA), f"Acumulaciones {LY_YEAR}")))
 
 print("\n--- Redenciones CY ---")
-df_reden_cy = clean_reden(fetch(build_reden_query(ACTUALS_DESDE, ACTUALS_HASTA), f"Redenciones {CY_YEAR}"))
+_reden_cy_clean = clean_reden(fetch(build_reden_query(ACTUALS_DESDE, ACTUALS_HASTA), f"Redenciones {CY_YEAR}"))
+df_reden_cy = aggregate_reden(_reden_cy_clean)
 
 print("\n--- Redenciones LY ---")
-df_reden_ly = clean_reden(fetch(build_reden_query(LY_DESDE, LY_HASTA), f"Redenciones {LY_YEAR}"))
+_reden_ly_clean = clean_reden(fetch(build_reden_query(LY_DESDE, LY_HASTA), f"Redenciones {LY_YEAR}"))
+df_reden_ly = aggregate_reden(_reden_ly_clean)
 
 print("\n--- Breakage ---")
 df_breakage = clean_breakage(fetch(build_breakage_query(LY_DESDE), "Breakage"))
@@ -1313,6 +1438,10 @@ df_breakage = clean_breakage(fetch(build_breakage_query(LY_DESDE), "Breakage"))
 print("\n--- Construyendo diccionario de puntos ---")
 dict_bytes = build_dict_json()
 print(f"  Dict: {len(dict_bytes)} bytes")
+
+print("\n--- Construyendo SSP (precio del punto) ---")
+ssp_bytes = build_ssp_json(_reden_cy_clean, _reden_ly_clean)
+print(f"  SSP: {len(ssp_bytes)} bytes")
 
 print("\n--- Construyendo JSON ---")
 
@@ -1350,5 +1479,6 @@ upload_to_drive(reden_cy_bytes, REDEN_CY_FILE)
 upload_to_drive(reden_ly_bytes, REDEN_LY_FILE)
 upload_to_drive(breakage_bytes, BREAKAGE_FILE)
 upload_to_drive(dict_bytes,    DICT_FILE)
+upload_to_drive(ssp_bytes,     SSP_FILE)
 
 print(f"\nOK Completado: {datetime.now().strftime('%d-%m-%Y %H:%M')}")

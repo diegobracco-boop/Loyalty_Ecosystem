@@ -32,10 +32,37 @@ function getRawAcumLY()   { return _load(LOYALTY_FOLDER_ID,  FILES.acum_ly,  'ac
 function getRawRedenCY()  { return _load(LOYALTY_FOLDER_ID,  FILES.reden_cy, 'reden_cy'); }
 function getRawRedenLY()  { return _load(LOYALTY_FOLDER_ID,  FILES.reden_ly, 'reden_ly'); }
 function getRawBreakage() { return _load(LOYALTY_FOLDER_ID,  FILES.breakage, 'breakage'); }
-function getRawBaseline() { return _load(BASELINE_FOLDER_ID, 'baseline_actuals+projections.json', 'baseline'); }
 function getRawDict()     { return _load(LOYALTY_FOLDER_ID,  'loyalty_dict.json', 'dict'); }
+function getRawSsp()      { return _load(LOYALTY_FOLDER_ID,  'loyalty_ssp.json',  'ssp');  }
+
+// P&L Contable: mismos JSON canónicos que consumen las landings B2B
+// (Inputs_Planning_PnL). Se filtran a las líneas de loyalty server-side para
+// mandar ~4k filas al cliente en vez de ~70k.
+function getLoyBaseline() { return _loyPnl('baseline_actuals+projections.json', 'loy_baseline'); }
+function getLoyBudget()   { return _loyPnl('budget.json',   'loy_budget');   }
+function getLoyForecast() { return _loyPnl('forecast.json', 'loy_forecast'); }
 
 // ---- Internal helpers ----
+
+function _loyPnl(filename, baseKey) {
+  var folder = DriveApp.getFolderById(BASELINE_FOLDER_ID);
+  var files  = folder.getFilesByName(filename);
+  if (!files.hasNext()) throw new Error('No encontrado en Drive: ' + filename);
+  var file   = files.next();
+  var key    = baseKey + '_' + file.getLastUpdated().getTime();
+  var cached = cacheGet_(key);
+  if (cached) return JSON.parse(cached);
+  var raw = JSON.parse(file.getBlob().getDataAsString());
+  var n1i = raw.cols.indexOf('P&L N1');
+  var rows = [];
+  for (var i = 0; i < raw.rows.length; i++) {
+    var v = raw.rows[i][n1i];
+    if (v && String(v).toLowerCase().indexOf('loyalty') !== -1) rows.push(raw.rows[i]);
+  }
+  var result = { meta: raw.meta, cols: raw.cols, rows: rows };
+  cachePut_(key, JSON.stringify(result));
+  return result;
+}
 
 function _load(folderId, filename, baseKey) {
   var folder = DriveApp.getFolderById(folderId);
