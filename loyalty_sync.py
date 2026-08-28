@@ -17,17 +17,28 @@ warnings.filterwarnings("ignore")
 # 1) CONFIGURACIÓN
 # ==============================================================================
 
-RUTA_ENV = r"C:\Users\diego.bracco\Proyectos IA\envs\.env"
 DSN_NAME = "DataLake Treasure ODBC"
+
+# Credenciales del datalake por usuario de Windows (envs\.env.<usuario>), con
+# fallback al genérico envs\.env. Ver SETUP.md A.1.
+_ENVS_DIR  = Path(__file__).resolve().parent.parent / "envs"
+_WIN_USER  = os.environ.get("USERNAME", "").lower()
+RUTA_ENV   = _ENVS_DIR / f".env.{_WIN_USER}"
+if not RUTA_ENV.exists():
+    RUTA_ENV = _ENVS_DIR / ".env"
 
 DRIVE_FOLDER_ID = "1yCPp6hTusYmhhb17WiB6EuhFmsx7tlxb"
 BREAKAGE_FILE   = "loyalty_breakage.json"
 DICT_FILE       = "loyalty_dict.json"
 SSP_FILE        = "loyalty_ssp.json"
 DICT_XLSX       = r"C:\Users\diego.bracco\Proyectos IA\Loyalty_Ecosystem\Diccionario.xlsx"
-# Input manual (lo mantiene Control de Gestión): country_code, month (YYYY-MM), breakage_esperado (0..1).
-# País/mes sin fila → breakage esperado = 0 → factor reconocido = 1 (como UY/CL en el cierre).
 BREAKAGE_ESP_CSV = r"C:\Users\diego.bracco\Proyectos IA\Loyalty_Ecosystem\breakage_esperado.csv"
+
+# Planilla "Loyalty Ecosystem - Config" (folder Drive de loyalty). Pestañas que
+# editan los analistas sin tocar el repo: `breakage_esperado`, `diccionario`.
+# Si no se puede leer, el sync cae a los archivos locales (breakage_esperado.csv /
+# Diccionario.xlsx). Ver SETUP.md sección B.
+CONFIG_SHEET_ID = "1M48FXIAFvyKpP9RSLLSuWh9DgetFPovYfWAM3lQNASI"
 
 TODAY        = date.today()
 YESTERDAY    = TODAY - timedelta(days=1)
@@ -1062,8 +1073,11 @@ ORDER BY point_type, produto_agrupado
 
 
 def build_dict_json() -> bytes:
-    """Lee Diccionario.xlsx y genera loyalty_dict.json para el dashboard."""
-    df = pd.read_excel(DICT_XLSX)
+    """Genera loyalty_dict.json (mapeo programa) desde la pestaña `diccionario` de la
+    planilla de config; si no está, cae a Diccionario.xlsx."""
+    df = config_sheet_tab("diccionario")
+    if df is None:
+        df = pd.read_excel(DICT_XLSX)
     acum, reden = {}, {}
     for _, row in df.iterrows():
         concat  = str(row["concatenado"]) if not pd.isna(row["concatenado"]) else ""
@@ -1264,14 +1278,39 @@ CC_TO_DATAKEY = {"AR": "argentina", "BR": "brasil", "CO": "colombia", "EC": "ecu
 PASAPORTE_D_REDEN = {"general", "cobrand", "partners"}
 
 
+_CONFIG_CACHE = {}
+
+
+def config_sheet_tab(tab: str):
+    """DataFrame de una pestaña de la planilla de config, o None si no se puede leer."""
+    if "tabs" not in _CONFIG_CACHE:
+        tabs = {}
+        try:
+            svc = _get_drive_service()
+            data = svc.files().export_media(
+                fileId=CONFIG_SHEET_ID,
+                mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ).execute()
+            tabs = pd.read_excel(io.BytesIO(data), sheet_name=None)
+            print(f"  [config] planilla OK — pestañas: {list(tabs)}")
+        except Exception as e:
+            print(f"  [config] planilla no disponible ({str(e)[:120]}) → archivos locales")
+        _CONFIG_CACHE["tabs"] = tabs
+    return _CONFIG_CACHE["tabs"].get(tab)
+
+
 def load_breakage_esperado() -> dict:
     """{(country_code, 'YYYY-MM'): factor_reconocido}  con factor = 1 − breakage_esperado."""
-    path = Path(BREAKAGE_ESP_CSV)
-    if not path.exists():
-        print(f"  [SSP] {path.name} no existe → breakage esperado = 0 (factor 1) para todo")
-        return {}
-    df = pd.read_csv(path, dtype=str)
-    df.columns = [c.strip().lower() for c in df.columns]
+    df = config_sheet_tab("breakage_esperado")
+    src = "planilla"
+    if df is None:
+        path = Path(BREAKAGE_ESP_CSV)
+        if not path.exists():
+            print(f"  [SSP] sin breakage esperado (ni planilla ni {path.name}) → factor 1")
+            return {}
+        df = pd.read_csv(path, dtype=str)
+        src = path.name
+    df.columns = [str(c).strip().lower() for c in df.columns]
     out = {}
     for _, r in df.iterrows():
         cc = str(r.get("country_code", "")).strip().upper()
@@ -1280,7 +1319,7 @@ def load_breakage_esperado() -> dict:
         if not cc or len(ym) != 7 or pd.isna(be):
             continue
         out[(cc, ym)] = 1.0 - float(be)
-    print(f"  [SSP] breakage esperado: {len(out)} celdas país×mes desde {path.name}")
+    print(f"  [SSP] breakage esperado: {len(out)} celdas país×mes desde {src}")
     return out
 
 
@@ -1384,8 +1423,15 @@ def _get_drive_service():
     from googleapiclient.discovery import build
 
     base       = Path(__file__).resolve().parent
+    sa_file    = base / "service_account.json"
     creds_file = base / "credentials_drive.json"
     token_file = base / "token_drive.json"
+
+    # Preferencia: cuenta de servicio (no expira, no depende de un usuario).
+    if sa_file.exists():
+        from google.oauth2.service_account import Credentials as SACredentials
+        return build("drive", "v3",
+                     credentials=SACredentials.from_service_account_file(str(sa_file), scopes=DRIVE_SCOPES))
 
     if creds_file.exists():
         from google_auth_oauthlib.flow import InstalledAppFlow

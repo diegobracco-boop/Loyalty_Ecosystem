@@ -1,0 +1,50 @@
+name: Deploy GAS (clasp)
+
+# Al mergear a main, publica dashboard.html / Código.js / appsscript.json al
+# Apps Script y actualiza el deployment estable. Requiere el secret CLASP_CREDENTIALS
+# (contenido de ~/.clasprc.json de una cuenta @despegar.com con acceso al proyecto).
+# Ver SETUP.md sección C.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'dashboard.html'
+      - 'Código.js'
+      - 'appsscript.json'
+      - '.clasp.json'
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-gas
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      DEPLOYMENT_ID: AKfycbzyHV8nz_AppIX81qn8QJ9dyPT77i75lBz9nerKfsjhLEk8SfSdGPXeGk52oLpXvI2Fig
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install clasp
+        run: npm install -g @google/clasp@2.4.2
+
+      - name: Auth
+        env:
+          CLASP_CREDENTIALS: ${{ secrets.CLASP_CREDENTIALS }}
+        run: |
+          if [ -z "$CLASP_CREDENTIALS" ]; then
+            echo "::error::Falta el secret CLASP_CREDENTIALS (ver SETUP.md sección C)"; exit 1
+          fi
+          printf '%s' "$CLASP_CREDENTIALS" > "$HOME/.clasprc.json"
+
+      - name: Push
+        run: clasp push --force
+
+      - name: Deploy
+        run: clasp deploy -i "$DEPLOYMENT_ID" -d "CI ${{ github.sha }} — ${{ github.event.head_commit.message }}"
