@@ -1027,6 +1027,15 @@ final_base AS (
                WHEN cc.point_code = 'IFOOD_PROMO'   THEN 'IFOOD_PROMO'
                WHEN cc.point_code = 'MISSIONS'      THEN 'MISSIONS'
                WHEN cc.point_code = 'KIDD_FLASH'    THEN 'KIDD_FLASH'
+               -- Cobrand y Partners caian en 'general' (-> Pasaporte D! en el dashboard),
+               -- inflandolo ~24.5%. Se separan aca. Cobrand: prefijo C_ (ICBCAR/INVEXMX/
+               -- BDBCO; Santander/BR cae aca pero no se muestra, BR no tiene solapa Cobrand).
+               -- Partners: SALE_POINT/BONDA_WE (se abre por pais, no por partner: la col
+               -- partner de redencion es siempre 'DP'). Clasificados via dict reden.
+               -- NOTA: el SSP (build_ssp_json) reincorpora COBRAND+PARTNERS a la base
+               -- 'general' para no alterar el factor $/punto historico.
+               WHEN cc.point_code LIKE 'C\\_%' ESCAPE '\\' THEN 'COBRAND'
+               WHEN cc.point_code IN ('SALE_POINT','BONDA_WE') THEN 'PARTNERS'
                ELSE 'general'
            END AS point_type,
            a.business, a.transaction_code, a.country, a.produto_original,
@@ -1065,6 +1074,12 @@ def build_dict_json() -> bytes:
             acum[concat] = sec
         if pd.isna(partner) and pt:   # filas sin partner → lookup para redenciones
             reden[pt] = sec
+    # Tokens sinteticos que emite el CASE de _REDEN_SQL para separar Cobrand y
+    # Partners (antes caian en 'general' → Pasaporte D!, inflandolo ~24.5%). No son
+    # point_types reales de Comarch, por eso se mapean aca y no en Diccionario.xlsx.
+    # setdefault: si algun dia se agregan al Excel, gana el Excel.
+    reden.setdefault("COBRAND", "Cobrand")
+    reden.setdefault("PARTNERS", "Partners")
     result = {"acum": acum, "reden": reden}
     return json.dumps(result, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
 
@@ -1240,7 +1255,13 @@ def to_compact(df: pd.DataFrame) -> dict:
 # ------------------------------------------------------------------------------
 CC_TO_DATAKEY = {"AR": "argentina", "BR": "brasil", "CO": "colombia", "EC": "ecuador",
                  "MX": "mexico", "PE": "peru", "UY": "uruguay", "CL": "chile"}
-PASAPORTE_D_REDEN = {"general"}   # point_type que el dashboard mapea a "Pasaporte D!"
+# Base del SSP ($/punto): las redenciones que HISTORICAMENTE eran 'general' antes de
+# separar Cobrand/Partners en el CASE de _REDEN_SQL. Se reincorporan 'cobrand'/'partners'
+# (el CASE emite COBRAND/PARTNERS; aca se comparan en minuscula por el .str.lower() de
+# build_ssp_json) para que el factor SSP y la valuacion USD de acumulaciones NO cambien
+# por el split de programas del dashboard. El dashboard igual muestra Cobrand/Partners
+# como programas propios (via dict.reden), pero el SSP sigue sobre el pool completo.
+PASAPORTE_D_REDEN = {"general", "cobrand", "partners"}
 
 
 def load_breakage_esperado() -> dict:
