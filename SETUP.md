@@ -48,19 +48,30 @@ pip install -r "C:\Users\<tu.usuario>\Proyectos IA\Loyalty_Ecosystem\requirement
 
 ### A.4 — Acceso a Google Drive (1 vez por persona)
 
-**Opción recomendada — cuenta de servicio (no expira, no depende de nadie):**
-1. Alguien crea la service account en GCP y baja `service_account.json` a la carpeta del proyecto.
-2. Comparte los folders de Drive con el email de la SA (`…@…iam.gserviceaccount.com`), permiso *Editor*:
-   - `1yCPp6hTusYmhhb17WiB6EuhFmsx7tlxb` (JSON de loyalty)
-   - `1XqQPL_rlS0NRIPUnPfj5nALBTn7kAOQV` (baseline/budget/forecast — solo lectura)
-3. `loyalty_sync.py` usa `service_account.json` si existe; si no, cae al flujo OAuth de abajo.
-
-**Opción OAuth personal (fallback):**
+**Opción A — OAuth personal (por defecto, lo hace cada analista):**
 ```powershell
 cd "C:\Users\<tu.usuario>\Proyectos IA\Loyalty_Ecosystem"
 python auth_drive.py
 ```
-Abre el navegador → autorizás con tu cuenta @despegar.com → queda en `token_drive.json` (gitignoreado, personal).
+Abre el navegador → autorizás con tu cuenta @despegar.com → queda en `token_drive.json`
+(gitignoreado, personal). Requisito: tener acceso *Editor* al folder `1yCPp6…` (lo da Diego).
+
+**Opción B — cuenta de servicio (mejor para el agendado; la crea Diego 1 vez):**
+
+Un "usuario robot" con su propio archivo de credenciales. No expira ni depende del
+login de nadie. `loyalty_sync.py` la usa automáticamente si existe `service_account.json`
+en la carpeta del proyecto.
+
+1. [console.cloud.google.com](https://console.cloud.google.com) → elegir/crear proyecto (podés reusar el de `credentials_drive.json`).
+2. **APIs y servicios → Biblioteca** → buscar "Google Drive API" → **Habilitar**.
+3. **IAM y administración → Cuentas de servicio** → **Crear cuenta de servicio** → nombre `loyalty-sync` → Crear y continuar → (sin roles) → Listo.
+4. Click en la cuenta creada → pestaña **Claves** → **Agregar clave → Crear clave nueva → JSON** → se descarga un `.json`.
+5. Renombrar ese archivo a **`service_account.json`** y copiarlo a la carpeta del repo (queda gitignoreado).
+6. Copiar el **email** de la cuenta (`loyalty-sync@<proyecto>.iam.gserviceaccount.com`) y compartir con ese email, como si fuera una persona:
+   - Folder `1yCPp6hTusYmhhb17WiB6EuhFmsx7tlxb` → **Editor**
+   - Folder `1XqQPL_rlS0NRIPUnPfj5nALBTn7kAOQV` → **Lector**
+   - Planilla *Loyalty Ecosystem - Config* → **Lector**
+7. Distribución a analistas: el `service_account.json` es una credencial — **no** va al repo ni a un Drive público. Compartilo por un folder de Drive restringido (solo analistas) o 1:1.
 
 ### A.5 — Ejecutar
 

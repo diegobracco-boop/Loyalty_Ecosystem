@@ -36,11 +36,16 @@ scripts de diagnóstico, interpretar resultados.
    Corré vos: `pip install -r requirements.txt`.
 
 5. **Acceso a Google Drive** (si `[FALTA] Drive`).
-   Preguntale si tiene el `service_account.json` compartido del equipo:
-   - **Sí** → que lo copie a la carpeta del repo (`Loyalty_Ecosystem/service_account.json`).
-     Es el método recomendado (no expira).
-   - **No** → que corra:  `! python auth_drive.py`  → abre el navegador, autoriza con
-     su cuenta @despegar.com, queda en `token_drive.json`.
+   Camino por defecto — **OAuth personal**: que corra
+   `! python auth_drive.py` → abre el navegador, autoriza con su cuenta
+   @despegar.com, queda en `token_drive.json` (local, gitignoreado).
+   Antes tiene que tener acceso de *Editor* al folder Drive `1yCPp6…` (se lo da Diego).
+
+   Alternativa — **service account** (solo si el equipo ya tiene una): si le pasaron
+   un `service_account.json`, que lo copie a `Loyalty_Ecosystem/service_account.json`
+   y listo (no expira, no necesita browser). Si te pregunta "no tengo el
+   service_account.json, ¿qué hago?" → la respuesta es: usá OAuth personal (arriba);
+   la service account es opcional y la crea Diego una sola vez (ver `SETUP.md` A.4).
 
 6. **Verificación final.** Corré `python setup_check.py --full` (prueba conexión real
    al datalake y a Drive). Repetí desde el paso 1 hasta que dé `Entorno listo`.
