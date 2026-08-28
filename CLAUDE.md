@@ -1,0 +1,65 @@
+# Loyalty Ecosystem — guía para Claude y para el equipo
+
+Dashboard de reporting de Loyalty (Despegar): **P&L Contable** (Baseline vs Goal) +
+**Métricas de Negocio por programa** (acumulación / redención / breakage) por país.
+
+```
+Datalake (ODBC) ─┐
+Config Sheet    ─┼─► loyalty_sync.py ─► JSON en Drive ─► landing GAS (webapp) ─► navegador
+                 │      (agendado)      folder 1yCPp6…
+Inputs_Planning_PnL (otro repo) ─► baseline/budget/forecast.json ─► folder 1XqQPL…
+```
+
+## Al iniciar una sesión — identificar el perfil
+
+Si la persona no se presentó y va a tocar algo, preguntá **qué va a hacer**:
+
+| Perfil | Hace | Flujo |
+|---|---|---|
+| **Analista** | Editar inputs de negocio (breakage esperado, diccionario de programas) · proponer cambios de dashboard/queries | Edita la **planilla de Drive** · branch + PR para código |
+| **Operador** | Correr / re-correr `loyalty_sync.py` | Setup completo (datalake, DSN, Drive) — ver `SETUP.md` o `/configurar-entorno` |
+
+La mayoría es Analista. Para setup de cualquiera de los dos: skill **`/configurar-entorno`**.
+
+## Los dos tipos de cambio
+
+| Si el cambio es en… | Flujo |
+|---|---|
+| **Inputs de negocio** (breakage esperado, mapeo de programas) | Editar la planilla **"Loyalty Ecosystem - Config"** en Drive. El sync la lee en la próxima corrida. NO tocar `breakage_esperado.csv` / `Diccionario.xlsx` (son solo fallback). |
+| **Dashboard / GAS** (`dashboard.html`, `Código.js`) | branch → editar → commit → push → PR. Al mergear a `main` la GitHub Action hace `clasp push` + `clasp deploy` sola. Deploy manual: `/publicar`. |
+| **Pipeline** (`loyalty_sync.py`, queries SQL) | branch → editar → probar con un operador (`python loyalty_sync.py`) → PR. |
+
+## Archivos
+
+| Archivo | Qué es |
+|---|---|
+| `loyalty_sync.py` | Pipeline: datalake → agrega por mes+país+partner+point_type → sube 7 JSON a Drive |
+| `Código.js` | Backend GAS: sirve los JSON crudos + filtra loyalty del P&L (`_loyPnl`) |
+| `dashboard.html` | SPA: P&L Contable (Baseline/Goal/Δ, selector Mes/Q/Half), Métricas por programa |
+| `breakage_esperado.csv` · `Diccionario.xlsx` | **Fallback** de la planilla de config. La fuente real es el Sheet. |
+| `auth_drive.py` | OAuth de Drive (necesita `credentials_drive.json`, que no está en el repo) |
+| `setup_check.py` · `configurar_datalake.py` | Diagnóstico y carga de credenciales para operadores |
+| `reaggregate_legacy_jsons.py` · `build_ssp_legacy.py` | One-shots: regeneran JSON/SSP desde data vieja sin re-sync |
+| `.github/workflows/deploy-gas.yml` | CI: deploy a Apps Script al mergear a `main` |
+| `SETUP.md` | Runbook operativo completo |
+
+## Reglas que no romper
+
+- **Nunca commitear** `token_drive.json`, `service_account.json`, `envs/.env*`. Están gitignoreados.
+- **`git push` no publica la landing GAS.** La publica la GitHub Action al mergear (o `/publicar` manual). Siempre verificar que el deploy corrió.
+- El **deployment estable** es `AKfycbzyHV8nz_AppIX81qn8QJ9dyPT77i75lBz9nerKfsjhLEk8SfSdGPXeGk52oLpXvI2Fig`. `clasp push` solo actualiza HEAD; hay que `clasp deploy -i <ese id>` para que la webapp cambie.
+- Los JSON en Drive se **sobreescriben** (no hay versiones).
+
+## Gotchas (aprendidos)
+
+- **Apps Script no lee blobs >50 MB.** Por eso `loyalty_sync.py` sube los JSON de acum/reden **agregados por mes** (no fila por fila). Si vuelven a crecer, la serie LY de los charts se cae a cero (`fyYears()` → NaN).
+- **`points` vs `points_distribuidos`**: la query trae `SUM(puntosv2)` como `points`. El cierre de Loyalty usa `points_distribuidos` (~2-4% menos). El SSP calculado difiere ~1% del cierre por esto.
+- **Agregación con `abs()` por fila**: acum/reden se suman en valor absoluto por fila (preserva el criterio previo del dashboard). Cambiarlo mueve todos los totales.
+- **SSP / valor de acumulación**: `getAcumUsd = acum_usd_base · SSP_Facturación[país][mes]`, con `SSP_Facturación = SSP_Calculado · (1 − breakage_esperado)`. `SSP_Calculado` sale de las redenciones Pasaporte D!. El Excel de cierre tenía un **swap MX↔CO** que el pipeline ya corrige.
+- **ODBC + columnas numéricas de `data.analytics.*`**: fallan (`errorCode member not found`). Usar solo VARCHAR/DATE de esas tablas; números solo de `data.lake.*`.
+- El P&L Contable NO sale del datalake — es `baseline_actuals+projections.json` / `budget.json` / `forecast.json` del repo **B2B_Ecosystem/Inputs_Planning_PnL**.
+
+## Comandos
+
+- `/configurar-entorno` — setup de analista u operador
+- `/publicar` — deploy manual de la landing GAS a producción
