@@ -31,8 +31,12 @@ DRIVE_FOLDER_ID = "1yCPp6hTusYmhhb17WiB6EuhFmsx7tlxb"
 BREAKAGE_FILE   = "loyalty_breakage.json"
 DICT_FILE       = "loyalty_dict.json"
 SSP_FILE        = "loyalty_ssp.json"
-DICT_XLSX       = r"C:\Users\diego.bracco\Proyectos IA\Loyalty_Ecosystem\Diccionario.xlsx"
-BREAKAGE_ESP_CSV = r"C:\Users\diego.bracco\Proyectos IA\Loyalty_Ecosystem\breakage_esperado.csv"
+# Fallbacks locales de la planilla de config: viven al lado de este script en todo
+# clon (ambos trackeados en git), asi que se resuelven relativos a el — antes eran la
+# ruta absoluta de una maquina y rompian el --dry-run del resto (no lee la planilla).
+_SCRIPT_DIR      = Path(__file__).resolve().parent
+DICT_XLSX        = str(_SCRIPT_DIR / "Diccionario.xlsx")
+BREAKAGE_ESP_CSV = str(_SCRIPT_DIR / "breakage_esperado.csv")
 
 # Planilla "Loyalty Ecosystem - Config" (folder Drive de loyalty). Pestañas que
 # editan los analistas sin tocar el repo: `breakage_esperado`, `diccionario`.
