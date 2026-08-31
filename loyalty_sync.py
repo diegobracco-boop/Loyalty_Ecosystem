@@ -1403,6 +1403,68 @@ def aggregate_acum(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+# ------------------------------------------------------------------------------
+# IFOOD Welcome Clube — accruals via transaction_type 'CA'
+# ------------------------------------------------------------------------------
+# Los accruals reales de IFOOD Welcome Clube entran como transaction_type='CA'
+# (point code IFO_WE_CLU) en clm_transactions y NO estan en comarch_accumulation_report,
+# por eso faltaban en acumulaciones. En comarch si estan los REVERSOS bajo el name largo
+# IFOOD_WELCOME_CLUBE (puntos negativos), que hoy se contaban mal como acumulacion (el
+# pipeline hace abs() por fila). Los reversos caen casi todos en un mes (jul-2026) y no se
+# alinean con los accruals (may-jul), asi que netear mensualmente daria barras negativas.
+# Decision (Rosario, 2026-08-31): mostrar los accruals BRUTOS (~10.04B YTD) e ignorar los
+# reversos. Por eso: (1) se excluye IFOOD_WELCOME_CLUBE del accrual de comarch, y (2) se
+# suman los CA/IFO_WE_CLU como fuente nueva. Pais = Brasil (IFOOD es solo BR; el CA viene
+# sin pais ni codigo de transaccion). Ver BITACORA 2026-08-31.
+WCLUBE_ACCRUAL_CODE = "IFO_WE_CLU"           # code corto en clm_transactions (accruals +)
+WCLUBE_REVERSO_PT   = "IFOOD_WELCOME_CLUBE"  # name largo en comarch (reversos -)
+
+_WCLUBE_CA_SQL = """
+SELECT CAST(t.processing_date AS DATE) AS processing_date,
+       SUM(tp.points)                  AS points
+FROM data.lake.clm_transactions t
+JOIN data.lake.clm_transaction_points tp ON t.id = tp.source_transaction_id
+JOIN data.lake.clm_point_types pt        ON tp.points_type_id = pt.id
+WHERE t.processing_date >= {{Desde}}
+  AND t.processing_date <  {{Hasta}}
+  AND t.status = 'B'
+  AND t.transaction_type = 'CA'
+  AND pt.code = 'IFO_WE_CLU'
+GROUP BY CAST(t.processing_date AS DATE)
+"""
+
+
+def fetch_wclube_ca(desde: str, hasta: str) -> pd.DataFrame:
+    """Accruals de IFOOD Welcome Clube (transaction_type='CA', code IFO_WE_CLU) por dia,
+    con las columnas que espera aggregate_acum. Pais fijo Brasil (el CA viene sin pais)."""
+    df = fetch(_sub(_WCLUBE_CA_SQL, desde, hasta), "WClube CA (IFOOD accruals)")
+    if df.empty:
+        return df
+    df["processing_date"] = df["processing_date"].apply(_fix_date)
+    df = df.dropna(subset=["processing_date"])
+    df["points"]       = pd.to_numeric(df["points"], errors="coerce").fillna(0)
+    df["country"]      = "Brasil"
+    df["country_code"] = "BR"
+    df["partner"]      = "N/D"
+    df["point_type"]   = WCLUBE_ACCRUAL_CODE
+    # Welcome Clube no tiene valor USD de acumulacion (no joinea BI); 0 para que
+    # acum_usd_base no salga NaN al concatenar con el df de acumulaciones.
+    for c in ("comision", "fee", "descuentos", "pct_pagado_con_puntos"):
+        df[c] = 0.0
+    return df
+
+
+def apply_wclube(df_acum: pd.DataFrame, desde: str, hasta: str) -> pd.DataFrame:
+    """Saca los reversos IFOOD_WELCOME_CLUBE del accrual de comarch y agrega los accruals
+    reales (CA/IFO_WE_CLU). Se aplica sobre el df ya limpiado, antes de aggregate_acum."""
+    if "point_type" in df_acum.columns:
+        df_acum = df_acum[df_acum["point_type"] != WCLUBE_REVERSO_PT].copy()
+    ca = fetch_wclube_ca(desde, hasta)
+    if ca is not None and len(ca):
+        df_acum = pd.concat([df_acum, ca], ignore_index=True)
+    return df_acum
+
+
 def aggregate_reden(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df["processing_date"] = df["processing_date"].str.slice(0, 7) + "-01"
@@ -1497,10 +1559,10 @@ def upload_to_drive(json_bytes: bytes, filename: str):
 # ==============================================================================
 
 print("\n--- Acumulaciones CY ---")
-df_acum_cy = aggregate_acum(clean_acum(fetch(build_acum_query(ACTUALS_DESDE, ACTUALS_HASTA), f"Acumulaciones {CY_YEAR}")))
+df_acum_cy = aggregate_acum(apply_wclube(clean_acum(fetch(build_acum_query(ACTUALS_DESDE, ACTUALS_HASTA), f"Acumulaciones {CY_YEAR}")), ACTUALS_DESDE, ACTUALS_HASTA))
 
 print("\n--- Acumulaciones LY ---")
-df_acum_ly = aggregate_acum(clean_acum(fetch(build_acum_query(LY_DESDE, LY_HASTA), f"Acumulaciones {LY_YEAR}")))
+df_acum_ly = aggregate_acum(apply_wclube(clean_acum(fetch(build_acum_query(LY_DESDE, LY_HASTA), f"Acumulaciones {LY_YEAR}")), LY_DESDE, LY_HASTA))
 
 print("\n--- Redenciones CY ---")
 _reden_cy_clean = clean_reden(fetch(build_reden_query(ACTUALS_DESDE, ACTUALS_HASTA), f"Redenciones {CY_YEAR}"))
