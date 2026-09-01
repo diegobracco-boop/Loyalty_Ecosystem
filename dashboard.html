@@ -976,13 +976,22 @@ function buildBarChart(canvasId, prevValues, currValues, prevLabel, currLabel, c
     return;
   }
   fmtFn = fmtFn || fmtPts;
+  // Meses "sin dato todavia" = posiciones despues del ultimo mes con dato del anio
+  // actual (currValues). Sus barras (LY) y la linea de precio van en un tono mas claro.
+  var lastDataIdx = -1;
+  for (var _i = 0; _i < currValues.length; _i++) { if (currValues[_i]) lastDataIdx = _i; }
+  function noDataYet(i) { return i > lastDataIdx; }
+  var LY_GRAY = 'rgba(100,116,139,.3)', LY_GRAY_LIGHT = 'rgba(100,116,139,.12)';
+
   var dataLabelCfg = {
     anchor: 'end', align: 'top', clamp: true, offset: 2,
     font: { size: 11, weight: '700' }, color: '#475569',
     formatter: function(v){ return v ? fmtFn(v) : ''; }
   };
   var datasets = [
-    { label: String(prevLabel), data: prevValues, backgroundColor: 'rgba(100,116,139,.3)', borderRadius: 3, datalabels: dataLabelCfg },
+    { label: String(prevLabel), data: prevValues,
+      backgroundColor: prevValues.map(function(_v, i){ return noDataYet(i) ? LY_GRAY_LIGHT : LY_GRAY; }),
+      borderRadius: 3, datalabels: dataLabelCfg },
     { label: String(currLabel), data: currValues, backgroundColor: color, borderRadius: 3, datalabels: dataLabelCfg }
   ];
   var scales = {
@@ -990,10 +999,14 @@ function buildBarChart(canvasId, prevValues, currValues, prevLabel, currLabel, c
     y: { grid: { color: '#f1f5f9' }, ticks: { font: { size: 12 }, callback: function(v){ return fmtFn(v); } } }
   };
   if (priceSeries) {
+    var priceLight = color.replace(/[\d.]+\)$/, '0.22)');  // mismo tono, mas claro (menos alpha)
     datasets.push({
       type: 'line', label: 'Precio/pt (' + currLabel + ')', data: priceSeries.curr,
       borderColor: color, borderWidth: 2, borderDash: [4, 4], pointRadius: 2,
-      pointBackgroundColor: color, tension: .2, yAxisID: 'y1',
+      pointBackgroundColor: priceSeries.curr.map(function(_v, i){ return noDataYet(i) ? priceLight : color; }),
+      pointBorderColor:     priceSeries.curr.map(function(_v, i){ return noDataYet(i) ? priceLight : color; }),
+      segment: { borderColor: function(c){ return noDataYet(c.p1DataIndex) ? priceLight : color; } },
+      tension: .2, yAxisID: 'y1',
       datalabels: { display: false }
     });
     scales.y1 = { position: 'right', grid: { display: false }, ticks: { font: { size: 11 }, callback: function(v){ return fmtPricePerPt(v); } } };
