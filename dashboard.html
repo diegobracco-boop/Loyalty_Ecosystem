@@ -114,6 +114,7 @@ table.pnl th.sep, table.pnl td.sep { width: 6px; padding: 0; background: var(--b
 .vp  { color: var(--green); }
 .vn  { color: var(--red); }
 .vz  { color: #cbd5e1; }
+.vf  { color: var(--text); }   /* valor sin criterio de color (mismo color siempre) */
 table.pnl tr.grand-total .vp { color: #86efac; }
 table.pnl tr.grand-total .vn { color: #fca5a5; }
 
@@ -647,20 +648,23 @@ function renderPnl(containerId, country) {
     return o;
   }
 
-  function valCells(pmap) {
+  function valCells(pmap, colored) {
     var s = '';
     cols.forEach(function(c){
       var v = pmap[c] || 0;
-      s += '<td class="' + (c === 'TOT' ? 'tc ' : '') + vc(v) + '">' + (v ? fmtPnl(v) : '—') + '</td>';
+      var col = colored ? vc(v) : (v ? 'vf' : 'vz');  // sin criterio -> color fijo (vf); vacio -> vz
+      s += '<td class="' + (c === 'TOT' ? 'tc ' : '') + col + '">' + (v ? fmtPnl(v) : '—') + '</td>';
     });
     return s;
   }
   // fila completa: baseline | sep | goal | sep | (baseline - goal)
-  function rowBGD(baseMap, goalMap) {
+  // Criterio de color (verde/rojo): en Baseline+Goal solo si es fila resumen
+  // (subtotal / total); el bloque Delta SIEMPRE va con color.
+  function rowBGD(baseMap, goalMap, summary) {
     var bp = toPeriods(baseMap), gp = toPeriods(goalMap), dp = {};
     cols.forEach(function(c){ dp[c] = (bp[c] || 0) - (gp[c] || 0); });
-    return valCells(bp) + '<td class="sep"></td>' + valCells(gp)
-         + '<td class="sep"></td>' + valCells(dp);
+    return valCells(bp, summary) + '<td class="sep"></td>' + valCells(gp, summary)
+         + '<td class="sep"></td>' + valCells(dp, true);
   }
   function emptyRow() {
     var s = '';
@@ -693,19 +697,19 @@ function renderPnl(containerId, country) {
 
     grp.lines.forEach(function(line) {
       html += '<tr><td class="lc">' + line + '</td>'
-            + rowBGD(d.agg[line], goalMaps[line]) + '</tr>';
+            + rowBGD(d.agg[line], goalMaps[line], false) + '</tr>';
     });
 
     var baseGrp = mergeMonthly(grp.lines.map(function(l){ return d.agg[l]; }));
     var goalGrp = mergeMonthly(grp.lines.map(function(l){ return goalMaps[l]; }));
     html += '<tr class="subtotal"><td class="lc">Subtotal ' + grpLabel + '</td>'
-          + rowBGD(baseGrp, goalGrp) + '</tr>';
+          + rowBGD(baseGrp, goalGrp, true) + '</tr>';
   });
 
   var baseAll = mergeMonthly(d.lines.map(function(l){ return d.agg[l]; }));
   var goalAll = mergeMonthly(d.lines.map(function(l){ return goalMaps[l]; }));
   html += '<tr class="grand-total"><td class="lc">TOTAL LOYALTY</td>'
-        + rowBGD(baseAll, goalAll) + '</tr>';
+        + rowBGD(baseAll, goalAll, true) + '</tr>';
 
   html += '</tbody></table></div>';
   html += '<div class="proj-note">Baseline = actuals (meses cerrados) + run-rate + forecast · Goal = '
