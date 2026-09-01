@@ -52,6 +52,11 @@ select:focus, input[type=month]:focus { border-color: var(--accent); }
 /* ---- Main ---- */
 .main { padding: 18px 20px; max-width: 1860px; margin: 0 auto; }
 
+/* El P&L usa todo el ancho del .main (via .pnl-wrap), pero las metricas
+   (KPIs + graficos + secciones de programa) se acotan al ancho "normal" de
+   antes (~1500) para que los graficos no queden gigantes en pantallas anchas. */
+[id^="metrics-"] { max-width: 1500px; }
+
 /* ---- Banner ---- */
 .banner { display: flex; align-items: flex-start; gap: 10px; border-radius: var(--radius); padding: 14px 18px; margin-bottom: 20px; border-left: 4px solid; }
 .banner.warning { background: #fef3c7; border-color: var(--amber); }
