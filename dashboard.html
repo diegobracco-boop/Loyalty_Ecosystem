@@ -67,9 +67,11 @@ select:focus, input[type=month]:focus { border-color: var(--accent); }
 .stitle { font-size: 11px; font-weight: 800; color: var(--accent); text-transform: uppercase; letter-spacing: .6px; border-bottom: 2px solid var(--accent); padding-bottom: 5px; margin: 20px 0 14px; }
 
 /* ---- P&L table ---- */
-/* El P&L vive dentro de la columna centrada del .main, como el resto del contenido.
-   Si tiene mas columnas que el ancho disponible, scrollea horizontalmente (.tbl-scroll). */
-.pnl-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-bottom: 20px; }
+/* El P&L rompe la columna centrada del .main y se extiende casi a todo el ancho
+   de la pantalla (margen casi nulo), centrado. El resto del contenido sigue en
+   la columna angosta. Tecnica full-bleed via vw (el margen es > que el scrollbar
+   para no generar scroll horizontal). */
+.pnl-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-bottom: 20px; width: calc(100vw - 40px); margin-left: calc(50% - 50vw + 20px); }
 .tbl-scroll { overflow-x: auto; }
 table.pnl { width: 100%; border-collapse: collapse; font-size: 13px; }
 table.pnl th {
