@@ -50,12 +50,9 @@ select:focus, input[type=month]:focus { border-color: var(--accent); }
 .fsep { width: 1px; height: 34px; background: var(--border); margin: 0 4px; }
 
 /* ---- Main ---- */
-.main { padding: 18px 20px; max-width: 1860px; margin: 0 auto; }
-
-/* El P&L usa todo el ancho del .main (via .pnl-wrap), pero las metricas
-   (KPIs + graficos + secciones de programa) se acotan al ancho "normal" de
-   antes (~1500) para que los graficos no queden gigantes en pantallas anchas. */
-[id^="metrics-"] { max-width: 1500px; }
+/* Columna de contenido angosta y CENTRADA (margenes iguales a ambos lados).
+   Todo el tablero (P&L + metricas) vive dentro de este ancho. */
+.main { padding: 18px 20px; max-width: 1150px; margin: 0 auto; }
 
 /* ---- Banner ---- */
 .banner { display: flex; align-items: flex-start; gap: 10px; border-radius: var(--radius); padding: 14px 18px; margin-bottom: 20px; border-left: 4px solid; }
@@ -70,9 +67,9 @@ select:focus, input[type=month]:focus { border-color: var(--accent); }
 .stitle { font-size: 11px; font-weight: 800; color: var(--accent); text-transform: uppercase; letter-spacing: .6px; border-bottom: 2px solid var(--accent); padding-bottom: 5px; margin: 20px 0 14px; }
 
 /* ---- P&L table ---- */
-/* El P&L usa el margen lateral del .main (rompe el padding hacia ambos lados)
-   para mostrar mas columnas sin scroll — el resto del contenido queda mas angosto. */
-.pnl-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-bottom: 20px; width: calc(100% + 40px); margin-left: -20px; }
+/* El P&L vive dentro de la columna centrada del .main, como el resto del contenido.
+   Si tiene mas columnas que el ancho disponible, scrollea horizontalmente (.tbl-scroll). */
+.pnl-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-bottom: 20px; }
 .tbl-scroll { overflow-x: auto; }
 table.pnl { width: 100%; border-collapse: collapse; font-size: 13px; }
 table.pnl th {
