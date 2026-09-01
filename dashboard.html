@@ -29,6 +29,9 @@ body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', syste
 .header-sub   { font-size: 11px; color: #94a3b8; margin-top: 2px; }
 .header-sync  { font-size: 11px; color: #94a3b8; }
 
+/* ---- Sticky topbar (barra de pais + filtros) ---- */
+.topbar { position: sticky; top: 0; z-index: 50; box-shadow: 0 2px 8px rgba(15,23,42,.08); }
+
 /* ---- Country tabs ---- */
 .country-tabs { display: flex; gap: 2px; background: #0f172a; padding: 0 20px; border-bottom: 2px solid #1e293b; overflow-x: auto; }
 .ctab { padding: 11px 18px; font-size: 13px; font-weight: 600; color: #94a3b8; cursor: pointer; border: none; background: none; border-bottom: 3px solid transparent; white-space: nowrap; transition: .15s; }
@@ -127,8 +130,14 @@ table.pnl tr.grand-total td.tc { background: #0f172a !important; }
 .neg { color: var(--red); font-weight: 700; }
 .neu { color: var(--muted); }
 
+/* ---- Program index chips (saltos rapidos a cada programa) ---- */
+.prog-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+.prog-chip { padding: 5px 12px; font-size: 12px; font-weight: 600; color: var(--accent); background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 999px; cursor: pointer; white-space: nowrap; transition: .15s; }
+.prog-chip:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+
 /* ---- Program section ---- */
-.prog-section { margin-bottom: 24px; }
+/* scroll-margin-top = alto aprox de la .topbar sticky, para que el ancla no quede tapada */
+.prog-section { margin-bottom: 24px; scroll-margin-top: 104px; }
 .prog-title { font-size: 13px; font-weight: 700; color: var(--text); padding: 10px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; border-bottom: 2px solid var(--accent); display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .seg-sm .seg-btn { padding: 3px 10px; font-size: 11px; }
 .prog-body { background: var(--surface); border: 1px solid var(--border); border-top: none; border-radius: 0 0 var(--radius) var(--radius); padding: 16px; }
@@ -192,6 +201,7 @@ table.bk tr:hover td { background: #f8fafc; }
   <div class="header-sync" id="last-sync">—</div>
 </div>
 
+<div class="topbar">
 <div class="country-tabs" id="country-tabs"></div>
 
 <div class="filters">
@@ -228,6 +238,7 @@ table.bk tr:hover td { background: #f8fafc; }
       <option value="half">Half</option>
     </select>
   </div>
+</div>
 </div>
 
 <div class="main" id="panels"></div>
@@ -758,6 +769,12 @@ function buildMetrics(country) {
 // ============================================================
 // Render metrics
 // ============================================================
+// Id de ancla de cada seccion de programa (para los chips de indice).
+function progSecId(prog, suffix) { return 'sec-' + prog.replace(/[^a-z0-9]/gi, '') + '-' + suffix; }
+// Salto suave a una seccion (el scroll-margin-top de .prog-section evita que la
+// barra sticky la tape).
+function jumpTo(id) { var e = document.getElementById(id); if (e) e.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+
 function renderMetrics(country, m) {
   var suffix = country.key;
   var programs = programsForCountry(country.key);
@@ -765,7 +782,13 @@ function renderMetrics(country, m) {
   var el = document.getElementById('metrics-' + suffix);
   if (!el) return;
 
-  var html = '';
+  // Indice de programas: chips que saltan a cada seccion (+ Breakage al final).
+  var html = '<div class="prog-nav">';
+  programs.forEach(function(prog) {
+    html += '<button class="prog-chip" type="button" onclick="jumpTo(\'' + progSecId(prog, suffix) + '\')">' + prog + '</button>';
+  });
+  html += '<button class="prog-chip" type="button" onclick="jumpTo(\'sec-breakage-' + suffix + '\')">Breakage</button>';
+  html += '</div>';
 
   programs.forEach(function(prog) {
     var acCY = m.acCY.byProg[prog] || { pts: 0, usd: 0 };
@@ -778,7 +801,7 @@ function renderMetrics(country, m) {
     var acTitle = mode === 'USD' ? 'Acumulaciones — Valor USD por mes' : 'Acumulaciones — Puntos por mes';
     var rdTitle = mode === 'USD' ? 'Redenciones — Valor USD por mes'   : 'Redenciones — Puntos por mes';
 
-    html += '<div class="prog-section">';
+    html += '<div class="prog-section" id="' + progSecId(prog, suffix) + '">';
     html += '<div class="prog-title"><span>' + prog + '</span>'
       + '<div class="seg seg-sm" data-suffix="' + suffix + '" data-prog="' + prog + '">'
       +   '<button class="seg-btn' + (mode === 'USD' ? ' active' : '') + '" data-v="USD" type="button" onclick="setSecMode(this)">$</button>'
@@ -809,7 +832,7 @@ function renderMetrics(country, m) {
 
   // Breakage (no program breakdown — identificacion disponible es solo por pais)
   var bkCanvasId = 'ch-bk-' + suffix;
-  html += '<div class="prog-section">';
+  html += '<div class="prog-section" id="sec-breakage-' + suffix + '">';
   html += '<div class="prog-title">Breakage (vencimiento de puntos)</div>';
   html += '<div class="prog-body">';
   html += '<div class="kpi-row">' + kpiHtml('Puntos Vencidos', fmtPts(m.bkTotal), 'total periodo seleccionado', 'var(--muted)') + '</div>';
