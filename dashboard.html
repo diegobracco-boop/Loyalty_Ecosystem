@@ -977,11 +977,10 @@ function buildBarChart(canvasId, prevValues, currValues, prevLabel, currLabel, c
   }
   fmtFn = fmtFn || fmtPts;
   // Meses "sin dato todavia" = posiciones despues del ultimo mes con dato del anio
-  // actual (currValues). Sus barras (LY) y la linea de precio van en un tono mas claro.
+  // actual (currValues). Se usa solo para atenuar la linea de precio en esos meses.
   var lastDataIdx = -1;
   for (var _i = 0; _i < currValues.length; _i++) { if (currValues[_i]) lastDataIdx = _i; }
   function noDataYet(i) { return i > lastDataIdx; }
-  var LY_GRAY = 'rgba(100,116,139,.3)', LY_GRAY_LIGHT = 'rgba(100,116,139,.12)';
 
   var dataLabelCfg = {
     anchor: 'end', align: 'top', clamp: true, offset: 2,
@@ -989,9 +988,7 @@ function buildBarChart(canvasId, prevValues, currValues, prevLabel, currLabel, c
     formatter: function(v){ return v ? fmtFn(v) : ''; }
   };
   var datasets = [
-    { label: String(prevLabel), data: prevValues,
-      backgroundColor: prevValues.map(function(_v, i){ return noDataYet(i) ? LY_GRAY_LIGHT : LY_GRAY; }),
-      borderRadius: 3, datalabels: dataLabelCfg },
+    { label: String(prevLabel), data: prevValues, backgroundColor: 'rgba(100,116,139,.3)', borderRadius: 3, datalabels: dataLabelCfg },
     { label: String(currLabel), data: currValues, backgroundColor: color, borderRadius: 3, datalabels: dataLabelCfg }
   ];
   var scales = {
