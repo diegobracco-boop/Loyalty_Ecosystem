@@ -1230,15 +1230,19 @@ ORDER BY 1, 2, 3
 """
 
 
-# Club Despegar (programa de suscripcion, Argentina) — altas y bajas por mes,
-# abiertas por plan y estado de membresia. Query simplificada de la que pasó Diego:
-# se saca la clasificacion was_client (Nuevo/Recomprador/Churn) porque no se usa en
-# el dashboard y evita el JOIN pesado contra analytics.mkt_users_fact_transactions.
-#  - 1 fila-evento 'Alta' por suscripcion (fecha = created_at)
-#  - 1 fila-evento 'Baja' por cancelacion (fecha = updated_at; USER_CANCELLED o
-#    PENDING_USER_CANCELLATION)
+# Club Despegar (programa de suscripcion, Argentina). Query simplificada de la que
+# pasó Diego: se saca was_client (Nuevo/Recomprador/Churn) — no se usa en el dashboard
+# y evita el JOIN pesado contra analytics.mkt_users_fact_transactions.
 #  - rn = 1: una suscripcion por social_id (ACTIVE gana; si no, la mas reciente)
-# Agregado en SQL a mes x plan x estado (el volumen fila-a-fila es de ~1M altas).
+# OJO: en data.raw.membertrip_subscription el `updated_at` está bulk-touched (todos los
+# ACTIVE actualizados ago-2026; cero bajas registradas dic25-may26 y pico de 4k en jun26).
+# NO sirve para el stock historico real ni el timing exacto de bajas. Unico timestamp
+# confiable = created_at. Por eso:
+#  - 'stock' : base activa ACUMULADA — suscripciones que HOY siguen ACTIVE, contadas por
+#              su mes de alta (created_at). Monotona creciente, survivorship (= criterio
+#              de loyalty_miembros). A mes actual == status ACTIVE.
+#  - 'alta'  : suscripciones creadas ese mes (created_at) — confiable
+#  - 'baja'  : USER_CANCELLED + PENDING_USER_CANCELLATION por updated_at — timing APROXIMADO
 _CLUB_DESPEGAR_SQL = """
 WITH ranked AS (
     SELECT
@@ -1249,16 +1253,14 @@ WITH ranked AS (
             WHEN '0bcbacb4-4e6b-4539-928b-8f0aff08551e' THEN 'Plan 3'
             WHEN 'c09a89d0-ac09-4cdd-a2fc-142bbd3b0080' THEN 'Plan 4'
             ELSE 'Otro'
-        END                                              AS plan_type,
-        ms.status                                        AS membership_status,
-        p.country                                        AS subscription_country,
-        DATE(ms.created_at)                              AS subscription_date,
-        CASE WHEN ms.status IN ('USER_CANCELLED', 'PENDING_USER_CANCELLATION')
-             THEN DATE(ms.updated_at) END                AS cancellation_date,
+        END                        AS plan_type,
+        ms.status                  AS membership_status,
+        DATE(ms.created_at)        AS created_date,
+        DATE(ms.updated_at)        AS updated_date,
         ROW_NUMBER() OVER (
             PARTITION BY mm.social_id
             ORDER BY CASE WHEN ms.status = 'ACTIVE' THEN 1 ELSE 2 END, ms.created_at DESC
-        )                                                AS rn
+        )                          AS rn
     FROM data.raw.membertrip_subscription ms
     JOIN data.raw.mike_members mm   ON ms.account_id = mm.provider_id
     JOIN data.raw.membertrip_plan p ON ms.plan_id = p.id
@@ -1266,23 +1268,31 @@ WITH ranked AS (
         'ACTIVE', 'USER_CANCELLED', 'PENDING_USER_CANCELLATION', 'EXPIRED_PAYMENT', 'PAYMENT_PENDING'
     )
 ),
-base AS (SELECT * FROM ranked WHERE rn = 1)
-SELECT DATE_FORMAT(subscription_date, '%Y-%m') AS ym,
-       plan_type, membership_status, subscription_country,
-       'Alta'    AS tipo_evento,
-       COUNT(*)  AS n
-FROM base
-WHERE subscription_date IS NOT NULL
-GROUP BY 1, 2, 3, 4
+base AS (SELECT plan_type, membership_status, created_date, updated_date FROM ranked WHERE rn = 1),
+meses AS (
+    SELECT date_add('month', s, DATE('2025-01-01')) AS m0
+    FROM UNNEST(sequence(0, date_diff('month', DATE('2025-01-01'), current_date))) AS t(s)
+)
+SELECT DATE_FORMAT(m.m0, '%Y-%m') AS ym, b.plan_type, 'stock' AS serie, COUNT(*) AS n
+FROM meses m
+JOIN (SELECT plan_type, created_date FROM base WHERE membership_status = 'ACTIVE') b
+  ON b.created_date < date_add('month', 1, m.m0)
+GROUP BY 1, 2
+
 UNION ALL
-SELECT DATE_FORMAT(cancellation_date, '%Y-%m') AS ym,
-       plan_type, membership_status, subscription_country,
-       'Baja'    AS tipo_evento,
-       COUNT(*)  AS n
+SELECT DATE_FORMAT(created_date, '%Y-%m') AS ym, plan_type, 'alta' AS serie, COUNT(*) AS n
 FROM base
-WHERE cancellation_date IS NOT NULL
-GROUP BY 1, 2, 3, 4
-ORDER BY 1, 5, 2
+WHERE created_date >= DATE('2025-01-01')
+GROUP BY 1, 2
+
+UNION ALL
+SELECT DATE_FORMAT(updated_date, '%Y-%m') AS ym, plan_type, 'baja' AS serie, COUNT(*) AS n
+FROM base
+WHERE membership_status IN ('USER_CANCELLED', 'PENDING_USER_CANCELLATION')
+  AND updated_date >= DATE('2025-01-01')
+GROUP BY 1, 2
+
+ORDER BY 3, 1, 2
 """
 
 
@@ -1443,34 +1453,31 @@ def clean_miembros(df: pd.DataFrame) -> pd.DataFrame:
     return out[["ym", "country", "tier", "clientes"]]
 
 
-# country que emite membertrip_plan.country -> dataKey. Club Despegar es solo AR,
-# pero por si aparece algo distinto se normaliza y lo que no matchea cae a 'argentina'
-# (el dashboard igual solo lo muestra en la solapa Argentina / TOTAL).
-def _norm_sub_country(v) -> str:
-    s = str(v).strip().lower() if v is not None and not pd.isna(v) else ""
-    if s in ("ar", "arg", "argentina"):
-        return "argentina"
-    return MIEMBROS_PAIS_TO_DATAKEY.get(s.upper(), "argentina")
+CDD_PLANS = ["Plan 1", "Plan 2", "Plan 3", "Plan 4"]
+CDD_SERIE_ORDER = {"stock": 0, "alta": 1, "baja": 2}
 
 
 def clean_club_despegar(df: pd.DataFrame) -> pd.DataFrame:
-    """Eventos de Club Despegar agregados a [ym, country, plan_type, membership_status,
-    tipo_evento, n]. tipo_evento: Alta | Baja."""
+    """Club Despegar a [ym, country, plan_type, serie, n]. serie: stock | alta | baja.
+    country fijo 'argentina' (Club Despegar solo aplica a AR)."""
     df = df.copy()
     df.columns = [c.lower() for c in df.columns]
     df = df.dropna(subset=["ym"])
     df["ym"] = df["ym"].astype(str).str.slice(0, 7)
     df = df[df["ym"].str.len() == 7]
-    df["plan_type"]         = df["plan_type"].fillna("Otro").astype(str).str.strip()
-    df["membership_status"] = df["membership_status"].fillna("N/D").astype(str).str.strip()
-    df["tipo_evento"]       = df["tipo_evento"].astype(str).str.strip()
-    df["country"]           = df["subscription_country"].map(_norm_sub_country)
+    df["plan_type"] = df["plan_type"].fillna("Otro").astype(str).str.strip()
+    df.loc[~df["plan_type"].isin(CDD_PLANS), "plan_type"] = "Otro"
+    df["serie"]   = df["serie"].astype(str).str.strip().str.lower()
+    df = df[df["serie"].isin(CDD_SERIE_ORDER)]
+    df["country"] = "argentina"
     df["n"] = pd.to_numeric(df["n"], errors="coerce").fillna(0).round(0).astype(int)
-    out = (df.groupby(["ym", "country", "plan_type", "membership_status", "tipo_evento"],
-                      as_index=False)
+    out = (df.groupby(["ym", "country", "plan_type", "serie"], as_index=False)
              .agg(n=("n", "sum")))
-    return out.sort_values(["ym", "tipo_evento", "plan_type"]).reset_index(drop=True)[
-        ["ym", "country", "plan_type", "membership_status", "tipo_evento", "n"]]
+    out = out.sort_values(
+        ["serie", "ym", "plan_type"],
+        key=lambda s: s.map(CDD_SERIE_ORDER) if s.name == "serie" else s,
+    ).reset_index(drop=True)
+    return out[["ym", "country", "plan_type", "serie", "n"]]
 
 
 def clean_ifood_enroll(df: pd.DataFrame) -> pd.DataFrame:
@@ -1802,7 +1809,7 @@ print("\n--- Miembros del programa ---")
 df_miembros = clean_miembros(fetch(_MIEMBROS_SQL, "Miembros (snapshot base activa)"))
 
 print("\n--- Club Despegar (suscripción AR) ---")
-df_club = clean_club_despegar(fetch(_CLUB_DESPEGAR_SQL, "Club Despegar (altas/bajas x plan)"))
+df_club = clean_club_despegar(fetch(_CLUB_DESPEGAR_SQL, "Club Despegar (stock/altas/bajas x plan x mes)"))
 
 print("\n--- iFood enrolados ---")
 df_ifood = clean_ifood_enroll(fetch(_IFOOD_ENROLL_SQL, "iFood enrol + Club iFood"))
@@ -1848,7 +1855,7 @@ miembros_bytes  = json.dumps({"meta": META_MIEMBROS, "data": to_compact(df_miemb
 META_CLUB = {
     "generated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
     "snapshot_date": str(TODAY),
-    "fuente": "data.raw.membertrip_subscription x plan x status; alta=created_at, baja=updated_at (una suscripcion por social_id, ACTIVE gana)",
+    "fuente": "data.raw.membertrip_subscription (una suscripcion por social_id, ACTIVE gana). series: stock (suscripciones vivas a fin de mes) / alta (created_at) / baja (USER_CANCELLED+PENDING por updated_at)",
 }
 club_bytes  = json.dumps({"meta": META_CLUB, "data": to_compact(df_club)}, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
 
@@ -1858,7 +1865,8 @@ META_IFOOD = {
 }
 ifood_bytes = json.dumps({"meta": META_IFOOD, "data": to_compact(df_ifood)}, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
 
-_club_act = int(df_club[(df_club["tipo_evento"] == "Alta") & (df_club["membership_status"] == "ACTIVE")]["n"].sum())
+_stk = df_club[df_club["serie"] == "stock"]
+_club_act = int(_stk[_stk["ym"] == _stk["ym"].max()]["n"].sum()) if len(_stk) else 0
 print(f"  Acum {CY_YEAR}:  {len(acum_cy_bytes)//1024:.0f} KB  ({len(df_acum_cy):,} filas)")
 print(f"  Acum {LY_YEAR}:  {len(acum_ly_bytes)//1024:.0f} KB  ({len(df_acum_ly):,} filas)")
 print(f"  Reden {CY_YEAR}: {len(reden_cy_bytes)//1024:.0f} KB  ({len(df_reden_cy):,} filas)")
@@ -1900,14 +1908,19 @@ if DRY_RUN:
         detalle = "  ".join(f"{t}={int(_piv.loc[c, t]):,}" for t in _piv.columns)
         print(f"    {c:10s} total={int(_piv.loc[c].sum()):>10,}   {detalle}")
 
-    print("\n  Club Despegar — activos por plan:")
-    _cact = (df_club[(df_club["tipo_evento"] == "Alta") & (df_club["membership_status"] == "ACTIVE")]
-             .groupby("plan_type")["n"].sum().sort_index())
-    for p, v in _cact.items():
-        print(f"    {p:8s} {int(v):>9,}")
-    print(f"    {'TOTAL':8s} {int(_cact.sum()):>9,}")
-    _cev = df_club.groupby("tipo_evento")["n"].sum()
-    print(f"    altas históricas={int(_cev.get('Alta', 0)):,}  ·  bajas históricas={int(_cev.get('Baja', 0)):,}")
+    _stk2 = df_club[df_club["serie"] == "stock"]
+    if len(_stk2):
+        _lm = _stk2["ym"].max()
+        _cact = _stk2[_stk2["ym"] == _lm].groupby("plan_type")["n"].sum().sort_index()
+        print(f"\n  Club Despegar — stock de suscriptos a {_lm}:")
+        for p, v in _cact.items():
+            print(f"    {p:8s} {int(v):>9,}")
+        print(f"    {'TOTAL':8s} {int(_cact.sum()):>9,}")
+        _s6 = sorted(_stk2["ym"].unique())[-6:]
+        _tot = _stk2[_stk2["ym"].isin(_s6)].groupby("ym")["n"].sum()
+        print("    últimos 6 meses:", "  ".join(f"{m}={int(_tot[m]):,}" for m in _s6))
+    _ab = df_club[df_club["serie"].isin(["alta", "baja"])].groupby("serie")["n"].sum()
+    print(f"    altas total={int(_ab.get('alta', 0)):,}  ·  bajas total={int(_ab.get('baja', 0)):,}")
     print("\n  iFood enrolados — total por tipo:")
     for t, v in df_ifood.groupby("tipo")["n"].sum().items():
         print(f"    {t:14s} {int(v):>9,}")

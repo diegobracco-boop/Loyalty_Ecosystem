@@ -146,6 +146,9 @@ table.pnl tr.grand-total td.tc { background: #0f172a !important; }
 .prog-title { font-size: 13px; font-weight: 700; color: var(--text); padding: 10px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; border-bottom: 2px solid var(--accent); display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .seg-sm .seg-btn { padding: 3px 10px; font-size: 11px; }
 .prog-body { background: var(--surface); border: 1px solid var(--border); border-top: none; border-radius: 0 0 var(--radius) var(--radius); padding: 16px; }
+/* Sub-bloque dentro de una seccion de programa (ej. Suscripcion en Club Despegar) */
+.sub-block { margin-top: 18px; padding-top: 16px; border-top: 2px dashed var(--border); }
+.sub-title { font-size: 12px; font-weight: 800; color: var(--accent); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 12px; }
 
 /* ---- Charts ---- */
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
@@ -316,16 +319,20 @@ var MB_TIER_COLOR_SOLID = {
   'Viajero': 'var(--accent)', 'Explorador': '#0891b2', 'Global': '#d97706', 'Sin tier': 'var(--muted)'
 };
 
-// ---- Club Despegar — suscripción AR (loyalty_club_despegar.json) ----
+// ---- Club Despegar — suscripción AR (loyalty_club_despegar.json). Se muestra DENTRO
+//      de la sección de programa "Club Despegar" (solo Argentina + TOTAL). ----
 var CDD_PLANS = ['Plan 1', 'Plan 2', 'Plan 3', 'Plan 4', 'Otro'];
 var CDD_PLAN_COLOR_SOLID = {
   'Plan 1': 'var(--accent)', 'Plan 2': '#0891b2', 'Plan 3': '#d97706', 'Plan 4': 'var(--green)', 'Otro': 'var(--muted)'
 };
-// ---- iFood — enrolados (loyalty_ifood_enroll.json) ----
+var CDD_PLAN_COLOR = {
+  'Plan 1': 'rgba(86,38,233,.80)', 'Plan 2': 'rgba(8,145,178,.80)', 'Plan 3': 'rgba(217,119,6,.85)',
+  'Plan 4': 'rgba(22,163,74,.80)', 'Otro': 'rgba(100,116,139,.50)'
+};
+// ---- iFood — enrolados (loyalty_ifood_enroll.json). Se muestra DENTRO de la sección
+//      de programa "IFOOD" (solo Brasil + TOTAL). ----
 var IFOOD_TIPOS = ['iFood enrol', 'Club iFood'];
 var IFOOD_COLOR = { 'iFood enrol': 'rgba(217,119,6,.80)', 'Club iFood': 'rgba(220,38,38,.72)' };
-function showsClubDespegar(key) { return key === 'argentina' || key === 'total'; }
-function showsIfood(key)        { return key === 'brasil'    || key === 'total'; }
 
 function getProgramFromAcum(row) {
   var d = (RAW.dict || {}).acum || {};
@@ -818,34 +825,42 @@ function buildMetrics(country) {
            cdd: buildClubDespegar(country), ifd: buildIfood(country) };
 }
 
-// Club Despegar (suscripción AR): eventos de alta/baja por mes + activos por plan.
-// - activos / byPlan: suscripciones ACTIVE hoy (una por social_id).
-// - altasByYm / bajasByYm: flujo mensual (alta = created_at, baja = updated_at).
+// Club Despegar (suscripción AR). serie del JSON: 'stock' | 'alta' | 'baja'.
+// - stockByPlanYm[plan][ym]: base activa acumulada (suscripciones que HOY siguen ACTIVE,
+//   por mes de alta). Monótona. En el último mes == suscriptos actuales por plan.
+// - stockByYm: total (suma de planes) por mes.
+// - byPlan / activos: último mes del stock = foto actual.
+// - altasByYm (confiable) / bajasByYm (timing aprox: updated_at está bulk-touched).
 function buildClubDespegar(country) {
   var rows = expand(RAW.club).filter(function(r){ return matchCountryRow(r.country, country); });
-  var byPlan = {}, activos = 0, altasByYm = {}, bajasByYm = {};
-  CDD_PLANS.forEach(function(p){ byPlan[p] = 0; });
+  var stockByPlanYm = {}, altasByYm = {}, bajasByYm = {}, ymSet = {};
+  CDD_PLANS.forEach(function(p){ stockByPlanYm[p] = {}; });
   rows.forEach(function(r){
     var n = +r.n || 0, ym = (r.ym || '').substring(0, 7);
     if (ym.length !== 7) return;
-    if (r.tipo_evento === 'Alta') {
-      altasByYm[ym] = (altasByYm[ym] || 0) + n;
-      if (r.membership_status === 'ACTIVE') {
-        var p = CDD_PLANS.indexOf(r.plan_type) !== -1 ? r.plan_type : 'Otro';
-        byPlan[p] += n; activos += n;
-      }
-    } else if (r.tipo_evento === 'Baja') {
-      bajasByYm[ym] = (bajasByYm[ym] || 0) + n;
-    }
+    var p = CDD_PLANS.indexOf(r.plan_type) !== -1 ? r.plan_type : 'Otro';
+    if (r.serie === 'stock')      { stockByPlanYm[p][ym] = (stockByPlanYm[p][ym] || 0) + n; ymSet[ym] = 1; }
+    else if (r.serie === 'alta')  { altasByYm[ym] = (altasByYm[ym] || 0) + n; }
+    else if (r.serie === 'baja')  { bajasByYm[ym] = (bajasByYm[ym] || 0) + n; }
   });
-  return { activos: activos, byPlan: byPlan, altasByYm: altasByYm, bajasByYm: bajasByYm };
+  var yms = Object.keys(ymSet).sort();
+  var stockByYm = {};
+  yms.forEach(function(ym){
+    var t = 0; CDD_PLANS.forEach(function(p){ t += stockByPlanYm[p][ym] || 0; });
+    stockByYm[ym] = t;
+  });
+  var lastYm = yms.length ? yms[yms.length - 1] : '';
+  var byPlan = {}, activos = 0;
+  CDD_PLANS.forEach(function(p){ var v = stockByPlanYm[p][lastYm] || 0; byPlan[p] = v; activos += v; });
+  return { stockByPlanYm: stockByPlanYm, stockByYm: stockByYm, altasByYm: altasByYm,
+           bajasByYm: bajasByYm, byPlan: byPlan, activos: activos, lastYm: lastYm };
 }
 
 // iFood enrolados: altas por mes de 'iFood enrol' (cross_cashback) y 'Club iFood'
 // (closed_loop_discount). Sin dimensión país (es todo Brasil).
 function buildIfood(country) {
   var rows = expand(RAW.ifood);
-  var byTipo = {}, altasByTipoYm = {};
+  var byTipo = {}, altasByTipoYm = {}, altasByYm = {};
   IFOOD_TIPOS.forEach(function(t){ byTipo[t] = 0; altasByTipoYm[t] = {}; });
   rows.forEach(function(r){
     if (IFOOD_TIPOS.indexOf(r.tipo) === -1) return;
@@ -853,8 +868,9 @@ function buildIfood(country) {
     if (ym.length !== 7) return;
     byTipo[r.tipo] += n;
     altasByTipoYm[r.tipo][ym] = (altasByTipoYm[r.tipo][ym] || 0) + n;
+    altasByYm[ym] = (altasByYm[ym] || 0) + n;
   });
-  return { byTipo: byTipo, altasByTipoYm: altasByTipoYm,
+  return { byTipo: byTipo, altasByTipoYm: altasByTipoYm, altasByYm: altasByYm,
            total: byTipo['iFood enrol'] + byTipo['Club iFood'] };
 }
 
@@ -901,10 +917,6 @@ function renderMetrics(country, m) {
   // Indice de programas: chips que saltan a cada seccion (Miembros + programas + Breakage).
   var html = '<div class="prog-nav">';
   html += '<button class="prog-chip" type="button" onclick="jumpTo(\'sec-miembros-' + suffix + '\')">Miembros</button>';
-  if (showsClubDespegar(country.key))
-    html += '<button class="prog-chip" type="button" onclick="jumpTo(\'sec-cdd-' + suffix + '\')">Club Despegar</button>';
-  if (showsIfood(country.key))
-    html += '<button class="prog-chip" type="button" onclick="jumpTo(\'sec-ifood-' + suffix + '\')">iFood</button>';
   programs.forEach(function(prog) {
     html += '<button class="prog-chip" type="button" onclick="jumpTo(\'' + progSecId(prog, suffix) + '\')">' + prog + '</button>';
   });
@@ -938,46 +950,8 @@ function renderMetrics(country, m) {
   }
   html += '</div></div>';
 
-  // ---- Club Despegar — Suscripción (solo Argentina / TOTAL) ----
-  var cdd = m.cdd || { activos: 0, altasByYm: {}, bajasByYm: {}, byPlan: {} };
-  if (showsClubDespegar(country.key)) {
-    var cddFlowId = 'ch-cdd-flow-' + suffix;
-    html += '<div class="prog-section" id="sec-cdd-' + suffix + '">';
-    html += '<div class="prog-title"><span>Club Despegar — Suscripción</span></div><div class="prog-body">';
-    if (!cdd.activos && !Object.keys(cdd.altasByYm).length) {
-      html += '<div class="empty">Sin datos de Club Despegar' + (RAW.club ? '' : ' — loyalty_club_despegar.json no disponible') + '</div>';
-    } else {
-      html += '<div class="kpi-row">';
-      html += kpiHtml('Miembros Activos', fmtPts(cdd.activos), 'suscripciones ACTIVE', 'var(--accent)');
-      CDD_PLANS.forEach(function(p){
-        var v = cdd.byPlan[p] || 0;
-        if (!v && p === 'Otro') return;
-        var pct = cdd.activos ? (v / cdd.activos * 100).toFixed(1) + '%' : '—';
-        html += kpiHtml(p, fmtPts(v), pct + ' de activos', CDD_PLAN_COLOR_SOLID[p]);
-      });
-      html += '</div>';
-      html += '<div class="cc"><div class="ct">Altas vs bajas por mes — año fiscal actual</div><div class="cw"><canvas id="' + cddFlowId + '"></canvas></div></div>';
-    }
-    html += '</div></div>';
-  }
-
-  // ---- iFood — Enrolados (solo Brasil / TOTAL) ----
-  var ifd = m.ifd || { total: 0, byTipo: {}, altasByTipoYm: {} };
-  if (showsIfood(country.key)) {
-    var ifdChartId = 'ch-ifd-' + suffix;
-    html += '<div class="prog-section" id="sec-ifood-' + suffix + '">';
-    html += '<div class="prog-title"><span>iFood — Enrolados</span></div><div class="prog-body">';
-    if (!ifd.total) {
-      html += '<div class="empty">Sin datos de iFood' + (RAW.ifood ? '' : ' — loyalty_ifood_enroll.json no disponible') + '</div>';
-    } else {
-      html += '<div class="kpi-row">';
-      html += kpiHtml('iFood enrol', fmtPts(ifd.byTipo['iFood enrol'] || 0), 'initiative cross_cashback', '#d97706');
-      html += kpiHtml('Club iFood', fmtPts(ifd.byTipo['Club iFood'] || 0), 'initiative closed_loop_discount', 'var(--red)');
-      html += '</div>';
-      html += '<div class="cc"><div class="ct">Altas por mes — iFood enrol vs Club iFood (año fiscal actual)</div><div class="cw"><canvas id="' + ifdChartId + '"></canvas></div></div>';
-    }
-    html += '</div></div>';
-  }
+  var cdd = m.cdd || { activos: 0, byPlan: {}, stockByPlanYm: {}, altasByYm: {}, bajasByYm: {} };
+  var ifd = m.ifd || { total: 0, byTipo: {}, altasByTipoYm: {}, altasByYm: {} };
 
   programs.forEach(function(prog) {
     var acCY = m.acCY.byProg[prog] || { pts: 0, usd: 0 };
@@ -1016,6 +990,46 @@ function renderMetrics(country, m) {
       + '<div class="dtable-row"><div class="dtable-label">Precio LY / YoY</div><div class="ppr-row" id="ppr-' + canvasRdId + '"></div></div>'
       + '</div>';
 
+    // ---- Suscripción Club Despegar: va DENTRO de la sección de programa "Club Despegar" ----
+    if (prog === 'Club Despegar') {
+      html += '<div class="sub-block"><div class="sub-title">Suscripción — miembros por plan</div>';
+      if (!cdd.activos && !Object.keys(cdd.altasByYm).length) {
+        html += '<div class="empty">Sin datos de suscripción' + (RAW.club ? '' : ' — loyalty_club_despegar.json no disponible') + '</div>';
+      } else {
+        html += '<div class="kpi-row">';
+        html += kpiHtml('Miembros suscriptos', fmtPts(cdd.activos), 'base activa (status ACTIVE)', 'var(--accent)');
+        CDD_PLANS.forEach(function(p){
+          var v = cdd.byPlan[p] || 0;
+          if (!v && p === 'Otro') return;
+          var pct = cdd.activos ? (v / cdd.activos * 100).toFixed(1) + '%' : '—';
+          html += kpiHtml(p, fmtPts(v), pct + ' del total', CDD_PLAN_COLOR_SOLID[p]);
+        });
+        html += '</div>';
+        html += '<div class="cc" style="margin-bottom:14px"><div class="ct">Miembros suscriptos por mes y plan — base activa acumulada (CY, línea = total ' + fyYears().ly + ')</div>'
+          + '<div class="cw"><canvas id="ch-cdd-stock-' + suffix + '"></canvas></div>'
+          + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-ch-cdd-stock-' + suffix + '"></div></div></div>';
+        html += cddFlowTable(cdd, fyYears(), suffix);
+      }
+      html += '</div>';
+    }
+
+    // ---- Enrolados iFood: va DENTRO de la sección de programa "IFOOD" ----
+    if (prog === 'IFOOD') {
+      html += '<div class="sub-block"><div class="sub-title">Enrolados</div>';
+      if (!ifd.total) {
+        html += '<div class="empty">Sin datos de enrolados' + (RAW.ifood ? '' : ' — loyalty_ifood_enroll.json no disponible') + '</div>';
+      } else {
+        html += '<div class="kpi-row">';
+        html += kpiHtml('iFood enrol', fmtPts(ifd.byTipo['iFood enrol'] || 0), 'initiative cross_cashback', '#d97706');
+        html += kpiHtml('Club iFood', fmtPts(ifd.byTipo['Club iFood'] || 0), 'initiative closed_loop_discount', 'var(--red)');
+        html += '</div>';
+        html += '<div class="cc"><div class="ct">Altas por mes — iFood enrol + Club iFood (CY, línea = total ' + fyYears().ly + ')</div>'
+          + '<div class="cw"><canvas id="ch-ifd-altas-' + suffix + '"></canvas></div>'
+          + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-ch-ifd-altas-' + suffix + '"></div></div></div>';
+      }
+      html += '</div>';
+    }
+
     html += '</div></div>';  // prog-body, prog-section
   });
 
@@ -1053,23 +1067,6 @@ function renderMetrics(country, m) {
     buildStackedBarChart(mbTierId, tierDatasets, fmtPtsChart);
   }
 
-  // Club Despegar: altas vs bajas por mes (FY actual).
-  if (showsClubDespegar(country.key) && (cdd.activos || Object.keys(cdd.altasByYm).length)) {
-    var cddAltas = fiscalSeries(cdd.altasByYm, cdd.altasByYm, fy.cy, fy.ly, fy.cy);
-    var cddBajas = fiscalSeries(cdd.bajasByYm, cdd.bajasByYm, fy.cy, fy.ly, fy.cy);
-    buildFlowChart('ch-cdd-flow-' + suffix, cddAltas, cddBajas, fmtPtsChart);
-  }
-
-  // iFood: altas por mes, iFood enrol vs Club iFood (FY actual, barras agrupadas).
-  if (showsIfood(country.key) && ifd.total) {
-    var ifdDatasets = IFOOD_TIPOS.map(function(t){
-      return { label: t,
-               data: fiscalSeries(ifd.altasByTipoYm[t], ifd.altasByTipoYm[t], fy.cy, fy.ly, fy.cy),
-               backgroundColor: IFOOD_COLOR[t] };
-    });
-    buildStackedBarChart('ch-ifd-' + suffix, ifdDatasets, fmtPtsChart, false);
-  }
-
   programs.forEach(function(prog) {
     var canvasId   = 'ch-' + prog.replace(/[^a-z0-9]/gi, '') + '-' + suffix;
     var canvasRdId = 'ch-rd-' + prog.replace(/[^a-z0-9]/gi, '') + '-' + suffix;
@@ -1102,6 +1099,38 @@ function renderMetrics(country, m) {
 
     buildBarChart(canvasId,   acPrev, acCurr, fy.ly, fy.cy, 'rgba(86,38,233,.75)', fmtFn);
     buildBarChart(canvasRdId, rdPrev, rdCurr, fy.ly, fy.cy, 'rgba(220,38,38,.75)', fmtFn, { prev: pricePrev, curr: priceCurr });
+
+    // Club Despegar — stock de suscriptos apilado por plan (CY) + total LY como línea.
+    if (prog === 'Club Despegar' && (cdd.activos || Object.keys(cdd.altasByYm).length)) {
+      var cddDatasets = CDD_PLANS.filter(function(p){
+        return Object.keys(cdd.stockByPlanYm[p] || {}).length;
+      }).map(function(p){
+        return { label: p,
+                 data: fiscalSeries(cdd.stockByPlanYm[p], cdd.stockByPlanYm[p], fy.cy, fy.ly, fy.cy),
+                 backgroundColor: CDD_PLAN_COLOR[p] };
+      });
+      var cddStockCY = fiscalSeries(cdd.stockByYm, cdd.stockByYm, fy.cy, fy.ly, fy.cy);
+      var cddStockLY = fiscalSeries(cdd.stockByYm, cdd.stockByYm, fy.cy, fy.ly, fy.ly);
+      buildStackedBarChart('ch-cdd-stock-' + suffix, cddDatasets, fmtPtsChart, true,
+        { label: 'Total ' + fy.ly, data: cddStockLY });
+      var yEl = document.getElementById('yoy-ch-cdd-stock-' + suffix);
+      if (yEl) yEl.innerHTML = yoyRowHtml(cddStockLY, cddStockCY);
+    }
+
+    // iFood — altas apiladas por tipo (CY) + total LY como línea.
+    if (prog === 'IFOOD' && ifd.total) {
+      var ifdDatasets = IFOOD_TIPOS.map(function(t){
+        return { label: t,
+                 data: fiscalSeries(ifd.altasByTipoYm[t], ifd.altasByTipoYm[t], fy.cy, fy.ly, fy.cy),
+                 backgroundColor: IFOOD_COLOR[t] };
+      });
+      var ifdAltasCY = fiscalSeries(ifd.altasByYm, ifd.altasByYm, fy.cy, fy.ly, fy.cy);
+      var ifdAltasLY = fiscalSeries(ifd.altasByYm, ifd.altasByYm, fy.cy, fy.ly, fy.ly);
+      buildStackedBarChart('ch-ifd-altas-' + suffix, ifdDatasets, fmtPtsChart, true,
+        { label: 'Total ' + fy.ly, data: ifdAltasLY });
+      var yEl2 = document.getElementById('yoy-ch-ifd-altas-' + suffix);
+      if (yEl2) yEl2.innerHTML = yoyRowHtml(ifdAltasLY, ifdAltasCY);
+    }
   });
 
   var bkMap  = breakageMonthlyMap(country);
@@ -1244,21 +1273,31 @@ function buildBarChart(canvasId, prevValues, currValues, prevLabel, currLabel, c
 
 // Barras multi-serie sobre el eje fiscal (12 meses Abr->Mar). datasets: [{label,data[12],backgroundColor}].
 // stacked por defecto true (apiladas); pasar false para barras agrupadas.
-function buildStackedBarChart(canvasId, datasets, fmtFn, stacked) {
+// lineOverlay opcional: {label, data[12], color} → dibuja una línea punteada encima (ej. total LY).
+function buildStackedBarChart(canvasId, datasets, fmtFn, stacked, lineOverlay) {
   if (stacked === undefined) stacked = true;
   var ctx = document.getElementById(canvasId);
   if (!ctx) return;
   if (CHARTS[canvasId]) { CHARTS[canvasId].destroy(); }
-  var any = datasets.some(function(d){ return (d.data || []).some(Boolean); });
+  var any = datasets.some(function(d){ return (d.data || []).some(Boolean); })
+         || (lineOverlay && lineOverlay.data.some(Boolean));
   if (!any) { ctx.parentElement.innerHTML = '<div class="empty" style="padding:20px">Sin datos</div>'; return; }
   fmtFn = fmtFn || fmtPts;
+  var ds = datasets.map(function(d){
+    var o = { label: d.label, data: d.data, backgroundColor: d.backgroundColor, borderRadius: 2 };
+    if (stacked) o.stack = 's';
+    return o;
+  });
+  if (lineOverlay) {
+    ds.push({
+      type: 'line', label: lineOverlay.label, data: lineOverlay.data,
+      borderColor: lineOverlay.color || '#1e293b', borderWidth: 2, borderDash: [4, 4],
+      pointRadius: 2, tension: .2, datalabels: { display: false }
+    });
+  }
   CHARTS[canvasId] = new Chart(ctx, {
     type: 'bar',
-    data: { labels: FISCAL_LABELS, datasets: datasets.map(function(d){
-      var o = { label: d.label, data: d.data, backgroundColor: d.backgroundColor, borderRadius: 2 };
-      if (stacked) o.stack = 's';
-      return o;
-    }) },
+    data: { labels: FISCAL_LABELS, datasets: ds },
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: { legend: { labels: { font: { size: 12 }, boxWidth: 10 } }, datalabels: { display: false } },
@@ -1270,38 +1309,31 @@ function buildStackedBarChart(canvasId, datasets, fmtFn, stacked) {
   });
 }
 
-// Altas (verde, +) vs bajas (rojo, −) por mes fiscal, con línea de neto. Para Club Despegar.
-function buildFlowChart(canvasId, altas, bajas, fmtFn) {
-  var ctx = document.getElementById(canvasId);
-  if (!ctx) return;
-  if (CHARTS[canvasId]) { CHARTS[canvasId].destroy(); }
-  if (!altas.some(Boolean) && !bajas.some(Boolean)) {
-    ctx.parentElement.innerHTML = '<div class="empty" style="padding:20px">Sin datos</div>'; return;
-  }
-  fmtFn = fmtFn || fmtPts;
-  var bajasNeg = bajas.map(function(v){ return -Math.abs(v || 0); });
-  var net = altas.map(function(a, i){ return (a || 0) - Math.abs(bajas[i] || 0); });
-  CHARTS[canvasId] = new Chart(ctx, {
-    type: 'bar',
-    data: { labels: FISCAL_LABELS, datasets: [
-      { label: 'Altas', data: altas, backgroundColor: 'rgba(22,163,74,.75)', borderRadius: 3,
-        datalabels: { anchor: 'end', align: 'top', font: { size: 10, weight: '700' }, color: '#166534',
-                      formatter: function(v){ return v ? fmtFn(v) : ''; } } },
-      { label: 'Bajas', data: bajasNeg, backgroundColor: 'rgba(220,38,38,.70)', borderRadius: 3,
-        datalabels: { anchor: 'end', align: 'bottom', font: { size: 10, weight: '700' }, color: '#991b1b',
-                      formatter: function(v){ return v ? fmtFn(Math.abs(v)) : ''; } } },
-      { type: 'line', label: 'Neto', data: net, borderColor: '#1e293b', borderWidth: 2, pointRadius: 2,
-        tension: .2, datalabels: { display: false } }
-    ] },
-    options: {
-      responsive: true, maintainAspectRatio: false, layout: { padding: { top: 18, bottom: 6 } },
-      plugins: { legend: { labels: { font: { size: 12 }, boxWidth: 10 } } },
-      scales: {
-        x: { grid: { display: false }, ticks: { font: { size: 12 } } },
-        y: { grid: { color: '#f1f5f9' }, ticks: { font: { size: 12 }, callback: function(v){ return fmtFn(Math.abs(v)); } } }
-      }
-    }
+// Tablita de altas / bajas por mes (fiscal) — CY y LY. Bajas por fecha registrada (aprox).
+function cddFlowTable(cdd, fy, suffix) {
+  var aCY = fiscalSeries(cdd.altasByYm, cdd.altasByYm, fy.cy, fy.ly, fy.cy);
+  var bCY = fiscalSeries(cdd.bajasByYm, cdd.bajasByYm, fy.cy, fy.ly, fy.cy);
+  var aLY = fiscalSeries(cdd.altasByYm, cdd.altasByYm, fy.cy, fy.ly, fy.ly);
+  var bLY = fiscalSeries(cdd.bajasByYm, cdd.bajasByYm, fy.cy, fy.ly, fy.ly);
+  var sum = function(a){ return a.reduce(function(x, y){ return x + (y || 0); }, 0); };
+  var h = '<div class="bk-card"><div class="bk-hdr">Altas y bajas por mes · bajas por fecha registrada (aprox.)</div>'
+    + '<div class="tbl-scroll"><table class="bk"><thead><tr><th>Mes</th>'
+    + '<th class="r">Altas ' + fy.cy + '</th><th class="r">Bajas ' + fy.cy + '</th>'
+    + '<th class="r">Altas ' + fy.ly + '</th><th class="r">Bajas ' + fy.ly + '</th></tr></thead><tbody>';
+  FISCAL_LABELS.forEach(function(lbl, i){
+    h += '<tr><td>' + lbl + '</td>'
+      + '<td class="r">' + (aCY[i] ? fmtPts(aCY[i]) : '—') + '</td>'
+      + '<td class="r" style="color:var(--red)">' + (bCY[i] ? '-' + fmtPts(bCY[i]) : '—') + '</td>'
+      + '<td class="r" style="color:var(--muted)">' + (aLY[i] ? fmtPts(aLY[i]) : '—') + '</td>'
+      + '<td class="r" style="color:var(--muted)">' + (bLY[i] ? '-' + fmtPts(bLY[i]) : '—') + '</td></tr>';
   });
+  h += '<tr style="font-weight:700;background:#f8fafc"><td>Total</td>'
+    + '<td class="r">' + fmtPts(sum(aCY)) + '</td>'
+    + '<td class="r" style="color:var(--red)">-' + fmtPts(sum(bCY)) + '</td>'
+    + '<td class="r" style="color:var(--muted)">' + fmtPts(sum(aLY)) + '</td>'
+    + '<td class="r" style="color:var(--muted)">-' + fmtPts(sum(bLY)) + '</td></tr>';
+  h += '</tbody></table></div></div>';
+  return h;
 }
 
 // ============================================================
