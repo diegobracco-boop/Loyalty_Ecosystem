@@ -31,7 +31,9 @@ DRIVE_FOLDER_ID = "1yCPp6hTusYmhhb17WiB6EuhFmsx7tlxb"
 BREAKAGE_FILE   = "loyalty_breakage.json"
 DICT_FILE       = "loyalty_dict.json"
 SSP_FILE        = "loyalty_ssp.json"
-MIEMBROS_FILE   = "loyalty_miembros.json"
+MIEMBROS_FILE       = "loyalty_miembros.json"
+CLUB_DESPEGAR_FILE  = "loyalty_club_despegar.json"
+IFOOD_ENROLL_FILE   = "loyalty_ifood_enroll.json"
 # Fallbacks locales de la planilla de config: viven al lado de este script en todo
 # clon (ambos trackeados en git), asi que se resuelven relativos a el — antes eran la
 # ruta absoluta de una maquina y rompian el --dry-run del resto (no lee la planilla).
@@ -83,12 +85,33 @@ DB_USER     = os.getenv("USER")
 DB_PASSWORD = os.getenv("PASSWORD")
 
 
+import time as _time
+
+# El handshake del driver ODBC de Treasure Data falla de forma intermitente
+# (errorCode member not found / SSL), sobre todo con la VPN inestable. Como fetch()
+# abre una conexion nueva por query (~10 por corrida), cualquiera puede caer al azar.
+# Se reintenta la CONEXION con backoff; los errores de la query en si no se reintentan.
+_CONN_RETRIES = 4
+_CONN_BACKOFF = 8  # segundos: 8, 16, 24...
+
+
 def conectar():
     import pyodbc
-    return pyodbc.connect(
-        f"DSN={DSN_NAME};UID={DB_USER};PWD={DB_PASSWORD};",
-        autocommit=True
-    )
+    last = None
+    for intento in range(1, _CONN_RETRIES + 1):
+        try:
+            return pyodbc.connect(
+                f"DSN={DSN_NAME};UID={DB_USER};PWD={DB_PASSWORD};",
+                autocommit=True,
+            )
+        except pyodbc.Error as e:
+            last = e
+            if intento < _CONN_RETRIES:
+                espera = _CONN_BACKOFF * intento
+                print(f"  ! conexion falló (intento {intento}/{_CONN_RETRIES}): "
+                      f"{str(e)[:90]} — reintento en {espera}s")
+                _time.sleep(espera)
+    raise last
 
 
 def fetch(query: str, label: str) -> pd.DataFrame:
@@ -1207,6 +1230,86 @@ ORDER BY 1, 2, 3
 """
 
 
+# Club Despegar (programa de suscripcion, Argentina) — altas y bajas por mes,
+# abiertas por plan y estado de membresia. Query simplificada de la que pasó Diego:
+# se saca la clasificacion was_client (Nuevo/Recomprador/Churn) porque no se usa en
+# el dashboard y evita el JOIN pesado contra analytics.mkt_users_fact_transactions.
+#  - 1 fila-evento 'Alta' por suscripcion (fecha = created_at)
+#  - 1 fila-evento 'Baja' por cancelacion (fecha = updated_at; USER_CANCELLED o
+#    PENDING_USER_CANCELLATION)
+#  - rn = 1: una suscripcion por social_id (ACTIVE gana; si no, la mas reciente)
+# Agregado en SQL a mes x plan x estado (el volumen fila-a-fila es de ~1M altas).
+_CLUB_DESPEGAR_SQL = """
+WITH ranked AS (
+    SELECT
+        mm.social_id,
+        CASE ms.plan_id
+            WHEN '90370891-0a09-4ade-bf5c-0ebfeb1b68bf' THEN 'Plan 1'
+            WHEN '0d1e7af4-1558-4080-91c9-86d40a000e4b' THEN 'Plan 2'
+            WHEN '0bcbacb4-4e6b-4539-928b-8f0aff08551e' THEN 'Plan 3'
+            WHEN 'c09a89d0-ac09-4cdd-a2fc-142bbd3b0080' THEN 'Plan 4'
+            ELSE 'Otro'
+        END                                              AS plan_type,
+        ms.status                                        AS membership_status,
+        p.country                                        AS subscription_country,
+        DATE(ms.created_at)                              AS subscription_date,
+        CASE WHEN ms.status IN ('USER_CANCELLED', 'PENDING_USER_CANCELLATION')
+             THEN DATE(ms.updated_at) END                AS cancellation_date,
+        ROW_NUMBER() OVER (
+            PARTITION BY mm.social_id
+            ORDER BY CASE WHEN ms.status = 'ACTIVE' THEN 1 ELSE 2 END, ms.created_at DESC
+        )                                                AS rn
+    FROM data.raw.membertrip_subscription ms
+    JOIN data.raw.mike_members mm   ON ms.account_id = mm.provider_id
+    JOIN data.raw.membertrip_plan p ON ms.plan_id = p.id
+    WHERE ms.status IN (
+        'ACTIVE', 'USER_CANCELLED', 'PENDING_USER_CANCELLATION', 'EXPIRED_PAYMENT', 'PAYMENT_PENDING'
+    )
+),
+base AS (SELECT * FROM ranked WHERE rn = 1)
+SELECT DATE_FORMAT(subscription_date, '%Y-%m') AS ym,
+       plan_type, membership_status, subscription_country,
+       'Alta'    AS tipo_evento,
+       COUNT(*)  AS n
+FROM base
+WHERE subscription_date IS NOT NULL
+GROUP BY 1, 2, 3, 4
+UNION ALL
+SELECT DATE_FORMAT(cancellation_date, '%Y-%m') AS ym,
+       plan_type, membership_status, subscription_country,
+       'Baja'    AS tipo_evento,
+       COUNT(*)  AS n
+FROM base
+WHERE cancellation_date IS NOT NULL
+GROUP BY 1, 2, 3, 4
+ORDER BY 1, 5, 2
+"""
+
+
+# iFood — usuarios enrolados, separado en 'iFood enrol' (initiative cross_cashback)
+# y 'Club iFood' (initiative closed_loop_discount). De la pregunta Metabase 150076.
+# Cambio vs la query original: se agrega MIN(closed_loop_discount) como fecha de alta
+# de Club iFood, y el piso de fecha se baja a 2025-01 (era 2026-01) para poder comparar
+# CY vs LY en el dashboard — si la iniciativa no existía antes, esos meses quedan vacíos.
+_IFOOD_ENROLL_SQL = """
+WITH u AS (
+    SELECT despegar_session_id                                                       AS userid,
+           MIN(CASE WHEN initiative = 'cross_cashback'       THEN DATE(event_date) END) AS ifood_date,
+           MIN(CASE WHEN initiative = 'closed_loop_discount' THEN DATE(event_date) END) AS clube_date
+    FROM analytics.ifood_dim_users
+    WHERE initiative IN ('cross_cashback', 'closed_loop_discount')
+      AND DATE(event_date) >= DATE('2025-01-01')
+    GROUP BY 1
+)
+SELECT DATE_FORMAT(ifood_date, '%Y-%m') AS ym, 'iFood enrol' AS tipo, COUNT(*) AS n
+FROM u WHERE ifood_date IS NOT NULL GROUP BY 1
+UNION ALL
+SELECT DATE_FORMAT(clube_date, '%Y-%m') AS ym, 'Club iFood' AS tipo, COUNT(*) AS n
+FROM u WHERE clube_date IS NOT NULL GROUP BY 1
+ORDER BY 1, 2
+"""
+
+
 # ==============================================================================
 # 4) CLEAN & TRANSFORM
 # ==============================================================================
@@ -1338,6 +1441,49 @@ def clean_miembros(df: pd.DataFrame) -> pd.DataFrame:
         key=lambda s: s.map(TIER_ORDER) if s.name == "tier" else s,
     ).reset_index(drop=True)
     return out[["ym", "country", "tier", "clientes"]]
+
+
+# country que emite membertrip_plan.country -> dataKey. Club Despegar es solo AR,
+# pero por si aparece algo distinto se normaliza y lo que no matchea cae a 'argentina'
+# (el dashboard igual solo lo muestra en la solapa Argentina / TOTAL).
+def _norm_sub_country(v) -> str:
+    s = str(v).strip().lower() if v is not None and not pd.isna(v) else ""
+    if s in ("ar", "arg", "argentina"):
+        return "argentina"
+    return MIEMBROS_PAIS_TO_DATAKEY.get(s.upper(), "argentina")
+
+
+def clean_club_despegar(df: pd.DataFrame) -> pd.DataFrame:
+    """Eventos de Club Despegar agregados a [ym, country, plan_type, membership_status,
+    tipo_evento, n]. tipo_evento: Alta | Baja."""
+    df = df.copy()
+    df.columns = [c.lower() for c in df.columns]
+    df = df.dropna(subset=["ym"])
+    df["ym"] = df["ym"].astype(str).str.slice(0, 7)
+    df = df[df["ym"].str.len() == 7]
+    df["plan_type"]         = df["plan_type"].fillna("Otro").astype(str).str.strip()
+    df["membership_status"] = df["membership_status"].fillna("N/D").astype(str).str.strip()
+    df["tipo_evento"]       = df["tipo_evento"].astype(str).str.strip()
+    df["country"]           = df["subscription_country"].map(_norm_sub_country)
+    df["n"] = pd.to_numeric(df["n"], errors="coerce").fillna(0).round(0).astype(int)
+    out = (df.groupby(["ym", "country", "plan_type", "membership_status", "tipo_evento"],
+                      as_index=False)
+             .agg(n=("n", "sum")))
+    return out.sort_values(["ym", "tipo_evento", "plan_type"]).reset_index(drop=True)[
+        ["ym", "country", "plan_type", "membership_status", "tipo_evento", "n"]]
+
+
+def clean_ifood_enroll(df: pd.DataFrame) -> pd.DataFrame:
+    """Altas de enrolamiento iFood agregadas a [ym, tipo, n]. tipo: iFood enrol | Club iFood."""
+    df = df.copy()
+    df.columns = [c.lower() for c in df.columns]
+    df = df.dropna(subset=["ym"])
+    df["ym"]   = df["ym"].astype(str).str.slice(0, 7)
+    df = df[df["ym"].str.len() == 7]
+    df["tipo"] = df["tipo"].astype(str).str.strip()
+    df["n"]    = pd.to_numeric(df["n"], errors="coerce").fillna(0).round(0).astype(int)
+    out = (df.groupby(["ym", "tipo"], as_index=False).agg(n=("n", "sum")))
+    return out.sort_values(["ym", "tipo"]).reset_index(drop=True)[["ym", "tipo", "n"]]
 
 
 def to_compact(df: pd.DataFrame) -> dict:
@@ -1655,6 +1801,12 @@ df_breakage = clean_breakage(fetch(build_breakage_query(LY_DESDE), "Breakage"))
 print("\n--- Miembros del programa ---")
 df_miembros = clean_miembros(fetch(_MIEMBROS_SQL, "Miembros (snapshot base activa)"))
 
+print("\n--- Club Despegar (suscripción AR) ---")
+df_club = clean_club_despegar(fetch(_CLUB_DESPEGAR_SQL, "Club Despegar (altas/bajas x plan)"))
+
+print("\n--- iFood enrolados ---")
+df_ifood = clean_ifood_enroll(fetch(_IFOOD_ENROLL_SQL, "iFood enrol + Club iFood"))
+
 print("\n--- Construyendo diccionario de puntos ---")
 dict_bytes = build_dict_json()
 print(f"  Dict: {len(dict_bytes)} bytes")
@@ -1693,18 +1845,35 @@ META_MIEMBROS = {
 }
 miembros_bytes  = json.dumps({"meta": META_MIEMBROS, "data": to_compact(df_miembros)}, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
 
+META_CLUB = {
+    "generated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+    "snapshot_date": str(TODAY),
+    "fuente": "data.raw.membertrip_subscription x plan x status; alta=created_at, baja=updated_at (una suscripcion por social_id, ACTIVE gana)",
+}
+club_bytes  = json.dumps({"meta": META_CLUB, "data": to_compact(df_club)}, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+
+META_IFOOD = {
+    "generated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+    "fuente": "analytics.ifood_dim_users; cross_cashback='iFood enrol', closed_loop_discount='Club iFood'; alta = 1er evento de la iniciativa, desde 2025-01",
+}
+ifood_bytes = json.dumps({"meta": META_IFOOD, "data": to_compact(df_ifood)}, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+
+_club_act = int(df_club[(df_club["tipo_evento"] == "Alta") & (df_club["membership_status"] == "ACTIVE")]["n"].sum())
 print(f"  Acum {CY_YEAR}:  {len(acum_cy_bytes)//1024:.0f} KB  ({len(df_acum_cy):,} filas)")
 print(f"  Acum {LY_YEAR}:  {len(acum_ly_bytes)//1024:.0f} KB  ({len(df_acum_ly):,} filas)")
 print(f"  Reden {CY_YEAR}: {len(reden_cy_bytes)//1024:.0f} KB  ({len(df_reden_cy):,} filas)")
 print(f"  Reden {LY_YEAR}: {len(reden_ly_bytes)//1024:.0f} KB  ({len(df_reden_ly):,} filas)")
 print(f"  Breakage:       {len(breakage_bytes)//1024:.0f} KB  ({len(df_breakage):,} filas)")
 print(f"  Miembros:       {len(miembros_bytes)//1024:.0f} KB  ({len(df_miembros):,} filas · {df_miembros['clientes'].sum():,} miembros)")
+print(f"  Club Despegar:  {len(club_bytes)//1024:.0f} KB  ({len(df_club):,} filas · {_club_act:,} activos)")
+print(f"  iFood enrol:    {len(ifood_bytes)//1024:.0f} KB  ({len(df_ifood):,} filas · {int(df_ifood['n'].sum()):,} altas)")
 
 _OUT = [
     (acum_cy_bytes,  ACUM_CY_FILE), (acum_ly_bytes,  ACUM_LY_FILE),
     (reden_cy_bytes, REDEN_CY_FILE), (reden_ly_bytes, REDEN_LY_FILE),
     (breakage_bytes, BREAKAGE_FILE), (dict_bytes, DICT_FILE), (ssp_bytes, SSP_FILE),
     (miembros_bytes, MIEMBROS_FILE),
+    (club_bytes, CLUB_DESPEGAR_FILE), (ifood_bytes, IFOOD_ENROLL_FILE),
 ]
 
 if DRY_RUN:
@@ -1730,6 +1899,18 @@ if DRY_RUN:
     for c in _piv.index:
         detalle = "  ".join(f"{t}={int(_piv.loc[c, t]):,}" for t in _piv.columns)
         print(f"    {c:10s} total={int(_piv.loc[c].sum()):>10,}   {detalle}")
+
+    print("\n  Club Despegar — activos por plan:")
+    _cact = (df_club[(df_club["tipo_evento"] == "Alta") & (df_club["membership_status"] == "ACTIVE")]
+             .groupby("plan_type")["n"].sum().sort_index())
+    for p, v in _cact.items():
+        print(f"    {p:8s} {int(v):>9,}")
+    print(f"    {'TOTAL':8s} {int(_cact.sum()):>9,}")
+    _cev = df_club.groupby("tipo_evento")["n"].sum()
+    print(f"    altas históricas={int(_cev.get('Alta', 0)):,}  ·  bajas históricas={int(_cev.get('Baja', 0)):,}")
+    print("\n  iFood enrolados — total por tipo:")
+    for t, v in df_ifood.groupby("tipo")["n"].sum().items():
+        print(f"    {t:14s} {int(v):>9,}")
 else:
     print("\n--- Subiendo a Google Drive ---")
     for data, name in _OUT:

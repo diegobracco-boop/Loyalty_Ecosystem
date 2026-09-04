@@ -34,10 +34,12 @@ La mayoría es Analista. Para setup: skill **`/configurar-entorno`**.
 
 | Archivo | Qué es |
 |---|---|
-| `loyalty_sync.py` | Pipeline: datalake → agrega por mes+país+partner+point_type → sube 8 JSON a Drive |
+| `loyalty_sync.py` | Pipeline: datalake → agrega por mes+país+partner+point_type → sube 10 JSON a Drive |
 | `Código.js` | Backend GAS: sirve los JSON crudos + filtra loyalty del P&L (`_loyPnl`) |
-| `dashboard.html` | SPA: pestaña **TOTAL** (suma de países) + una por país; P&L Contable (Baseline/Goal/Δ, selector Mes/Q/Half), Métricas por programa, Miembros del programa por tier |
+| `dashboard.html` | SPA: pestaña **TOTAL** (suma de países) + una por país; P&L Contable (Baseline/Goal/Δ, selector Mes/Q/Half), Métricas por programa, Miembros del programa por tier, Club Despegar (AR) e iFood (BR) |
 | `loyalty_miembros.json` | Snapshot del padrón activo (`clm_customers` status='A') por mes de `enrolment_date` × país × tier. Sin ventana de fecha (foto actual). Tier: mismo criterio que la query de breakage. |
+| `loyalty_club_despegar.json` | Club Despegar (suscripción AR): eventos alta/baja por mes × plan × estado, desde `data.raw.membertrip_subscription`. Activos = suscripciones `ACTIVE` (una por social_id). Solo se muestra en solapa Argentina + TOTAL. |
+| `loyalty_ifood_enroll.json` | iFood enrolados (BR): altas por mes de `iFood enrol` (cross_cashback) y `Club iFood` (closed_loop_discount), desde `analytics.ifood_dim_users`. Solo solapa Brasil + TOTAL. |
 | `breakage_esperado.csv` · `Diccionario.xlsx` | **Fallback** de la planilla de config. La fuente real es el Sheet. |
 | `auth_drive.py` | OAuth de Drive (necesita `credentials_drive.json`, que no está en el repo) |
 | `setup_check.py` · `configurar_datalake.py` | Diagnóstico y carga de credenciales para operadores |
@@ -56,7 +58,9 @@ La mayoría es Analista. Para setup: skill **`/configurar-entorno`**.
 
 - **Apps Script no lee blobs >50 MB.** Por eso `loyalty_sync.py` sube los JSON de acum/reden **agregados por mes** (no fila por fila). Si vuelven a crecer, la serie LY de los charts se cae a cero (`fyYears()` → NaN).
 - **Pestaña TOTAL**: `dashboard.html` la trata como pseudo-país (`dataKey='total'`). `matchCountryRow` / `rowCountryKey` deciden si una fila entra y con qué país se hace el lookup de SSP. La suma es sobre `COUNTRY_DATAKEYS` (los 8 países), no "todo lo que haya" — así no se cuela un `Pais` agregado del P&L.
-- **Miembros**: es un snapshot del padrón HOY. Las "altas" de meses viejos solo incluyen a los que siguen activos → sesgo de supervivencia (no es la serie histórica real de altas). El KPI de total sí es el padrón actual correcto.
+- **Miembros**: es un snapshot del padrón HOY. Las "altas" de meses viejos solo incluyen a los que siguen activos → sesgo de supervivencia (no es la serie histórica real de altas). El KPI de total sí es el padrón actual correcto. Mismo sesgo en Club Despegar (query filtra por estado actual + `rn=1`).
+- **Club Despegar / iFood** usan catálogos nuevos del datalake (`data.raw.*`, `analytics.ifood_dim_users`) — no `data.lake.*`. Si el ODBC tira `errorCode member not found` al *conectar* (no al correr la query), es la VPN/driver, reintentar (ver [[project_loyalty_odbc_vpn]]).
+- **iFood**: la query de Metabase (150076) arrancaba en 2026-01; el pipeline la bajó a 2025-01 para tener LY. `event_date` de `closed_loop_discount` es la fecha de alta de Club iFood (la query original solo tenía fecha para cross_cashback).
 - **`points` vs `points_distribuidos`**: la query trae `SUM(puntosv2)` como `points`. El cierre de Loyalty usa `points_distribuidos` (~2-4% menos). El SSP calculado difiere ~1% del cierre por esto.
 - **Agregación con `abs()` por fila**: acum/reden se suman en valor absoluto por fila (preserva el criterio previo del dashboard). Cambiarlo mueve todos los totales.
 - **SSP / valor de acumulación**: `getAcumUsd = acum_usd_base · SSP_Facturación[país][mes]`, con `SSP_Facturación = SSP_Calculado · (1 − breakage_esperado)`. `SSP_Calculado` sale de las redenciones Pasaporte D!. El Excel de cierre tenía un **swap MX↔CO** que el pipeline ya corrige.

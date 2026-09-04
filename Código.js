@@ -12,7 +12,9 @@ var FILES = {
   reden_cy: 'loyalty_redenciones_2026.json',
   reden_ly: 'loyalty_redenciones_2025.json',
   breakage: 'loyalty_breakage.json',
-  miembros: 'loyalty_miembros.json'
+  miembros: 'loyalty_miembros.json',
+  club:     'loyalty_club_despegar.json',
+  ifood:    'loyalty_ifood_enroll.json'
 };
 
 var CACHE_TTL   = 21600;  // 6 h
@@ -34,6 +36,8 @@ function getRawRedenCY()  { return _load(LOYALTY_FOLDER_ID,  FILES.reden_cy, 're
 function getRawRedenLY()  { return _load(LOYALTY_FOLDER_ID,  FILES.reden_ly, 'reden_ly'); }
 function getRawBreakage() { return _load(LOYALTY_FOLDER_ID,  FILES.breakage, 'breakage'); }
 function getRawMiembros() { return _load(LOYALTY_FOLDER_ID,  FILES.miembros, 'miembros'); }
+function getRawClub()     { return _load(LOYALTY_FOLDER_ID,  FILES.club,     'club');     }
+function getRawIfood()    { return _load(LOYALTY_FOLDER_ID,  FILES.ifood,    'ifood');    }
 function getRawDict()     { return _load(LOYALTY_FOLDER_ID,  'loyalty_dict.json', 'dict'); }
 function getRawSsp()      { return _load(LOYALTY_FOLDER_ID,  'loyalty_ssp.json',  'ssp');  }
 
