@@ -34,9 +34,10 @@ La mayoría es Analista. Para setup: skill **`/configurar-entorno`**.
 
 | Archivo | Qué es |
 |---|---|
-| `loyalty_sync.py` | Pipeline: datalake → agrega por mes+país+partner+point_type → sube 7 JSON a Drive |
+| `loyalty_sync.py` | Pipeline: datalake → agrega por mes+país+partner+point_type → sube 8 JSON a Drive |
 | `Código.js` | Backend GAS: sirve los JSON crudos + filtra loyalty del P&L (`_loyPnl`) |
-| `dashboard.html` | SPA: P&L Contable (Baseline/Goal/Δ, selector Mes/Q/Half), Métricas por programa |
+| `dashboard.html` | SPA: pestaña **TOTAL** (suma de países) + una por país; P&L Contable (Baseline/Goal/Δ, selector Mes/Q/Half), Métricas por programa, Miembros del programa por tier |
+| `loyalty_miembros.json` | Snapshot del padrón activo (`clm_customers` status='A') por mes de `enrolment_date` × país × tier. Sin ventana de fecha (foto actual). Tier: mismo criterio que la query de breakage. |
 | `breakage_esperado.csv` · `Diccionario.xlsx` | **Fallback** de la planilla de config. La fuente real es el Sheet. |
 | `auth_drive.py` | OAuth de Drive (necesita `credentials_drive.json`, que no está en el repo) |
 | `setup_check.py` · `configurar_datalake.py` | Diagnóstico y carga de credenciales para operadores |
@@ -54,6 +55,8 @@ La mayoría es Analista. Para setup: skill **`/configurar-entorno`**.
 ## Gotchas (aprendidos)
 
 - **Apps Script no lee blobs >50 MB.** Por eso `loyalty_sync.py` sube los JSON de acum/reden **agregados por mes** (no fila por fila). Si vuelven a crecer, la serie LY de los charts se cae a cero (`fyYears()` → NaN).
+- **Pestaña TOTAL**: `dashboard.html` la trata como pseudo-país (`dataKey='total'`). `matchCountryRow` / `rowCountryKey` deciden si una fila entra y con qué país se hace el lookup de SSP. La suma es sobre `COUNTRY_DATAKEYS` (los 8 países), no "todo lo que haya" — así no se cuela un `Pais` agregado del P&L.
+- **Miembros**: es un snapshot del padrón HOY. Las "altas" de meses viejos solo incluyen a los que siguen activos → sesgo de supervivencia (no es la serie histórica real de altas). El KPI de total sí es el padrón actual correcto.
 - **`points` vs `points_distribuidos`**: la query trae `SUM(puntosv2)` como `points`. El cierre de Loyalty usa `points_distribuidos` (~2-4% menos). El SSP calculado difiere ~1% del cierre por esto.
 - **Agregación con `abs()` por fila**: acum/reden se suman en valor absoluto por fila (preserva el criterio previo del dashboard). Cambiarlo mueve todos los totales.
 - **SSP / valor de acumulación**: `getAcumUsd = acum_usd_base · SSP_Facturación[país][mes]`, con `SSP_Facturación = SSP_Calculado · (1 − breakage_esperado)`. `SSP_Calculado` sale de las redenciones Pasaporte D!. El Excel de cierre tenía un **swap MX↔CO** que el pipeline ya corrige.

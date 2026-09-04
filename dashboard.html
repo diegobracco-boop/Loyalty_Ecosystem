@@ -255,6 +255,7 @@ if (window.ChartDataLabels) Chart.register(ChartDataLabels);
 // Country & program config
 // ============================================================
 var COUNTRIES = [
+  { key: 'total',     label: 'TOTAL',     dataKey: 'total'     },
   { key: 'brasil',    label: 'Brasil',    dataKey: 'brasil'    },
   { key: 'mexico',    label: 'Mexico',    dataKey: 'mexico'    },
   { key: 'argentina', label: 'Argentina', dataKey: 'argentina' },
@@ -266,6 +267,20 @@ var COUNTRIES = [
   { key: 'uruguay',   label: 'Uruguay',   dataKey: 'uruguay',
     banner: { type: 'wip', html: 'Seccion en desarrollo <strong>(WIP)</strong> — datos preliminares.' } }
 ];
+
+// La pestaña TOTAL agrega la suma de estos países (P&L + métricas de negocio).
+var COUNTRY_DATAKEYS = COUNTRIES.filter(function(c){ return c.dataKey !== 'total'; })
+                                .map(function(c){ return c.dataKey; });
+function isTotal(country) { return (country && (country.dataKey || country)) === 'total'; }
+// ¿la fila (país en nombre completo, ej 'brasil') pertenece a la vista pedida?
+function matchCountryRow(rowCountry, country) {
+  var p = (rowCountry || '').toLowerCase();
+  return isTotal(country) ? COUNTRY_DATAKEYS.indexOf(p) !== -1 : p === country.dataKey;
+}
+// dataKey a usar para lookups por país de una fila (en TOTAL, el país real de la fila).
+function rowCountryKey(row, country) {
+  return isTotal(country) ? (row.country || '').toLowerCase() : country.dataKey;
+}
 
 // P&L grouping — keywords matched against P&L N1 (lowercase, stripped of "loyalty -" prefix)
 var PNL_GROUPS = [
@@ -287,6 +302,18 @@ var PROGRAM_COUNTRIES = {
   'Club Despegar': ['argentina'],
   'Cobrand':       ['mexico', 'argentina', 'colombia'],
   'IFOOD':         ['brasil'],
+};
+
+// ---- Miembros del programa (loyalty_miembros.json) ----
+var MB_TIERS = ['Viajero', 'Explorador', 'Global', 'Sin tier'];
+var MB_TIER_COLOR = {
+  'Viajero':    'rgba(86,38,233,.80)',
+  'Explorador': 'rgba(8,145,178,.80)',
+  'Global':     'rgba(217,119,6,.85)',
+  'Sin tier':   'rgba(100,116,139,.50)'
+};
+var MB_TIER_COLOR_SOLID = {
+  'Viajero': 'var(--accent)', 'Explorador': '#0891b2', 'Global': '#d97706', 'Sin tier': 'var(--muted)'
 };
 
 function getProgramFromAcum(row) {
@@ -340,6 +367,7 @@ function valueForMode(row, mode) { return mode === 'USD' ? getUsd(row) : getPts(
 
 // Programs visible for a given country (in display order, filtered by what's in the dict)
 function programsForCountry(countryKey) {
+  if (countryKey === 'total') return PROGRAMS_ORDER.slice();  // TOTAL muestra todos
   return PROGRAMS_ORDER.filter(function(p) {
     var allowed = PROGRAM_COUNTRIES[p];
     return !allowed || allowed.indexOf(countryKey) !== -1;
@@ -350,10 +378,10 @@ function programsForCountry(countryKey) {
 // State
 // ============================================================
 var RAW = { acum_cy: null, acum_ly: null, reden_cy: null, reden_ly: null, breakage: null,
-            baseline: null, budget: null, forecast: null, dict: null, ssp: null };
+            miembros: null, baseline: null, budget: null, forecast: null, dict: null, ssp: null };
 var LOADED = 0;
-var TOTAL  = 10;
-var ACTIVE_COUNTRY = 'brasil';
+var TOTAL  = 11;
+var ACTIVE_COUNTRY = 'total';
 var CHARTS = {};
 
 // Evolutive charts: eje fijo de 12 meses del anio fiscal (Abr->Mar), independiente
@@ -538,7 +566,7 @@ function buildPnl(country) {
   var rows = expandBaseline(RAW.baseline);
   var r = getRange();
   var filtered = rows.filter(function(row) {
-    return (row['Pais'] || '').toLowerCase() === country.dataKey
+    return matchCountryRow(row['Pais'], country)
         && (row['P&L N1'] || '').toLowerCase().indexOf('loyalty') !== -1
         && inRange((row['Fecha'] || '').substring(0, 7), r.from, r.to);
   });
@@ -588,7 +616,7 @@ function scenarioLoyaltyPnl(country, monthArr) {
   ['budget', 'forecast'].forEach(function(s) {
     var byLine = out[s];
     expandBaseline(RAW[s]).forEach(function(row) {
-      if ((row['Pais'] || '').toLowerCase() !== country.dataKey) return;
+      if (!matchCountryRow(row['Pais'], country)) return;
       var l = row['P&L N1'] || 'N/D';
       if (l.toLowerCase().indexOf('loyalty') === -1) return;
       var ym = (row['Fecha'] || '').substring(0, 7);
@@ -721,11 +749,11 @@ function renderPnl(containerId, country) {
 // Metrics data by program
 // ============================================================
 function buildMetrics(country) {
-  var r = getRange(), ck = country.dataKey;
+  var r = getRange();
 
   function filterCY(rows) {
     return rows.filter(function(row) {
-      return (row.country || '').toLowerCase() === ck
+      return matchCountryRow(row.country, country)
           && inRange((row.processing_date || '').substring(0, 7), r.from, r.to);
     });
   }
@@ -733,7 +761,7 @@ function buildMetrics(country) {
     return rows.filter(function(row) {
       var ym = (row.processing_date || '').substring(0, 7);
       var cy = ym ? (String(+ym.substring(0,4)+1) + ym.substring(4)) : '';
-      return (row.country || '').toLowerCase() === ck && inRange(cy, r.from, r.to);
+      return matchCountryRow(row.country, country) && inRange(cy, r.from, r.to);
     });
   }
 
@@ -742,13 +770,15 @@ function buildMetrics(country) {
   var rdCY = filterCY(expand(RAW.reden_cy));
   var rdLY = filterLY(expand(RAW.reden_ly));
   var bkAll = Array.isArray((RAW.breakage || {}).data) ? RAW.breakage.data : expand(RAW.breakage);
-  var bkIso = COUNTRY_ISO[ck] || ck;
-  var bkCY  = bkAll.filter(function(b){ return (b.country || '').toLowerCase() === bkIso; });
+  var bkIsoSet = isTotal(country)
+    ? COUNTRY_DATAKEYS.map(function(k){ return COUNTRY_ISO[k] || k; })
+    : [COUNTRY_ISO[country.dataKey] || country.dataKey];
+  var bkCY  = bkAll.filter(function(b){ return bkIsoSet.indexOf((b.country || '').toLowerCase()) !== -1; });
 
   function aggAcum(rows) {
     var pts = 0, usd = 0, byProg = {};
     rows.forEach(function(row) {
-      var p = getPts(row), u = getAcumUsd(row, ck);
+      var p = getPts(row), u = getAcumUsd(row, rowCountryKey(row, country));
       pts += p; usd += u;
       var prog = getProgramFromAcum(row);
       if (!byProg[prog]) byProg[prog] = { pts: 0, usd: 0 };
@@ -771,7 +801,32 @@ function buildMetrics(country) {
 
   var bkTotal = bkCY.reduce(function(s, b){ return s + Math.abs(+(b.points) || 0); }, 0);
 
-  return { acCY: aggAcum(acCY), acLY: aggAcum(acLY), rdCY: aggReden(rdCY), rdLY: aggReden(rdLY), bkTotal: bkTotal };
+  return { acCY: aggAcum(acCY), acLY: aggAcum(acLY), rdCY: aggReden(rdCY), rdLY: aggReden(rdLY),
+           bkTotal: bkTotal, mb: buildMiembros(country) };
+}
+
+// Miembros del programa: snapshot del padron activo abierto por mes de alta y tier.
+// - byTier / total: foto actual (suma de todas las cohortes).
+// - altasByYm / altasByTierYm: altas por mes de enrolment (los meses viejos solo
+//   incluyen a los que HOY siguen activos → hay sesgo de supervivencia).
+// - stockByYm: miembros acumulados a fin de cada mes (cumsum de las altas).
+function buildMiembros(country) {
+  var rows = expand(RAW.miembros).filter(function(row){ return matchCountryRow(row.country, country); });
+  var byTier = {}, total = 0, altasByYm = {}, altasByTierYm = {};
+  MB_TIERS.forEach(function(t){ byTier[t] = 0; altasByTierYm[t] = {}; });
+  rows.forEach(function(row){
+    var t  = MB_TIERS.indexOf(row.tier) !== -1 ? row.tier : 'Sin tier';
+    var ym = (row.ym || '').substring(0, 7);
+    var n  = +row.clientes || 0;
+    if (ym.length !== 7) return;
+    byTier[t] += n; total += n;
+    altasByYm[ym] = (altasByYm[ym] || 0) + n;
+    altasByTierYm[t][ym] = (altasByTierYm[t][ym] || 0) + n;
+  });
+  var stockByYm = {}, run = 0;
+  Object.keys(altasByYm).sort().forEach(function(ym){ run += altasByYm[ym]; stockByYm[ym] = run; });
+  return { total: total, byTier: byTier, altasByYm: altasByYm,
+           altasByTierYm: altasByTierYm, stockByYm: stockByYm };
 }
 
 // ============================================================
@@ -790,13 +845,41 @@ function renderMetrics(country, m) {
   var el = document.getElementById('metrics-' + suffix);
   if (!el) return;
 
-  // Indice de programas: chips que saltan a cada seccion (+ Breakage al final).
+  // Indice de programas: chips que saltan a cada seccion (Miembros + programas + Breakage).
   var html = '<div class="prog-nav">';
+  html += '<button class="prog-chip" type="button" onclick="jumpTo(\'sec-miembros-' + suffix + '\')">Miembros</button>';
   programs.forEach(function(prog) {
     html += '<button class="prog-chip" type="button" onclick="jumpTo(\'' + progSecId(prog, suffix) + '\')">' + prog + '</button>';
   });
   html += '<button class="prog-chip" type="button" onclick="jumpTo(\'sec-breakage-' + suffix + '\')">Breakage</button>';
   html += '</div>';
+
+  // ---- Miembros del programa (arriba de todo: métrica headline) ----
+  var mb = m.mb || { total: 0 };
+  var mbAltasId = 'ch-mb-altas-' + suffix;
+  var mbStockId = 'ch-mb-stock-' + suffix;
+  var mbTierId  = 'ch-mb-tier-'  + suffix;
+  html += '<div class="prog-section" id="sec-miembros-' + suffix + '">';
+  html += '<div class="prog-title"><span>Miembros del programa</span></div>';
+  html += '<div class="prog-body">';
+  if (!mb.total) {
+    html += '<div class="empty">Sin datos de miembros' + (RAW.miembros ? '' : ' — loyalty_miembros.json no disponible') + '</div>';
+  } else {
+    html += '<div class="kpi-row">';
+    html += kpiHtml('Miembros Activos', fmtPts(mb.total), 'padrón actual (status A)', 'var(--accent)');
+    MB_TIERS.forEach(function(t){
+      var v = mb.byTier[t] || 0;
+      var pct = mb.total ? (v / mb.total * 100).toFixed(1) + '%' : '—';
+      html += kpiHtml(t, fmtPts(v), pct + ' del total', MB_TIER_COLOR_SOLID[t]);
+    });
+    html += '</div>';
+    html += '<div class="cc" style="margin-bottom:14px"><div class="ct">Altas por mes — mes de enrolment (CY vs LY)</div><div class="cw"><canvas id="' + mbAltasId + '"></canvas></div>'
+      + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-' + mbAltasId + '"></div></div></div>';
+    html += '<div class="cc" style="margin-bottom:14px"><div class="ct">Miembros acumulados a fin de mes (CY vs LY)</div><div class="cw"><canvas id="' + mbStockId + '"></canvas></div>'
+      + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-' + mbStockId + '"></div></div></div>';
+    html += '<div class="cc"><div class="ct">Altas por mes y tier — año fiscal actual</div><div class="cw"><canvas id="' + mbTierId + '"></canvas></div></div>';
+  }
+  html += '</div></div>';
 
   programs.forEach(function(prog) {
     var acCY = m.acCY.byProg[prog] || { pts: 0, usd: 0 };
@@ -853,29 +936,48 @@ function renderMetrics(country, m) {
 
   // Now that canvases exist in DOM, build charts
   var fy = fyYears(); // { ly: 2025, cy: 2026 } -- anios calendario de cada dataset cargado
+
+  // Miembros: altas/mes (CY vs LY), stock acumulado (CY vs LY) y altas por tier (FY actual).
+  if (mb.total) {
+    var mbAltasPrev = fiscalSeries(mb.altasByYm, mb.altasByYm, fy.cy, fy.ly, fy.ly);
+    var mbAltasCurr = fiscalSeries(mb.altasByYm, mb.altasByYm, fy.cy, fy.ly, fy.cy);
+    buildBarChart(mbAltasId, mbAltasPrev, mbAltasCurr, fy.ly, fy.cy, 'rgba(22,163,74,.75)', fmtPtsChart);
+
+    var mbStockPrev = fiscalSeries(mb.stockByYm, mb.stockByYm, fy.cy, fy.ly, fy.ly);
+    var mbStockCurr = fiscalSeries(mb.stockByYm, mb.stockByYm, fy.cy, fy.ly, fy.cy);
+    buildBarChart(mbStockId, mbStockPrev, mbStockCurr, fy.ly, fy.cy, 'rgba(86,38,233,.6)', fmtPtsChart);
+
+    var tierDatasets = MB_TIERS.map(function(t){
+      return { label: t,
+               data: fiscalSeries(mb.altasByTierYm[t], mb.altasByTierYm[t], fy.cy, fy.ly, fy.cy),
+               backgroundColor: MB_TIER_COLOR[t] };
+    });
+    buildStackedBarChart(mbTierId, tierDatasets, fmtPtsChart);
+  }
+
   programs.forEach(function(prog) {
     var canvasId   = 'ch-' + prog.replace(/[^a-z0-9]/gi, '') + '-' + suffix;
     var canvasRdId = 'ch-rd-' + prog.replace(/[^a-z0-9]/gi, '') + '-' + suffix;
     var mode  = getSecMode(suffix, prog);
-    var acValFn = mode === 'USD' ? function(row){ return getAcumUsd(row, country.dataKey); } : getPts;
+    var acValFn = mode === 'USD' ? function(row){ return getAcumUsd(row, rowCountryKey(row, country)); } : getPts;
     var valFn = function(row){ return valueForMode(row, mode); };
     var fmtFn = mode === 'USD' ? fmtUSDChart : fmtPtsChart;
 
-    var acCY_map = monthlyMap(RAW.acum_cy, country.dataKey, prog, getProgramFromAcum,  acValFn);
-    var acLY_map = monthlyMap(RAW.acum_ly, country.dataKey, prog, getProgramFromAcum,  acValFn);
+    var acCY_map = monthlyMap(RAW.acum_cy, country, prog, getProgramFromAcum,  acValFn);
+    var acLY_map = monthlyMap(RAW.acum_ly, country, prog, getProgramFromAcum,  acValFn);
     var acPrev = fiscalSeries(acCY_map, acLY_map, fy.cy, fy.ly, fy.ly);
     var acCurr = fiscalSeries(acCY_map, acLY_map, fy.cy, fy.ly, fy.cy);
 
-    var rdCY_map = monthlyMap(RAW.reden_cy, country.dataKey, prog, getProgramFromReden, valFn);
-    var rdLY_map = monthlyMap(RAW.reden_ly, country.dataKey, prog, getProgramFromReden, valFn);
+    var rdCY_map = monthlyMap(RAW.reden_cy, country, prog, getProgramFromReden, valFn);
+    var rdLY_map = monthlyMap(RAW.reden_ly, country, prog, getProgramFromReden, valFn);
     var rdPrev = fiscalSeries(rdCY_map, rdLY_map, fy.cy, fy.ly, fy.ly);
     var rdCurr = fiscalSeries(rdCY_map, rdLY_map, fy.cy, fy.ly, fy.cy);
 
     // Precio por punto (independiente del switch Q/$): USD / puntos, mes a mes.
-    var rdUsdMapCY = monthlyMap(RAW.reden_cy, country.dataKey, prog, getProgramFromReden, getUsd);
-    var rdUsdMapLY = monthlyMap(RAW.reden_ly, country.dataKey, prog, getProgramFromReden, getUsd);
-    var rdPtsMapCY = monthlyMap(RAW.reden_cy, country.dataKey, prog, getProgramFromReden, getPts);
-    var rdPtsMapLY = monthlyMap(RAW.reden_ly, country.dataKey, prog, getProgramFromReden, getPts);
+    var rdUsdMapCY = monthlyMap(RAW.reden_cy, country, prog, getProgramFromReden, getUsd);
+    var rdUsdMapLY = monthlyMap(RAW.reden_ly, country, prog, getProgramFromReden, getUsd);
+    var rdPtsMapCY = monthlyMap(RAW.reden_cy, country, prog, getProgramFromReden, getPts);
+    var rdPtsMapLY = monthlyMap(RAW.reden_ly, country, prog, getProgramFromReden, getPts);
     var rdUsdPrev = fiscalSeries(rdUsdMapCY, rdUsdMapLY, fy.cy, fy.ly, fy.ly);
     var rdUsdCurr = fiscalSeries(rdUsdMapCY, rdUsdMapLY, fy.cy, fy.ly, fy.cy);
     var rdPtsPrev = fiscalSeries(rdPtsMapCY, rdPtsMapLY, fy.cy, fy.ly, fy.ly);
@@ -887,7 +989,7 @@ function renderMetrics(country, m) {
     buildBarChart(canvasRdId, rdPrev, rdCurr, fy.ly, fy.cy, 'rgba(220,38,38,.75)', fmtFn, { prev: pricePrev, curr: priceCurr });
   });
 
-  var bkMap  = breakageMonthlyMap(country.dataKey);
+  var bkMap  = breakageMonthlyMap(country);
   var bkPrev = fiscalSeries(bkMap, bkMap, fy.cy, fy.ly, fy.ly);
   var bkCurr = fiscalSeries(bkMap, bkMap, fy.cy, fy.ly, fy.cy);
   buildBarChart(bkCanvasId, bkPrev, bkCurr, fy.ly, fy.cy, 'rgba(100,116,139,.75)', fmtPtsChart);
@@ -904,10 +1006,11 @@ function kpiHtml(label, value, sub, color) {
 var FISCAL_LABELS = ['Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic','Ene','Feb','Mar'];
 
 // Mapa mensual real (claves "YYYY-MM") de un dataset, filtrado por pais+programa.
-function monthlyMap(raw, dataKey, prog, getProgFn, valueFn) {
+// country puede ser un pais concreto o la vista TOTAL (suma de todos).
+function monthlyMap(raw, country, prog, getProgFn, valueFn) {
   var agg = {};
   expand(raw).forEach(function(row){
-    if ((row.country||'').toLowerCase() !== dataKey) return;
+    if (!matchCountryRow(row.country, country)) return;
     if (getProgFn(row) !== prog) return;
     var ym = (row.processing_date||'').substring(0,7);
     agg[ym] = (agg[ym]||0) + valueFn(row);
@@ -929,12 +1032,14 @@ function fiscalSeries(cyMap, lyMap, yearCY, yearLY, startYear) {
 
 // Breakage: sin identificacion de programa — mapa mensual real por pais
 // (expiration_date = "MM-YYYY"; el archivo ya trae ambos anios juntos).
-function breakageMonthlyMap(dataKey) {
-  var iso = COUNTRY_ISO[dataKey] || dataKey;
+function breakageMonthlyMap(country) {
+  var isoSet = isTotal(country)
+    ? COUNTRY_DATAKEYS.map(function(k){ return COUNTRY_ISO[k] || k; })
+    : [COUNTRY_ISO[country.dataKey] || country.dataKey];
   var rows = Array.isArray((RAW.breakage || {}).data) ? RAW.breakage.data : expand(RAW.breakage);
   var agg = {};
   rows.forEach(function(b){
-    if ((b.country || '').toLowerCase() !== iso) return;
+    if (isoSet.indexOf((b.country || '').toLowerCase()) === -1) return;
     var ed = b.expiration_date || '';
     var mm = ed.substring(0, 2), yyyy = ed.substring(3, 7);
     if (mm.length !== 2 || yyyy.length !== 4) return;
@@ -1020,6 +1125,30 @@ function buildBarChart(canvasId, prevValues, currValues, prevLabel, currLabel, c
   });
   if (yoyEl) yoyEl.innerHTML = yoyRowHtml(prevValues, currValues);
   if (pprEl) pprEl.innerHTML = priceSeries ? priceRowHtml(priceSeries.prev, priceSeries.curr) : '';
+}
+
+// Barras apiladas sobre el eje fiscal (12 meses Abr->Mar). datasets: [{label,data[12],backgroundColor}].
+function buildStackedBarChart(canvasId, datasets, fmtFn) {
+  var ctx = document.getElementById(canvasId);
+  if (!ctx) return;
+  if (CHARTS[canvasId]) { CHARTS[canvasId].destroy(); }
+  var any = datasets.some(function(d){ return (d.data || []).some(Boolean); });
+  if (!any) { ctx.parentElement.innerHTML = '<div class="empty" style="padding:20px">Sin datos</div>'; return; }
+  fmtFn = fmtFn || fmtPts;
+  CHARTS[canvasId] = new Chart(ctx, {
+    type: 'bar',
+    data: { labels: FISCAL_LABELS, datasets: datasets.map(function(d){
+      return { label: d.label, data: d.data, backgroundColor: d.backgroundColor, borderRadius: 2, stack: 's' };
+    }) },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { font: { size: 12 }, boxWidth: 10 } }, datalabels: { display: false } },
+      scales: {
+        x: { stacked: true, grid: { display: false }, ticks: { font: { size: 12 } } },
+        y: { stacked: true, grid: { color: '#f1f5f9' }, ticks: { font: { size: 12 }, callback: function(v){ return fmtFn(v); } } }
+      }
+    }
+  });
 }
 
 // ============================================================
@@ -1129,6 +1258,7 @@ document.getElementById('f-period').addEventListener('change', renderActive);
   google.script.run.withSuccessHandler(function(d){ onLoaded('reden_cy', d); }).withFailureHandler(function(e){ onError('reden_cy', e.message); }).getRawRedenCY();
   google.script.run.withSuccessHandler(function(d){ onLoaded('reden_ly', d); }).withFailureHandler(function(e){ onError('reden_ly', e.message); }).getRawRedenLY();
   google.script.run.withSuccessHandler(function(d){ onLoaded('breakage', d); }).withFailureHandler(function(e){ onError('breakage', e.message); }).getRawBreakage();
+  google.script.run.withSuccessHandler(function(d){ onLoaded('miembros', d); }).withFailureHandler(function(e){ onError('miembros', e.message); }).getRawMiembros();
   google.script.run.withSuccessHandler(function(d){ onLoaded('baseline', d); }).withFailureHandler(function(e){ onError('baseline', e.message); }).getLoyBaseline();
   google.script.run.withSuccessHandler(function(d){ onLoaded('budget',   d); }).withFailureHandler(function(e){ onError('budget',   e.message); }).getLoyBudget();
   google.script.run.withSuccessHandler(function(d){ onLoaded('forecast', d); }).withFailureHandler(function(e){ onError('forecast', e.message); }).getLoyForecast();

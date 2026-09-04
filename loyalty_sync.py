@@ -31,6 +31,7 @@ DRIVE_FOLDER_ID = "1yCPp6hTusYmhhb17WiB6EuhFmsx7tlxb"
 BREAKAGE_FILE   = "loyalty_breakage.json"
 DICT_FILE       = "loyalty_dict.json"
 SSP_FILE        = "loyalty_ssp.json"
+MIEMBROS_FILE   = "loyalty_miembros.json"
 # Fallbacks locales de la planilla de config: viven al lado de este script en todo
 # clon (ambos trackeados en git), asi que se resuelven relativos a el — antes eran la
 # ruta absoluta de una maquina y rompian el --dry-run del resto (no lee la planilla).
@@ -1161,6 +1162,51 @@ ORDER BY 1,2,3,4
 """
 
 
+# Miembros del programa — snapshot de la base activa (status = 'A') abierta por
+# mes de alta (enrolment_date), pais y tier de reconocimiento. NO tiene ventana de
+# fecha: es una foto del padron actual (los meses de alta viejos solo incluyen a
+# los que HOY siguen activos). El tier sale de clm_account_recognition_levels con
+# el mismo criterio que la query de breakage (ultimo nivel vigente por customer);
+# sin nivel vigente -> 'Sin tier'.
+_MIEMBROS_SQL = """
+WITH categoria AS (
+    SELECT a.customer_id,
+           CASE WHEN a.recognition_tier_id = 2352 THEN 'Viajero'
+                WHEN a.recognition_tier_id = 2353 THEN 'Explorador'
+                WHEN a.recognition_tier_id = 2354 THEN 'Global'
+                ELSE 'Sin tier'
+           END AS tier
+    FROM (
+        SELECT customer_id, MAX(recognition_tier_id) AS recognition_tier_id, start_date
+        FROM data.lake.clm_account_recognition_levels
+        WHERE (end_date IS NULL OR end_date > date(now()))
+        GROUP BY customer_id, start_date
+    ) a
+    INNER JOIN (
+        SELECT customer_id, MAX(start_date) AS start_date
+        FROM data.lake.clm_account_recognition_levels
+        WHERE (end_date IS NULL OR end_date > date(now()))
+        GROUP BY customer_id
+    ) b ON a.customer_id = b.customer_id AND a.start_date = b.start_date
+)
+SELECT DATE_FORMAT(cm.enrolment_date, '%Y-%m')         AS fecha,
+       CASE cm.ext_country_program
+            WHEN 'BR' THEN 'BRASIL'   WHEN 'AR' THEN 'ARGENTINA'
+            WHEN 'MX' THEN 'MEXICO'   WHEN 'EC' THEN 'ECUADOR'
+            WHEN 'CO' THEN 'COLOMBIA' WHEN 'PE' THEN 'PERU'
+            WHEN 'UY' THEN 'URUGUAY'  ELSE 'OTRO'
+       END                                             AS pais,
+       COALESCE(cat.tier, 'Sin tier')                  AS tier,
+       COUNT(*)                                        AS clientes
+FROM data.lake.clm_customers cm
+LEFT JOIN categoria cat ON cat.customer_id = cm.id
+WHERE cm.status = 'A'
+  AND cm.ext_country_program IN ('AR', 'BR', 'MX', 'EC', 'CO', 'PE', 'UY')
+GROUP BY 1, 2, 3
+ORDER BY 1, 2, 3
+"""
+
+
 # ==============================================================================
 # 4) CLEAN & TRANSFORM
 # ==============================================================================
@@ -1261,6 +1307,37 @@ def clean_breakage(df: pd.DataFrame) -> pd.DataFrame:
     if "points_type_id" in df.columns:
         df["points_type_id"] = pd.to_numeric(df["points_type_id"], errors="coerce").fillna(0).astype(int)
     return df
+
+
+# Nombre de pais que emite _MIEMBROS_SQL -> dataKey del dashboard (mismo criterio
+# que CC_TO_DATAKEY pero desde el nombre en mayusculas).
+MIEMBROS_PAIS_TO_DATAKEY = {
+    "BRASIL": "brasil", "ARGENTINA": "argentina", "MEXICO": "mexico",
+    "ECUADOR": "ecuador", "COLOMBIA": "colombia", "PERU": "peru", "URUGUAY": "uruguay",
+}
+TIER_ORDER = {"Viajero": 0, "Explorador": 1, "Global": 2, "Sin tier": 3}
+
+
+def clean_miembros(df: pd.DataFrame) -> pd.DataFrame:
+    """Normaliza el snapshot de miembros a cols [ym, country, tier, clientes],
+    con country en dataKey del dashboard ('brasil', ...) y agregado por las 3."""
+    df = df.copy()
+    df.columns = [c.lower() for c in df.columns]
+    df = df.dropna(subset=["fecha"])
+    df["ym"]      = df["fecha"].astype(str).str.slice(0, 7)
+    df["country"] = (df["pais"].astype(str).str.strip().str.upper()
+                       .map(MIEMBROS_PAIS_TO_DATAKEY).fillna("otro"))
+    df["tier"]    = df["tier"].fillna("Sin tier").astype(str).str.strip()
+    df.loc[~df["tier"].isin(TIER_ORDER), "tier"] = "Sin tier"
+    df["clientes"] = pd.to_numeric(df["clientes"], errors="coerce").fillna(0).round(0).astype(int)
+    df = df[(df["country"] != "otro") & (df["ym"].str.len() == 7)]
+    out = (df.groupby(["ym", "country", "tier"], as_index=False)
+             .agg(clientes=("clientes", "sum")))
+    out = out.sort_values(
+        ["ym", "country", "tier"],
+        key=lambda s: s.map(TIER_ORDER) if s.name == "tier" else s,
+    ).reset_index(drop=True)
+    return out[["ym", "country", "tier", "clientes"]]
 
 
 def to_compact(df: pd.DataFrame) -> dict:
@@ -1575,6 +1652,9 @@ df_reden_ly = aggregate_reden(_reden_ly_clean)
 print("\n--- Breakage ---")
 df_breakage = clean_breakage(fetch(build_breakage_query(LY_DESDE), "Breakage"))
 
+print("\n--- Miembros del programa ---")
+df_miembros = clean_miembros(fetch(_MIEMBROS_SQL, "Miembros (snapshot base activa)"))
+
 print("\n--- Construyendo diccionario de puntos ---")
 dict_bytes = build_dict_json()
 print(f"  Dict: {len(dict_bytes)} bytes")
@@ -1606,16 +1686,25 @@ reden_cy_bytes  = json.dumps({"meta": META_CY, "data": to_compact(df_reden_cy)},
 reden_ly_bytes  = json.dumps({"meta": META_LY, "data": to_compact(df_reden_ly)}, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
 breakage_bytes  = json.dumps({"meta": META_LY, "data": df_breakage.to_dict(orient="records")}, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
 
+META_MIEMBROS = {
+    "generated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+    "snapshot_date": str(TODAY),
+    "fuente": "clm_customers (status='A') x mes de enrolment x tier; foto del padron actual",
+}
+miembros_bytes  = json.dumps({"meta": META_MIEMBROS, "data": to_compact(df_miembros)}, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+
 print(f"  Acum {CY_YEAR}:  {len(acum_cy_bytes)//1024:.0f} KB  ({len(df_acum_cy):,} filas)")
 print(f"  Acum {LY_YEAR}:  {len(acum_ly_bytes)//1024:.0f} KB  ({len(df_acum_ly):,} filas)")
 print(f"  Reden {CY_YEAR}: {len(reden_cy_bytes)//1024:.0f} KB  ({len(df_reden_cy):,} filas)")
 print(f"  Reden {LY_YEAR}: {len(reden_ly_bytes)//1024:.0f} KB  ({len(df_reden_ly):,} filas)")
 print(f"  Breakage:       {len(breakage_bytes)//1024:.0f} KB  ({len(df_breakage):,} filas)")
+print(f"  Miembros:       {len(miembros_bytes)//1024:.0f} KB  ({len(df_miembros):,} filas · {df_miembros['clientes'].sum():,} miembros)")
 
 _OUT = [
     (acum_cy_bytes,  ACUM_CY_FILE), (acum_ly_bytes,  ACUM_LY_FILE),
     (reden_cy_bytes, REDEN_CY_FILE), (reden_ly_bytes, REDEN_LY_FILE),
     (breakage_bytes, BREAKAGE_FILE), (dict_bytes, DICT_FILE), (ssp_bytes, SSP_FILE),
+    (miembros_bytes, MIEMBROS_FILE),
 ]
 
 if DRY_RUN:
@@ -1635,6 +1724,12 @@ if DRY_RUN:
     for k in sorted(_ssp):
         last = sorted(_ssp[k])[-1]
         print(f"    {k:10s} {last}  ssp_facturacion={_ssp[k][last]['ssp_facturacion']}")
+    print("\n  Miembros activos por país × tier:")
+    _piv = df_miembros.pivot_table(index="country", columns="tier", values="clientes",
+                                   aggfunc="sum", fill_value=0)
+    for c in _piv.index:
+        detalle = "  ".join(f"{t}={int(_piv.loc[c, t]):,}" for t in _piv.columns)
+        print(f"    {c:10s} total={int(_piv.loc[c].sum()):>10,}   {detalle}")
 else:
     print("\n--- Subiendo a Google Drive ---")
     for data, name in _OUT:
