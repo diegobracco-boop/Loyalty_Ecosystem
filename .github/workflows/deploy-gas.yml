@@ -47,4 +47,12 @@ jobs:
         run: clasp push --force
 
       - name: Deploy
-        run: clasp deploy -i "$DEPLOYMENT_ID" -d "CI ${{ github.sha }} — ${{ github.event.head_commit.message }}"
+        env:
+          # Vía env, NO interpolado en el run: — un mensaje de commit con
+          # backticks / $() / comillas ejecutaría comandos en el runner
+          # (que tiene CLASP_CREDENTIALS en ~/.clasprc.json).
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          MSG="$(printf '%s' "$COMMIT_MSG" | head -1 | tr -d '"`$')"
+          clasp deploy -i "$DEPLOYMENT_ID" -d "CI ${COMMIT_SHA:0:7} — ${MSG}"

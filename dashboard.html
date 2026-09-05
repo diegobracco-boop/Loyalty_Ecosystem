@@ -13,18 +13,20 @@
   --border:  #e2e8f0;
   --text:    #1e293b;
   --muted:   #64748b;
-  --accent:  #5626e9;
-  --green:   #16a34a;
-  --red:     #dc2626;
+  --accent:  #550fed;   /* LILA-1 oficial Despegar */
+  --accent-a08: rgba(85,15,237,.08);
+  --accent-a15: rgba(85,15,237,.15);
+  --green:   #1a7f37;   /* verde con contraste AA para texto de tabla */
+  --red:     #cf222e;   /* rojo con contraste AA para texto de tabla */
   --amber:   #d97706;
   --radius:  10px;
   --proj-bg: #fafaf7;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; }
+body { background: var(--bg); color: var(--text); font-family: -apple-system, 'Segoe UI', system-ui, sans-serif; font-size: 14px; }
 
 /* ---- Header ---- */
-.header { background: #1e293b; color: #fff; padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.header { background: linear-gradient(90deg, #3d00d1 0%, #550fed 100%); color: #fff; padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .header-title { font-size: 17px; font-weight: 800; }
 .header-sub   { font-size: 11px; color: #94a3b8; margin-top: 2px; }
 .header-sync  { font-size: 11px; color: #94a3b8; }
@@ -44,9 +46,12 @@ body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', syste
 .fl { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
 select, input[type=month] {
   padding: 5px 10px; border: 1px solid var(--border); border-radius: 6px;
-  background: #f8fafc; font-size: 13px; color: var(--text); outline: none; cursor: pointer;
+  background: #f8fafc; font-size: 13px; color: var(--text); cursor: pointer;
 }
-select:focus, input[type=month]:focus { border-color: var(--accent); }
+select:focus-visible, input[type=month]:focus-visible,
+button:focus-visible, .ctab:focus-visible, .prog-chip:focus-visible, .seg-btn:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent);
+}
 .fsep { width: 1px; height: 34px; background: var(--border); margin: 0 4px; }
 
 /* ---- Main ---- */
@@ -86,9 +91,10 @@ table.pnl tr:hover td, table.pnl tr:hover td.lc { background: #f8fafc; }
 
 /* Scenario header row (BASELINE | GOAL | Δ) */
 table.pnl tr.bg-scen th { text-align: center; font-size: 10px; font-weight: 800; letter-spacing: .6px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
-table.pnl tr.bg-scen th.bg-b { background: #eef2ff; color: var(--accent); }
-table.pnl tr.bg-scen th.bg-g { background: #f0fdf4; color: #166534; }
-table.pnl tr.bg-scen th.bg-d { background: #fef3c7; color: #92400e; }
+/* Mismo color-coding que P&L Accounting de B2B: BASELINE lila · GOAL azul · Δ verde */
+table.pnl tr.bg-scen th.bg-b { background: #ede9fe; color: #4c1d95; }
+table.pnl tr.bg-scen th.bg-g { background: #e0f2fe; color: #0369a1; }
+table.pnl tr.bg-scen th.bg-d { background: #f0fdf4; color: #166534; }
 table.pnl tr.bg-scen th.lc { background: #f8fafc; }
 
 /* Group header row */
@@ -103,11 +109,11 @@ table.pnl tr.subtotal td.lc { background: #eef2ff; padding-left: 14px; }
 table.pnl tr.grand-total td { background: #1e293b; color: #fff; font-weight: 800; font-size: 13px; border-top: 2px solid #334155; }
 table.pnl tr.grand-total td.lc { background: #1e293b; color: #fff; padding-left: 14px; }
 
-/* Projection columns */
-table.pnl th.proj { background: var(--proj-bg); color: #94a3b8; font-style: italic; }
-table.pnl td.proj { background: var(--proj-bg); color: #94a3b8; }
-table.pnl tr.grp-hdr td.proj, table.pnl tr.subtotal td.proj { color: #94a3b8; }
-table.pnl tr.grand-total td.proj { color: #94a3b8; }
+/* Projection columns — el italic es la señal de "proyectado"; el color pasa AA (~4.6:1) */
+table.pnl th.proj { background: var(--proj-bg); color: #5b6472; font-style: italic; }
+table.pnl td.proj { background: var(--proj-bg); color: #5b6472; font-style: italic; }
+table.pnl tr.grp-hdr td.proj, table.pnl tr.subtotal td.proj { color: #5b6472; }
+table.pnl tr.grand-total td.proj { color: #cbd5e1; }
 table.pnl th.sep, table.pnl td.sep { width: 6px; padding: 0; background: var(--border); }
 
 /* Value colors */
@@ -316,7 +322,7 @@ var PROGRAM_COUNTRIES = {
 // ---- Miembros del programa (loyalty_miembros.json) ----
 var MB_TIERS = ['Viajero', 'Explorador', 'Global', 'Sin tier'];
 var MB_TIER_COLOR = {
-  'Viajero':    'rgba(86,38,233,.80)',
+  'Viajero':    'rgba(85,15,237,.80)',
   'Explorador': 'rgba(8,145,178,.80)',
   'Global':     'rgba(217,119,6,.85)',
   'Sin tier':   'rgba(100,116,139,.50)'
@@ -332,7 +338,7 @@ var CDD_PLAN_COLOR_SOLID = {
   'Plan 1': 'var(--accent)', 'Plan 2': '#0891b2', 'Plan 3': '#d97706', 'Plan 4': 'var(--green)', 'Otro': 'var(--muted)'
 };
 var CDD_PLAN_COLOR = {
-  'Plan 1': 'rgba(86,38,233,.80)', 'Plan 2': 'rgba(8,145,178,.80)', 'Plan 3': 'rgba(217,119,6,.85)',
+  'Plan 1': 'rgba(85,15,237,.80)', 'Plan 2': 'rgba(8,145,178,.80)', 'Plan 3': 'rgba(217,119,6,.85)',
   'Plan 4': 'rgba(22,163,74,.80)', 'Otro': 'rgba(100,116,139,.50)'
 };
 // ---- iFood — enrolados (loyalty_ifood_enroll.json). Se muestra DENTRO de la sección
@@ -1072,7 +1078,7 @@ function renderMetrics(country, m) {
 
     var mbStockPrev = fiscalSeries(mb.stockByYm, mb.stockByYm, fy.cy, fy.ly, fy.ly);
     var mbStockCurr = fiscalSeries(mb.stockByYm, mb.stockByYm, fy.cy, fy.ly, fy.cy);
-    buildBarChart(mbStockId, mbStockPrev, mbStockCurr, fy.ly, fy.cy, 'rgba(86,38,233,.6)', fmtPtsChart);
+    buildBarChart(mbStockId, mbStockPrev, mbStockCurr, fy.ly, fy.cy, 'rgba(85,15,237,.6)', fmtPtsChart);
 
     var tierDatasets = MB_TIERS.map(function(t){
       return { label: t,
@@ -1112,7 +1118,7 @@ function renderMetrics(country, m) {
     var pricePrev = rdPtsPrev.map(function(p, i){ return p ? rdUsdPrev[i] / p : 0; });
     var priceCurr = rdPtsCurr.map(function(p, i){ return p ? rdUsdCurr[i] / p : 0; });
 
-    buildBarChart(canvasId,   acPrev, acCurr, fy.ly, fy.cy, 'rgba(86,38,233,.75)', fmtFn);
+    buildBarChart(canvasId,   acPrev, acCurr, fy.ly, fy.cy, 'rgba(85,15,237,.75)', fmtFn);
     buildBarChart(canvasRdId, rdPrev, rdCurr, fy.ly, fy.cy, 'rgba(220,38,38,.75)', fmtFn, { prev: pricePrev, curr: priceCurr });
 
     // Club Despegar — stock de suscriptos apilado por plan (CY) + total LY como línea.
@@ -1428,40 +1434,59 @@ function onLoaded(key, data) {
     document.getElementById('loading').classList.add('hidden');
     var meta = (RAW.acum_cy || {}).meta || {};
     document.getElementById('last-sync').textContent = 'Ultimo sync: ' + (meta.generated_at || '—');
-    checkStale(meta.generated_at);
+    checkStale();
     buildPanels();
     renderActive();
   }
 }
 
-// Avisa si los JSON de Drive están viejos (el sync agendado se colgó: VPN, máquina,
-// token). Sin esto el único indicio es la fecha en el header, que hay que leer y restar.
-function checkStale(generatedAt) {
+// Avisa si los JSON de Drive están viejos (sync agendado caído) O si están
+// desparejos (un fallo parcial de subida deja unos frescos y otros stale).
+// Mira el generated_at MÁS VIEJO de todos los JSON cargados, no solo acum_cy.
+function checkStale() {
   var el = document.getElementById('stale-banner');
   var txt = document.getElementById('stale-banner-text');
-  if (!generatedAt) {
+  var tss = [];
+  Object.keys(RAW).forEach(function(k) {
+    var g = ((RAW[k] || {}).meta || {}).generated_at;
+    if (g) { var t = Date.parse(String(g).replace(' ', 'T')); if (!isNaN(t)) tss.push(t); }
+  });
+  if (Object.keys(RAW).some(function(k){ return RAW[k] === null; })) {
+    txt.innerHTML = '<strong>Carga incompleta.</strong> Uno o más archivos de datos no cargaron ' +
+      '(ver consola). Algunos números pueden faltar o quedar en cero.';
+    el.classList.remove('hidden');
+    return;
+  }
+  if (!tss.length) {
     txt.textContent = 'No se pudo determinar la fecha del último sync de los datos.';
     el.classList.remove('hidden');
     return;
   }
-  var ts = Date.parse(generatedAt.replace(' ', 'T'));
-  if (isNaN(ts)) return;
-  var horas = (Date.now() - ts) / 36e5;
-  if (horas > 48) {
+  var oldest = Math.min.apply(null, tss);
+  var newest = Math.max.apply(null, tss);
+  var horas  = (Date.now() - oldest) / 36e5;
+  var spreadDias = (newest - oldest) / 864e5;
+  if (spreadDias > 1) {
+    txt.innerHTML = '<strong>Datos desparejos.</strong> Los archivos de datos tienen fechas de ' +
+      'sync que difieren en ' + Math.round(spreadDias) + ' días — probablemente una subida a Drive ' +
+      'quedó a medias. Avisar al equipo de Loyalty.';
+    el.classList.remove('hidden');
+  } else if (horas > 48) {
     var dias = Math.floor(horas / 24);
     txt.innerHTML = '<strong>Datos desactualizados.</strong> El último sync fue hace ' +
-      dias + ' días (' + generatedAt + '). El proceso automático puede estar caído — ' +
-      'avisar al equipo de Loyalty antes de usar estos números.';
+      dias + ' días. El proceso automático puede estar caído — avisar al equipo de Loyalty ' +
+      'antes de usar estos números.';
     el.classList.remove('hidden');
   }
 }
 
 function onError(key, msg) {
-  console.error(key, msg);
+  console.error('[carga]', key, msg);
   RAW[key] = null;
   LOADED++;
   if (LOADED >= TOTAL) {
     document.getElementById('loading').classList.add('hidden');
+    checkStale();
     buildPanels();
     renderActive();
   }

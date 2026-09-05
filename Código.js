@@ -6,15 +6,21 @@
 var LOYALTY_FOLDER_ID  = '1yCPp6hTusYmhhb17WiB6EuhFmsx7tlxb';
 var BASELINE_FOLDER_ID = '1XqQPL_rlS0NRIPUnPfj5nALBTn7kAOQV';
 
+// Los nombres de acum/reden llevan el año en el nombre — se derivan de la fecha
+// para no romper el 1-ene (el pipeline usa date.today().year).
+var _CY = new Date().getFullYear();
+var _LY = _CY - 1;
 var FILES = {
-  acum_cy:  'loyalty_acumulaciones_2026.json',
-  acum_ly:  'loyalty_acumulaciones_2025.json',
-  reden_cy: 'loyalty_redenciones_2026.json',
-  reden_ly: 'loyalty_redenciones_2025.json',
+  acum_cy:  'loyalty_acumulaciones_' + _CY + '.json',
+  acum_ly:  'loyalty_acumulaciones_' + _LY + '.json',
+  reden_cy: 'loyalty_redenciones_' + _CY + '.json',
+  reden_ly: 'loyalty_redenciones_' + _LY + '.json',
   breakage: 'loyalty_breakage.json',
   miembros: 'loyalty_miembros.json',
   club:     'loyalty_club_despegar.json',
-  ifood:    'loyalty_ifood_enroll.json'
+  ifood:    'loyalty_ifood_enroll.json',
+  dict:     'loyalty_dict.json',
+  ssp:      'loyalty_ssp.json'
 };
 
 var CACHE_TTL   = 21600;  // 6 h
@@ -38,8 +44,8 @@ function getRawBreakage() { return _load(LOYALTY_FOLDER_ID,  FILES.breakage, 'br
 function getRawMiembros() { return _load(LOYALTY_FOLDER_ID,  FILES.miembros, 'miembros'); }
 function getRawClub()     { return _load(LOYALTY_FOLDER_ID,  FILES.club,     'club');     }
 function getRawIfood()    { return _load(LOYALTY_FOLDER_ID,  FILES.ifood,    'ifood');    }
-function getRawDict()     { return _load(LOYALTY_FOLDER_ID,  'loyalty_dict.json', 'dict'); }
-function getRawSsp()      { return _load(LOYALTY_FOLDER_ID,  'loyalty_ssp.json',  'ssp');  }
+function getRawDict()     { return _load(LOYALTY_FOLDER_ID,  FILES.dict, 'dict'); }
+function getRawSsp()      { return _load(LOYALTY_FOLDER_ID,  FILES.ssp,  'ssp');  }
 
 // P&L Contable: mismos JSON canónicos que consumen las landings B2B
 // (Inputs_Planning_PnL). Se filtran a las líneas de loyalty server-side para
@@ -61,10 +67,12 @@ function _loyPnl(filename, baseKey) {
   var raw = JSON.parse(file.getBlob().getDataAsString());
   // Acople cross-repo: estas columnas las define Inputs_Planning_PnL (repo B2B).
   // Si renombran alguna, sin este guard el P&L Contable quedaría vacío sin error.
+  ['P&L N1', 'Pais', 'Fecha', 'Monto USD'].forEach(function(c) {
+    if (raw.cols.indexOf(c) === -1) throw new Error(
+      'Esquema P&L cambió en ' + filename + ': falta la columna "' + c + '". ' +
+      'Revisar los nombres de columna en Inputs_Planning_PnL (repo B2B_Ecosystem).');
+  });
   var n1i = raw.cols.indexOf('P&L N1');
-  if (n1i === -1) throw new Error(
-    'Esquema P&L cambió en ' + filename + ': no está la columna "P&L N1". ' +
-    'Revisar los nombres de columna en Inputs_Planning_PnL (repo B2B_Ecosystem).');
   var rows = [];
   for (var i = 0; i < raw.rows.length; i++) {
     var v = raw.rows[i][n1i];

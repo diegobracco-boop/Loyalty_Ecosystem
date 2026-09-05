@@ -1573,6 +1573,10 @@ def load_breakage_esperado() -> dict:
 
 def build_ssp_json(*reden_clean_dfs) -> bytes:
     frames = [d for d in reden_clean_dfs if d is not None and len(d)]
+    if not frames:
+        raise RuntimeError(
+            "build_ssp_json: 0 filas de redención — el SSP no se puede calcular. "
+            "Probablemente una query de redenciones falló o devolvió vacío.")
     df = pd.concat(frames, ignore_index=True)
     df = df[df["point_type"].astype(str).str.lower().isin(PASAPORTE_D_REDEN)].copy()
     df["ym"]     = df["processing_date"].str.slice(0, 7)
@@ -1584,9 +1588,11 @@ def build_ssp_json(*reden_clean_dfs) -> bytes:
 
     brk = load_breakage_esperado()
     out = {}
+    _dropped = set()
     for _, r in g.iterrows():
         dk = CC_TO_DATAKEY.get(str(r["country_code"]).strip().upper())
         if not dk:
+            _dropped.add(str(r["country_code"]).strip().upper())
             continue
         ym       = r["ym"]
         ssp_calc = -abs(r["usd"] / r["points"])            # negativo, como en el cierre
@@ -1605,6 +1611,9 @@ def build_ssp_json(*reden_clean_dfs) -> bytes:
     for dk in sorted(out):
         meses = sorted(out[dk])
         print(f"  [SSP] {dk:10s} {meses[0]}..{meses[-1]}  ({len(meses)} meses)")
+    if _dropped:
+        print(f"  [WARN] SSP: country_code sin mapear, filas descartadas: {sorted(_dropped)} "
+              f"(agregar a CC_TO_DATAKEY si es un país nuevo)")
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
 
 
@@ -1805,6 +1814,14 @@ def upload_to_drive(json_bytes: bytes, filename: str):
 # ==============================================================================
 # 6) MAIN
 # ==============================================================================
+# Todo lo de abajo corre a nivel de módulo (no hay def main()). Guard mínimo para
+# que un `import loyalty_sync` accidental (un test, otro script) NO dispare las
+# ~10 queries ni suba a Drive. Refactor a def main() pendiente.
+if __name__ != "__main__":
+    raise SystemExit(
+        "loyalty_sync.py se corre como script, no se importa "
+        "(un import dispararía las queries y, sin --dry-run, subiría a Drive). "
+        "Usá: python loyalty_sync.py [--dry-run]")
 
 print("\n--- Acumulaciones CY ---")
 df_acum_cy = aggregate_acum(apply_wclube(clean_acum(fetch(build_acum_query(ACTUALS_DESDE, ACTUALS_HASTA), f"Acumulaciones {CY_YEAR}")), ACTUALS_DESDE, ACTUALS_HASTA))
