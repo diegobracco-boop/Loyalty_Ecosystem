@@ -11,7 +11,10 @@ from pathlib import Path
 import pandas as pd
 from dotenv import load_dotenv
 
-warnings.filterwarnings("ignore")
+# Solo el ruido conocido de terceros (openpyxl "no default style", pd.read_sql con
+# conexión DBAPI2). FutureWarning / DeprecationWarning quedan visibles a propósito:
+# así un cambio de API de pandas se ve en el log antes de romper la corrida.
+warnings.filterwarnings("ignore", category=UserWarning)
 
 # ==============================================================================
 # 1) CONFIGURACIÓN
@@ -117,8 +120,13 @@ def conectar():
 def fetch(query: str, label: str) -> pd.DataFrame:
     print(f"  > {label} ...")
     con = conectar()
-    df  = pd.read_sql(query, con)
-    con.close()
+    try:
+        df = pd.read_sql(query, con)
+    except Exception as e:
+        # Nombrar la query que falló: si no, el traceback de pyodbc/pandas no dice cuál.
+        raise RuntimeError(f"fetch('{label}') falló: {str(e)[:200]}") from e
+    finally:
+        con.close()
     print(f"  OK {len(df):,} filas")
     return df
 
@@ -1153,6 +1161,9 @@ WITH points AS (
     INNER JOIN data.lake.clm_point_types pt          ON trxp.points_type_id = pt.id
     WHERE trx.transaction_type = 'PE'
       AND trx.transaction_date >= DATE('{ly_from}')
+      -- points_type_id excluidos: tipos de punto que NO cuentan para breakage
+      -- (bonos / ajustes / promos — no son acumulación orgánica). Lista espejo de
+      -- la query de cierre de Loyalty en Metabase; si allá cambia, actualizar acá.
       AND trxp.points_type_id NOT IN (2751,2801,2901,2953,2954,3001,3002,3003,3004,3051,3101,3102,3103,3151)
     GROUP BY 1,2,3,4,5,6,7
 ),
@@ -1443,6 +1454,10 @@ def clean_miembros(df: pd.DataFrame) -> pd.DataFrame:
     df["tier"]    = df["tier"].fillna("Sin tier").astype(str).str.strip()
     df.loc[~df["tier"].isin(TIER_ORDER), "tier"] = "Sin tier"
     df["clientes"] = pd.to_numeric(df["clientes"], errors="coerce").fillna(0).round(0).astype(int)
+    _sin_map = df.loc[df["country"] == "otro", "pais"].astype(str).str.strip().str.upper()
+    if not _sin_map.empty:
+        _det = _sin_map.value_counts().to_dict()
+        print(f"  [WARN] miembros: {int(_sin_map.shape[0]):,} filas con pais sin mapear, descartadas: {_det}")
     df = df[(df["country"] != "otro") & (df["ym"].str.len() == 7)]
     out = (df.groupby(["ym", "country", "tier"], as_index=False)
              .agg(clientes=("clientes", "sum")))
@@ -1468,6 +1483,10 @@ def clean_club_despegar(df: pd.DataFrame) -> pd.DataFrame:
     df["plan_type"] = df["plan_type"].fillna("Otro").astype(str).str.strip()
     df.loc[~df["plan_type"].isin(CDD_PLANS), "plan_type"] = "Otro"
     df["serie"]   = df["serie"].astype(str).str.strip().str.lower()
+    _bad_serie = df.loc[~df["serie"].isin(CDD_SERIE_ORDER), "serie"]
+    if not _bad_serie.empty:
+        print(f"  [WARN] club despegar: {int(_bad_serie.shape[0]):,} filas con serie inesperada, "
+              f"descartadas: {_bad_serie.value_counts().to_dict()}")
     df = df[df["serie"].isin(CDD_SERIE_ORDER)]
     df["country"] = "argentina"
     df["n"] = pd.to_numeric(df["n"], errors="coerce").fillna(0).round(0).astype(int)
@@ -1734,7 +1753,20 @@ def aggregate_reden(df: pd.DataFrame) -> pd.DataFrame:
 DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
 
 
+_DRIVE_SERVICE = None
+
+
 def _get_drive_service():
+    # Cacheado: upload_to_drive() se llama ~11×/corrida y reconstruir el cliente
+    # (leer token, refrescar credenciales, build()) cada vez es puro overhead.
+    global _DRIVE_SERVICE
+    if _DRIVE_SERVICE is not None:
+        return _DRIVE_SERVICE
+    _DRIVE_SERVICE = _build_drive_service()
+    return _DRIVE_SERVICE
+
+
+def _build_drive_service():
     import json as _json
     from pathlib import Path
     from google.oauth2.credentials import Credentials
