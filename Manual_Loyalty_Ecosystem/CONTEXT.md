@@ -13,6 +13,8 @@ Landing GAS de **solo lectura** que sirve el manual técnico del repo Loyalty Ec
 Subcarpeta de `Loyalty_Ecosystem/` con su **propio `.clasp.json`** (el repo de Loyalty es plano; esto es la excepción, replicando el patrón de B2B). Los comandos clasp del dashboard se corren desde la raíz; los de este manual, desde `Manual_Loyalty_Ecosystem/`.
 
 - **scriptId**: `1SrytXvn5f44QzqanJGfuJQI80K4A9-oFDebmc2Bj791pDwSWRkWv_6Xq`
+- **deploymentId estable**: `AKfycbyjLwtf88NdVdoruWH0BAOFnCFS35JrYPDE5eCTUFEwT76oIpNctrMxF-6etUCGs04k6g`
+- **URL `/exec`**: `https://script.google.com/a/macros/despegar.com/s/AKfycbyjLwtf88NdVdoruWH0BAOFnCFS35JrYPDE5eCTUFEwT76oIpNctrMxF-6etUCGs04k6g/exec`
 - **`.claspignore`**: allowlist `appsscript.json` / `Codigo.js` / `manual.html`.
 
 ## Deploy
@@ -20,10 +22,8 @@ Subcarpeta de `Loyalty_Ecosystem/` con su **propio `.clasp.json`** (el repo de L
 ```powershell
 cd Manual_Loyalty_Ecosystem
 clasp push -f
-clasp deploy -i <deploymentId> -d "descripción"
+clasp deploy -i AKfycbyjLwtf88NdVdoruWH0BAOFnCFS35JrYPDE5eCTUFEwT76oIpNctrMxF-6etUCGs04k6g -d "descripción"
 ```
-
-El deploymentId estable se completa después del primer deploy (`clasp deployments`).
 
 ## Cómo mantenerlo
 
