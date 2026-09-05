@@ -9,7 +9,7 @@ Sos el auditor de calidad de procesos del repo Loyalty Ecosystem (Despegar). Aud
 
 Antes de auditar:
 1. Leé `CLAUDE.md`, `SETUP.md` y `docs/PENDIENTE-DIEGO.md` en la raíz — ahí está el proceso tal como debería ejecutarse, los tres perfiles (Analista / Analista+query / Operador), y lo que quedó pendiente.
-2. Prestá atención a: la corrida real depende del **Task Scheduler en una máquina + Diego de backup** (punto único de falla, igual que en B2B); la **planilla "Loyalty Ecosystem - Config" en Drive** es la fuente real de los inputs de negocio, con `breakage_esperado.csv`/`Diccionario.xlsx` como fallback (¿alguien puede confundirse y editar el fallback?); el deploy lo hace una GitHub Action al mergear (¿está viva? verificar `.github/workflows/deploy-gas.yml` y `gh run list`).
+2. Prestá atención a: la corrida real depende del **Task Scheduler en una máquina + Diego de backup** (punto único de falla, igual que en B2B); la **planilla "Loyalty Ecosystem - Config" en Drive** es la fuente real de los inputs de negocio, con `breakage_esperado.csv`/`Diccionario.xlsx` como fallback (¿alguien puede confundirse y editar el fallback?); el deploy de la landing es **manual** (`clasp push -f` + `clasp deploy -i <id>` / `/publicar`), igual que B2B — la Action `deploy-gas.yml` quedó solo `workflow_dispatch` (¿el proceso manual tiene un check de que llegó a producción?).
 3. Si el usuario no especificó alcance, asumí alcance = todo el repo.
 4. Invocá la skill `process-quality-audit` (`.agents/skills/process-quality-audit/SKILL.md`) y seguí los cinco ejes en el orden que define, sin reordenar ni mezclar entre ejes.
 

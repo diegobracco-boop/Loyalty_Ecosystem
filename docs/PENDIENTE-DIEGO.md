@@ -20,9 +20,12 @@ necesita `credentials_drive.json` + OAuth por browser).
 7. Guardar `service_account.json` en un lugar restringido (folder Drive solo-operadores,
    o vault). Cada operador lo copia a su carpeta del repo. `loyalty_sync.py` lo usa solo.
 
-## 2. Secret `CLASP_CREDENTIALS` en GitHub  ·  ~3 min  ·  habilita el deploy automático
+## 2. (Opcional) Secret `CLASP_CREDENTIALS` en GitHub  ·  ~3 min  ·  habilita el deploy automático
 
-Sin esto, la GitHub Action falla y hay que deployar a mano (`/publicar`).
+**No es bloqueante.** Hoy el deploy de la landing se hace a mano con `clasp` local
+(`/publicar`), igual que en B2B_Ecosystem. La Action `deploy-gas.yml` quedó solo
+`workflow_dispatch`. Solo hacé esto si querés que el deploy vuelva a ser automático
+al mergear a `main`:
 
 1. En una máquina con clasp: `clasp login` con una cuenta **de equipo** @despegar.com
    con acceso de editor al Apps Script `1SXEXXwM9CromNRqhwiFFg34-rnO9Q3a85d3oMHsM9mgMS_NmpP2OrNLk`.
@@ -30,6 +33,7 @@ Sin esto, la GitHub Action falla y hay que deployar a mano (`/publicar`).
 3. GitHub → repo → **Settings → Secrets and variables → Actions → New repository secret**
    - Name: `CLASP_CREDENTIALS`
    - Value: el JSON completo
+4. En `.github/workflows/deploy-gas.yml`, descomentar el bloque `push:` del `on:`.
 
 ## 3. Accesos del equipo  ·  por persona
 

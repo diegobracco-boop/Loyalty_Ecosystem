@@ -30,7 +30,8 @@ Preguntale:
    lo toma. No hay que tocar el repo.
 4. **Cambios de dashboard / queries**: `git checkout -b <cambio>` → editar
    `dashboard.html` / `Código.js` / `loyalty_sync.py` → commit → push → abrir PR.
-   Al mergear a `main`, el deploy a Apps Script es automático (GitHub Action).
+   El deploy a Apps Script es **manual** (`clasp push -f` + `clasp deploy -i <id>`,
+   o el comando `/publicar`) — el push a `main` no publica solo.
 
 5. **Si el cambio es en una query SQL** y quiere validarlo localmente antes del PR:
    `python loyalty_sync.py --dry-run` corre las queries y arma los JSON en `_out/`

@@ -1,9 +1,10 @@
 # /publicar — Deploy manual de la landing GAS a producción
 
 Sube `dashboard.html` / `Código.js` / `appsscript.json` al Apps Script y actualiza el
-deployment estable. Normalmente esto lo hace **sola la GitHub Action** al mergear a
-`main` — usá este comando para hotfixes, o si el secret `CLASP_CREDENTIALS` todavía
-no está cargado.
+deployment estable. **Este es el flujo normal de deploy** — igual que en B2B_Ecosystem,
+el deploy de la landing se hace a mano. La GitHub Action `deploy-gas.yml` quedó solo
+`workflow_dispatch` (no corre en cada push) porque el secret `CLASP_CREDENTIALS` nunca
+se cargó.
 
 **`git push` no publica la landing.** Son cosas separadas.
 
@@ -27,11 +28,9 @@ clasp login   # cuenta @despegar.com con acceso al proyecto 1SXEXXw…
 4. `clasp deployments` → confirmá que el deployment estable `AKfycbzyHV8nz_App…` muestra la versión nueva (no `@HEAD` ni una vieja). Este es el chequeo de que el deploy realmente llegó a producción.
 5. Abrí la webapp (Ctrl+F5) y verificá el cambio.
 
-## Si venís de merges a `main` que NO deployaron (Action rota)
+## Verificar que producción está al día con `main`
 
-Mientras el secret `CLASP_CREDENTIALS` no esté cargado, cada merge a `main` que toca
-`dashboard.html`/`Código.js`/`appsscript.json` dispara la Action y **falla**. Producción
-queda atrás de `main`. Antes de asumir que algo está publicado:
+El push a `main` NO deploya. Antes de asumir que algo está publicado:
 ```powershell
 clasp deployments            # ¿qué versión está viva?
 git log --oneline -5 -- dashboard.html Código.js appsscript.json   # ¿qué debería estar?

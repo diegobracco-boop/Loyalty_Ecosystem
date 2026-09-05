@@ -1,18 +1,25 @@
 name: Deploy GAS (clasp)
 
-# Al mergear a main, publica dashboard.html / Código.js / appsscript.json al
-# Apps Script y actualiza el deployment estable. Requiere el secret CLASP_CREDENTIALS
-# (contenido de ~/.clasprc.json de una cuenta @despegar.com con acceso al proyecto).
-# Ver SETUP.md sección C.
+# Publica dashboard.html / Código.js / appsscript.json al Apps Script y actualiza
+# el deployment estable. Requiere el secret CLASP_CREDENTIALS (contenido de
+# ~/.clasprc.json de una cuenta @despegar.com con acceso al proyecto). Ver SETUP.md
+# sección C.
+#
+# SOLO manual (workflow_dispatch) — igual que B2B_Ecosystem, que no tiene CI y
+# deploya siempre a mano con `clasp deploy -i <id>`. El trigger `push` estuvo
+# activo pero el secret nunca se cargó: fallaba en cada push a main y mandaba
+# mails de error sin efecto real. Para reactivar el deploy automático: cargar el
+# secret y descomentar el bloque `push:` de abajo.
+#
+#   push:
+#     branches: [main]
+#     paths:
+#       - 'dashboard.html'
+#       - 'Código.js'
+#       - 'appsscript.json'
+#       - '.clasp.json'
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'dashboard.html'
-      - 'Código.js'
-      - 'appsscript.json'
-      - '.clasp.json'
   workflow_dispatch: {}
 
 concurrency:
@@ -55,4 +62,5 @@ jobs:
           COMMIT_SHA: ${{ github.sha }}
         run: |
           MSG="$(printf '%s' "$COMMIT_MSG" | head -1 | tr -d '"`$')"
+          MSG="${MSG:-manual dispatch}"
           clasp deploy -i "$DEPLOYMENT_ID" -d "CI ${COMMIT_SHA:0:7} — ${MSG}"

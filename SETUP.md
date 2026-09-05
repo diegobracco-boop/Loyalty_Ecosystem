@@ -129,7 +129,7 @@ Editar la planilla → efecto en el próximo sync (o inmediato para lo que el da
 
 ---
 
-## C. Cambios de código → GitHub + deploy automático
+## C. Cambios de código → GitHub + deploy manual
 
 Repo: `github.com/diegobracco-boop/Loyalty_Ecosystem`
 
@@ -143,10 +143,23 @@ git push -u origin cambio-que-sea
 # abrir PR en GitHub
 ```
 
-Al mergear a `main`, la **GitHub Action** (`.github/workflows/deploy-gas.yml`) corre
-`clasp push` + `clasp deploy` sola. No hace falta que nadie tenga `clasp` local.
+El push a `main` **no deploya solo**. El deploy de la landing se hace a mano —igual
+que en B2B_Ecosystem— con `clasp` local:
 
-### Requisito (1 vez) — secret `CLASP_CREDENTIALS`
+```powershell
+cd Loyalty_Ecosystem
+clasp push -f
+clasp deploy -i AKfycbzyHV8nz_AppIX81qn8QJ9dyPT77i75lBz9nerKfsjhLEk8SfSdGPXeGk52oLpXvI2Fig -d "descripción"
+clasp deployments   # confirmar que el deployment estable muestra la versión nueva
+```
+
+O usar el comando `/publicar`, que guía estos pasos.
+
+### Reactivar el deploy automático (opcional) — secret `CLASP_CREDENTIALS`
+
+La Action `.github/workflows/deploy-gas.yml` existe pero quedó **solo
+`workflow_dispatch`** (no corre en cada push) porque el secret nunca se cargó. Para
+volver a tener deploy automático al mergear a `main`:
 
 1. En una máquina con clasp: `clasp login` con una cuenta @despegar.com que tenga
    acceso de editor al Apps Script (`1SXEXXwM9CromNRqhwiFFg34-rnO9Q3a85d3oMHsM9mgMS_NmpP2OrNLk`).
@@ -155,14 +168,7 @@ Al mergear a `main`, la **GitHub Action** (`.github/workflows/deploy-gas.yml`) c
 3. GitHub → repo → Settings → Secrets and variables → Actions → New repository secret
    - Nombre: `CLASP_CREDENTIALS`
    - Valor: el JSON completo de `.clasprc.json`
-
-### Deploy manual (si hace falta)
-
-```powershell
-cd Loyalty_Ecosystem
-clasp push -f
-clasp deploy -i AKfycbzyHV8nz_AppIX81qn8QJ9dyPT77i75lBz9nerKfsjhLEk8SfSdGPXeGk52oLpXvI2Fig -d "descripción"
-```
+4. En `deploy-gas.yml`, descomentar el bloque `push:` del `on:`.
 
 ---
 

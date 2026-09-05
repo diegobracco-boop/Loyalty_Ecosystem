@@ -1,6 +1,6 @@
 ---
 name: process-quality-audit
-description: Auditoría de calidad de procesos (no de código) de Loyalty Ecosystem — orden, claridad, escalabilidad, integridad y eficiencia de cómo se ejecutan los flujos (dry-run del analista, corrida real del operador, deploy vía GitHub Action o `/publicar`, edición de la planilla de config). Usar antes de cambiar un proceso, al sumar una persona nueva, o cuando el usuario pida "revisar procesos", "¿esto escala?", "¿es claro este flujo?".
+description: Auditoría de calidad de procesos (no de código) de Loyalty Ecosystem — orden, claridad, escalabilidad, integridad y eficiencia de cómo se ejecutan los flujos (dry-run del analista, corrida real del operador, deploy manual `clasp` / `/publicar`, edición de la planilla de config). Usar antes de cambiar un proceso, al sumar una persona nueva, o cuando el usuario pida "revisar procesos", "¿esto escala?", "¿es claro este flujo?".
 ---
 
 # Process Quality Audit — Loyalty Ecosystem
@@ -9,7 +9,7 @@ Auditoría del repo entero o de un proceso puntual, en cinco ejes independientes
 
 ## 0. Definir alcance
 
-Si el usuario no lo dijo: todo el repo, o un proceso puntual (corrida real del sync, `--dry-run` del analista, ciclo deploy `clasp push` + `clasp deploy -i` / GitHub Action, edición de la planilla de config, onboarding de una persona nueva).
+Si el usuario no lo dijo: todo el repo, o un proceso puntual (corrida real del sync, `--dry-run` del analista, ciclo deploy manual `clasp push` + `clasp deploy -i`, edición de la planilla de config, onboarding de una persona nueva).
 
 Leer `CLAUDE.md`, `SETUP.md` y `docs/PENDIENTE-DIEGO.md` — ahí está el proceso documentado y lo que quedó abierto. Si algo del proceso no está escrito, eso ya es un hallazgo del Eje 2.
 
@@ -37,7 +37,7 @@ Leer `CLAUDE.md`, `SETUP.md` y `docs/PENDIENTE-DIEGO.md` — ahí está el proce
 Eje de mayor costo si falla — una corrida olvidada o un fallback silencioso deja Loyalty con números viejos sin que nadie lo note.
 
 - Pasos que dependen de que la persona "se acuerde": después de `clasp push`, el `clasp deploy -i <id>` (documentado como regla, pero ¿hay un check?); correr el sync después de que el analista mergeó un cambio de query.
-- **GitHub Action de deploy** (`.github/workflows/deploy-gas.yml`): ¿está viva? Verificar con `gh run list` o revisando el YAML + los secrets que necesita. En el repo B2B la Action equivalente estuvo rota semanas con fallback manual silencioso — chequear que no pase lo mismo acá.
+- **Deploy de la landing**: hoy es manual (`clasp push -f` + `clasp deploy -i <id>` / `/publicar`), igual que B2B_Ecosystem. La Action `.github/workflows/deploy-gas.yml` quedó solo `workflow_dispatch` (el secret `CLASP_CREDENTIALS` nunca se cargó y fallaba en cada push). ¿El proceso manual tiene un check de que el deploy llegó a producción (`clasp deployments`), o se asume?
 - **Doble fuente de verdad**: la planilla de config vs `breakage_esperado.csv`/`Diccionario.xlsx`. Si divergen y el pipeline cae al fallback sin avisar, los números salen mal. ¿Hay un `print("[WARN] usando fallback")`?
 - El P&L Contable viene de OTRO repo (`B2B_Ecosystem/Inputs_Planning_PnL`). Si ese repo cambia el esquema o los nombres de LOB/línea, el filtro `_loyPnl` de Loyalty se rompe silencioso. ¿Hay algo que lo detecte?
 

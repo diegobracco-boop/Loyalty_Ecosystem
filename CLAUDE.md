@@ -27,7 +27,7 @@ La mayoría es Analista. Para setup: skill **`/configurar-entorno`**.
 | Si el cambio es en… | Flujo |
 |---|---|
 | **Inputs de negocio** (breakage esperado, mapeo de programas) | Editar la planilla **"Loyalty Ecosystem - Config"** en Drive. El sync la lee en la próxima corrida. NO tocar `breakage_esperado.csv` / `Diccionario.xlsx` (son solo fallback). |
-| **Dashboard / GAS** (`dashboard.html`, `Código.js`) | branch → editar → commit → push → PR. Al mergear a `main` la GitHub Action hace `clasp push` + `clasp deploy` sola. Deploy manual: `/publicar`. |
+| **Dashboard / GAS** (`dashboard.html`, `Código.js`) | branch → editar → commit → push → PR. **El deploy es manual** (igual que B2B_Ecosystem): `clasp push -f` + `clasp deploy -i AKfycbzyHV8nz…` o el comando `/publicar`. La GitHub Action `deploy-gas.yml` quedó **solo `workflow_dispatch`** (no corre en cada push) porque el secret `CLASP_CREDENTIALS` nunca se cargó. |
 | **Pipeline** (`loyalty_sync.py`, queries SQL) | branch → editar → validar con **`python loyalty_sync.py --dry-run`** (corre las queries, arma los JSON en `_out/`, NO sube a Drive ni lee la planilla — solo hace falta datalake + DSN, **no** credenciales de Drive) → PR. El operador / scheduler hace la corrida real. |
 | **Manual** (`Manual_Loyalty_Ecosystem/manual.html`) | Editar → `clasp push -f` + `clasp deploy -i <id>` **desde `Manual_Loyalty_Ecosystem/`** (subcarpeta con su propio `.clasp.json`, scriptId `1SrytXvn5f44…`). Al cambiar el proceso/IDs/queries de arriba, actualizar también el manual. |
 
@@ -44,13 +44,13 @@ La mayoría es Analista. Para setup: skill **`/configurar-entorno`**.
 | `breakage_esperado.csv` · `Diccionario.xlsx` | **Fallback** de la planilla de config. La fuente real es el Sheet. |
 | `auth_drive.py` | OAuth de Drive (necesita `credentials_drive.json`, que no está en el repo) |
 | `setup_check.py` · `configurar_datalake.py` | Diagnóstico y carga de credenciales para operadores |
-| `.github/workflows/deploy-gas.yml` | CI: deploy a Apps Script al mergear a `main` |
+| `.github/workflows/deploy-gas.yml` | Deploy a Apps Script — **solo manual** (`workflow_dispatch`). Trigger `push` desactivado hasta que exista el secret `CLASP_CREDENTIALS`. |
 | `SETUP.md` | Runbook operativo completo |
 
 ## Reglas que no romper
 
 - **Nunca commitear** `token_drive.json`, `service_account.json`, `envs/.env*`. Están gitignoreados.
-- **`git push` no publica la landing GAS.** La publica la GitHub Action al mergear (o `/publicar` manual). Siempre verificar que el deploy corrió.
+- **`git push` no publica la landing GAS.** El deploy es manual: `clasp push -f` + `clasp deploy -i <id estable>` (o `/publicar`). Siempre verificar que el deploy corrió (`clasp deployments`).
 - El **deployment estable** es `AKfycbzyHV8nz_AppIX81qn8QJ9dyPT77i75lBz9nerKfsjhLEk8SfSdGPXeGk52oLpXvI2Fig`. `clasp push` solo actualiza HEAD; hay que `clasp deploy -i <ese id>` para que la webapp cambie.
 - Los JSON en Drive se **sobreescriben** (no hay versiones).
 
