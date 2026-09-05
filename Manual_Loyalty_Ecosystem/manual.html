@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Manual · Loyalty Ecosystem · Despegar</title>
+<style>
+:root {
+  --bg:       #0f0520;
+  --surface:  #1a0a3e;
+  --surface2: #2d1269;
+  --accent:   #976cf6;
+  --accent2:  #a780ff;
+  --accent3:  #c4b5fd;
+  --accent-a06: rgba(151,108,246,.09);
+  --accent-a12: rgba(151,108,246,.14);
+  --accent-a25: rgba(151,108,246,.26);
+  --accent-a33: rgba(151,108,246,.34);
+  --text:     #f0ebff;
+  --text2:    rgba(196,181,253,.7);
+  --text3:    rgba(196,181,253,.62);
+  --border:   rgba(196,181,253,.15);
+  --green:    #22c55e;
+  --blue:     #38bdf8;
+  --orange:   #fb923c;
+  --yellow:   #fbbf24;
+  --red:      #f87171;
+  --pink:     #e879f9;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 13px;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  display: flex;
+}
+#sidebar {
+  width: 240px; min-height: 100vh; background: var(--surface);
+  border-right: 1px solid var(--border); padding: 28px 0;
+  position: fixed; top: 0; left: 0; display: flex; flex-direction: column;
+  gap: 0; z-index: 100; overflow-y: auto;
+}
+.sidebar-logo { padding: 0 20px 24px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+.sidebar-logo-title { font-size: 13px; font-weight: 800; color: var(--accent3); letter-spacing: .04em; }
+.sidebar-logo-sub { font-size: 10px; color: var(--text2); margin-top: 3px; }
+.sidebar-section {
+  padding: 6px 20px 3px; font-size: 9px; font-weight: 800; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--text3); margin-top: 10px;
+}
+.nav-item {
+  display: flex; align-items: center; gap: 9px; padding: 9px 20px; cursor: pointer;
+  font-size: 12.5px; color: var(--text2); border-left: 3px solid transparent;
+  transition: all .15s; text-decoration: none;
+}
+.nav-item:hover { background: var(--accent-a12); color: var(--text); }
+.nav-item.active { border-left-color: var(--accent2); color: var(--accent3); background: var(--accent-a33); font-weight: 600; }
+.nav-icon { font-size: 14px; width: 18px; text-align: center; }
+#main { margin-left: 240px; flex: 1; padding: 48px 56px; max-width: 1100px; }
+.page-header { margin-bottom: 40px; }
+.page-tag { font-size: 9px; font-weight: 800; letter-spacing: .2em; text-transform: uppercase; color: var(--accent2); margin-bottom: 10px; }
+.page-title { font-size: 32px; font-weight: 800; color: var(--text); line-height: 1.15; }
+.page-title span { color: var(--accent2); }
+.page-sub { margin-top: 10px; font-size: 14px; color: var(--text2); line-height: 1.6; }
+.section { display: none; }
+.section.active { display: block; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px 28px; margin-bottom: 20px; }
+.card-title { font-size: 13px; font-weight: 700; color: var(--accent3); letter-spacing: .06em; text-transform: uppercase; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+.card-title::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+.arch-fig { margin: 0; }
+.arch-fig svg { width: 100%; height: auto; display: block; }
+.arch-cap { font-size: 12px; color: var(--text2); line-height: 1.55; margin-top: 12px; }
+.arch-cap b { color: var(--text); font-weight: 600; }
+.svg-box       { fill: var(--surface2); stroke: var(--border); stroke-width: 1.4; }
+.svg-key       { fill: var(--accent-a12); stroke: var(--accent); stroke-width: 1.8; }
+.svg-band      { font-family: inherit; font-weight: 800; font-size: 12px; letter-spacing: .11em; text-transform: uppercase; fill: var(--text2); }
+.svg-title     { font-family: inherit; font-weight: 700; font-size: 14px; fill: var(--text); }
+.svg-title-key { font-family: inherit; font-weight: 800; font-size: 15px; fill: var(--accent3); }
+.svg-sub       { font-family: inherit; font-size: 12px; fill: var(--text2); }
+.svg-sub-key   { font-family: inherit; font-size: 12px; fill: var(--accent3); }
+.svg-q         { font-family: inherit; font-size: 11.5px; fill: var(--text2); }
+.svg-edge      { font-family: inherit; font-weight: 700; font-size: 11px; fill: var(--text2); }
+.flowline      { stroke: var(--text2); stroke-width: 1.5; fill: none; }
+.flowline-key  { stroke: var(--accent); stroke-width: 2; fill: none; }
+.doc-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.doc-table th { text-align: left; padding: 8px 14px; font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--text3); border-bottom: 1px solid var(--border); }
+.doc-table td { padding: 11px 14px; border-bottom: 1px solid var(--border); color: var(--text2); vertical-align: top; line-height: 1.5; }
+.doc-table tr:last-child td { border-bottom: none; }
+.doc-table tr:hover td { background: var(--accent-a06); }
+.doc-table td:first-child { color: var(--text); font-weight: 600; box-shadow: inset 2px 0 0 var(--accent-a33); }
+.doc-table td.note { color: var(--text2); font-size: 12px; font-weight: 400; box-shadow: none; }
+.mono-id { font-family: "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace; font-size: 10px; word-break: break-all; color: var(--text2); }
+.cmd { font-family: "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace; font-size: 11px; }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 10px; font-weight: 700; }
+.tag-py   { background: rgba(56,189,248,.15); color: var(--blue); }
+.tag-js   { background: rgba(251,146,60,.15);  color: var(--orange); }
+.tag-html { background: rgba(232,121,249,.15); color: var(--pink); }
+.tag-json { background: rgba(34,197,94,.15);   color: var(--green); }
+.steps { display: flex; flex-direction: column; gap: 0; }
+.step { display: flex; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--border); }
+.step:last-child { border-bottom: none; }
+.step-num { width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 12px; font-weight: 800; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px; }
+.step-title { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 5px; }
+.step-desc  { font-size: 12px; color: var(--text2); line-height: 1.55; }
+.code-block { background: rgba(0,0,0,.35); border: 1px solid var(--border); border-radius: 7px; padding: 10px 14px; font-family: monospace; font-size: 11.5px; color: var(--accent3); margin-top: 8px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+.proj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.proj-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 22px 20px; cursor: pointer; transition: all .2s; text-align: left; }
+.proj-card:hover { border-color: var(--accent2); background: var(--accent-a12); transform: translateY(-2px); }
+.proj-card-icon { font-size: 28px; margin-bottom: 12px; }
+.proj-card-name { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+.proj-card-desc { font-size: 11.5px; color: var(--text2); line-height: 1.5; }
+.badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 20px; font-size: 10.5px; font-weight: 600; }
+.badge-manual  { background: rgba(251,146,60,.15);  color: var(--orange); }
+.badge-auto    { background: rgba(56,189,248,.15);  color: var(--blue); }
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+@media(max-width:900px){ .two-col { grid-template-columns: 1fr; } #sidebar { width: 200px; } #main { margin-left: 200px; padding: 32px 24px; } }
+@media(max-width:640px){
+  body { display: block; }
+  #sidebar { position: static; width: auto; min-height: 0; height: auto; border-right: none; border-bottom: 1px solid var(--border); padding: 14px 14px 10px; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 5px 6px; overflow: visible; }
+  .sidebar-logo { width: 100%; padding: 0 0 10px; margin-bottom: 6px; }
+  .sidebar-section { width: 100%; padding: 8px 0 2px; margin-top: 4px; }
+  .nav-item { border-left: none; border: 1px solid var(--border); border-radius: 999px; padding: 6px 12px; font-size: 12px; }
+  .nav-item.active { border-color: var(--accent2); background: var(--accent-a12); }
+  #main { margin-left: 0; padding: 22px 16px; }
+}
+:focus-visible { outline: 2px solid var(--accent2); outline-offset: -2px; border-radius: 4px; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 3px; }
+a.ext-link { color: var(--accent2); text-decoration: none; font-size: 11.5px; }
+a.ext-link:hover { text-decoration: underline; }
+.alert-box { background: rgba(251,191,36,.08); border: 1px solid rgba(251,191,36,.25); border-radius: 10px; padding: 14px 18px; font-size: 12px; color: var(--yellow); margin-bottom: 16px; line-height: 1.55; }
+.alert-box strong, .alert-box code { color: var(--yellow); }
+.alert-box.info { background: var(--accent-a06); border-color: var(--accent-a25); color: var(--text2); }
+.alert-box.info strong, .alert-box.info code { color: var(--accent3); }
+</style>
+</head>
+<body>
+
+<nav id="sidebar">
+  <div class="sidebar-logo">
+    <div class="sidebar-logo-title">🎁 Loyalty Ecosystem</div>
+    <div class="sidebar-logo-sub">Manual técnico · Despegar</div>
+  </div>
+
+  <div class="sidebar-section">Para dirección</div>
+  <a class="nav-item active" onclick="showSection('overview')"><span class="nav-icon">🧭</span> Panorama</a>
+  <a class="nav-item" onclick="showSection('arquitectura')"><span class="nav-icon">🗺️</span> Cómo se conecta todo</a>
+
+  <div class="sidebar-section">Guía del equipo</div>
+  <a class="nav-item" onclick="showSection('empezar')"><span class="nav-icon">📖</span> Empezá por acá</a>
+  <a class="nav-item" onclick="showSection('glosario')"><span class="nav-icon">📓</span> Glosario</a>
+  <a class="nav-item" onclick="showSection('que-vista')"><span class="nav-icon">🧩</span> ¿Qué vista uso?</a>
+  <a class="nav-item" onclick="showSection('recetas')"><span class="nav-icon">🍳</span> Recetas por tarea</a>
+  <a class="nav-item" onclick="showSection('responsables')"><span class="nav-icon">👥</span> Quién hace qué</a>
+
+  <div class="sidebar-section">Referencia operativa</div>
+  <a class="nav-item" onclick="showSection('pipeline')"><span class="nav-icon">🐍</span> El pipeline</a>
+  <a class="nav-item" onclick="showSection('datos')"><span class="nav-icon">📦</span> Los datos (JSON)</a>
+  <a class="nav-item" onclick="showSection('deploy')"><span class="nav-icon">🚀</span> Deploy</a>
+  <a class="nav-item" onclick="showSection('archivos')"><span class="nav-icon">📁</span> Archivos &amp; rutas</a>
+  <a class="nav-item" onclick="showSection('agentes')"><span class="nav-icon">🔍</span> Agentes de auditoría</a>
+</nav>
+
+<main id="main">
+
+  <!-- ══════════════════ PANORAMA ══════════════════ -->
+  <div class="section active" id="sec-overview">
+    <div class="page-header">
+      <div class="page-tag">Manual técnico · Loyalty · Despegar</div>
+      <div class="page-title">Loyalty <span>Ecosystem</span></div>
+      <div class="page-sub">Un dashboard que junta el <strong>P&amp;L Contable de Loyalty</strong> (Baseline vs Goal) con las <strong>métricas de negocio</strong> del programa —acumulación, redención, breakage, miembros— por país y por programa. Autoservicio: el equipo de Loyalty y finance consultan sin pedir extracciones.</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🎯 Qué preguntas responde</div>
+      <table class="doc-table"><tbody>
+        <tr><td>¿Cómo viene el P&amp;L de Loyalty vs Budget / Forecast?</td><td>Por país, mes / trimestre / semestre. → pestaña de país, sección <strong>P&amp;L Contable</strong></td></tr>
+        <tr><td>¿Cuántos puntos se acumulan y se redimen por mes?</td><td>Por programa (Pasaporte D!, iFood, Cobrand, Partners, etc.), CY vs LY. → <strong>Métricas de negocio</strong></td></tr>
+        <tr><td>¿Cuánto breakage hay (puntos que expiran sin usarse)?</td><td>Por país y tier. → <strong>Métricas → Breakage</strong></td></tr>
+        <tr><td>¿Cuánto vale un punto (SSP) por país y mes?</td><td>SSP Facturación = SSP Calculado × (1 − breakage esperado). → alimenta la valuación USD de la acumulación</td></tr>
+        <tr><td>¿Cuántos miembros activos hay, por tier?</td><td>Padrón actual (foto de hoy). → <strong>Miembros del programa</strong></td></tr>
+        <tr><td>¿Suscriptos a Club Despegar (AR) / enrolados en iFood (BR)?</td><td>Altas por mes + stock. → dentro de la sección de programa "Club Despegar" / "IFOOD"</td></tr>
+      </tbody></table>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🧭 Cómo leer este manual</div>
+      <table class="doc-table"><tbody>
+        <tr><td><strong>Para dirección</strong></td><td>Panorama + "Cómo se conecta todo". Qué es, qué resuelve, sin comandos.</td></tr>
+        <tr><td><strong>Guía del equipo</strong></td><td>Onboarding: empezá por acá, glosario, qué vista uso, recetas por tarea, quién hace qué.</td></tr>
+        <tr><td><strong>Referencia operativa</strong></td><td>El detalle: el pipeline `loyalty_sync.py`, los 10 JSON, el P&amp;L que viene de otro repo, deploy, archivos.</td></tr>
+      </tbody></table>
+    </div>
+
+    <div class="proj-grid">
+      <div class="proj-card" onclick="showSection('pipeline')">
+        <div class="proj-card-icon">🐍</div>
+        <div class="proj-card-name">loyalty_sync.py</div>
+        <div class="proj-card-desc">El pipeline. ~10 queries al Datalake + la planilla de config, agrega por mes+país+programa, sube 10 JSON a Drive. Corre agendado.</div>
+        <div style="margin-top:12px"><span class="badge badge-manual">🐍 Python</span></div>
+      </div>
+      <div class="proj-card" onclick="showSection('datos')">
+        <div class="proj-card-icon">📊</div>
+        <div class="proj-card-name">dashboard.html + Código.js</div>
+        <div class="proj-card-desc">La landing GAS. SPA con pestaña TOTAL + una por país; P&amp;L Contable, Métricas por programa, Miembros, Club Despegar, iFood.</div>
+        <div style="margin-top:12px"><span class="badge badge-manual">🔄 Actualización manual</span></div>
+      </div>
+      <div class="proj-card" onclick="showSection('datos')">
+        <div class="proj-card-icon">📋</div>
+        <div class="proj-card-name">P&amp;L Contable (fuente externa)</div>
+        <div class="proj-card-desc">Los JSON canónicos del P&amp;L NO los genera Loyalty — vienen de <code>Inputs_Planning_PnL</code> (repo B2B_Ecosystem). La landing filtra las líneas "loyalty".</div>
+        <div style="margin-top:12px"><span class="badge badge-auto">↗ Cross-repo</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════ ARQUITECTURA ══════════════════ -->
+  <div class="section" id="sec-arquitectura">
+    <div class="page-header">
+      <div class="page-tag">Para dirección · Arquitectura</div>
+      <div class="page-title">Cómo se conecta <span>todo</span></div>
+      <div class="page-sub">Fuentes → un motor que consolida → los datos en Google Drive → el dashboard. El P&amp;L Contable entra por un camino aparte (otro repo).</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📊 Mapa</div>
+      <figure class="arch-fig">
+        <svg viewBox="0 0 1120 560" role="img" aria-label="Diagrama: el Datalake (ODBC) y la planilla de configuración pasan por loyalty_sync.py, que agrega y publica ~10 JSON en Google Drive; el P&amp;L Contable entra aparte, desde los JSON canónicos que genera Inputs_Planning_PnL en el repo B2B_Ecosystem; el dashboard GAS lee todo de Drive y muestra P&amp;L, métricas de negocio, miembros y los programas Club Despegar e iFood.">
+          <text class="svg-band" x="20"  y="34">De dónde salen los datos</text>
+          <text class="svg-band" x="506" y="34" text-anchor="middle">El motor y los datos en Drive</text>
+          <text class="svg-band" x="770" y="34">El dashboard</text>
+
+          <defs>
+            <marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--text2)"></path></marker>
+            <marker id="ahk" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"></path></marker>
+          </defs>
+
+          <rect class="svg-box" x="20" y="78" width="230" height="80" rx="7"></rect>
+          <text class="svg-title" x="36" y="106">Datalake (ODBC)</text>
+          <text class="svg-sub"   x="36" y="126">Acumulaciones, redenciones, breakage,</text>
+          <text class="svg-sub"   x="36" y="143">padrón, Club Despegar, iFood</text>
+
+          <rect class="svg-box" x="20" y="238" width="230" height="80" rx="7"></rect>
+          <text class="svg-title" x="36" y="266">Planilla "Config"</text>
+          <text class="svg-sub"   x="36" y="286">Breakage esperado + mapeo de</text>
+          <text class="svg-sub"   x="36" y="303">programas. La edita el analista.</text>
+
+          <rect class="svg-box" x="20" y="398" width="230" height="80" rx="7"></rect>
+          <text class="svg-title" x="36" y="426">P&amp;L canónico</text>
+          <text class="svg-sub"   x="36" y="446">De <tspan font-style="italic">Inputs_Planning_PnL</tspan> (repo B2B).</text>
+          <text class="svg-sub"   x="36" y="463">Baseline / Budget / Forecast.</text>
+
+          <path class="flowline" d="M250,118 H358" marker-end="url(#ah)"></path>
+          <path class="flowline" d="M250,278 H358" marker-end="url(#ah)"></path>
+          <text class="svg-edge" x="304" y="108" text-anchor="middle">queries + planilla</text>
+
+          <rect class="svg-key" x="360" y="78" width="292" height="260" rx="9"></rect>
+          <text class="svg-title-key" x="506" y="112" text-anchor="middle">loyalty_sync.py</text>
+          <text class="svg-sub-key"   x="506" y="134" text-anchor="middle">Agrega por mes + país + programa</text>
+          <line x1="388" y1="158" x2="624" y2="158" stroke="var(--accent)" stroke-width="1" stroke-dasharray="3 3" opacity="0.45"></line>
+          <text class="svg-title-key" x="506" y="190" text-anchor="middle">~10 JSON en Google Drive</text>
+          <text class="svg-sub-key"   x="506" y="212" text-anchor="middle">Acum / reden / breakage / SSP /</text>
+          <text class="svg-sub-key"   x="506" y="229" text-anchor="middle">miembros / club / ifood / dict</text>
+          <text class="svg-sub-key"   x="506" y="255" text-anchor="middle">Agregado por mes: el límite de</text>
+          <text class="svg-sub-key"   x="506" y="272" text-anchor="middle">Apps Script son 50 MB por archivo</text>
+          <text class="svg-sub-key"   x="506" y="298" text-anchor="middle">Corre agendado. Se sobreescriben,</text>
+          <text class="svg-sub-key"   x="506" y="315" text-anchor="middle">sin versiones.</text>
+
+          <path class="flowline" d="M250,438 C310,438 320,300 360,300" marker-end="url(#ah)"></path>
+          <text class="svg-edge" x="300" y="380" text-anchor="middle">el P&amp;L NO pasa</text>
+          <text class="svg-edge" x="300" y="394" text-anchor="middle">por el motor</text>
+
+          <path class="flowline-key" d="M652,150 C702,150 712,120 758,120" marker-end="url(#ahk)"></path>
+          <path class="flowline-key" d="M652,240 C702,240 712,250 758,250" marker-end="url(#ahk)"></path>
+          <path class="flowline-key" d="M652,300 C702,340 712,400 758,400" marker-end="url(#ahk)"></path>
+
+          <rect class="svg-box" x="760" y="82"  width="340" height="76" rx="7"></rect>
+          <text class="svg-title" x="778" y="108">P&amp;L Contable</text>
+          <text class="svg-q"     x="778" y="128">Baseline vs Goal vs Δ, por país.</text>
+          <text class="svg-q"     x="778" y="145">Filtra las líneas "loyalty" del canónico.</text>
+
+          <rect class="svg-box" x="760" y="222" width="340" height="76" rx="7"></rect>
+          <text class="svg-title" x="778" y="248">Métricas de negocio</text>
+          <text class="svg-q"     x="778" y="268">Acumulación / redención / breakage</text>
+          <text class="svg-q"     x="778" y="285">por programa, CY vs LY.</text>
+
+          <rect class="svg-box" x="760" y="362" width="340" height="76" rx="7"></rect>
+          <text class="svg-title" x="778" y="388">Miembros · Club Despegar · iFood</text>
+          <text class="svg-q"     x="778" y="408">Padrón por tier, suscripciones AR,</text>
+          <text class="svg-q"     x="778" y="425">enrollment BR.</text>
+        </svg>
+        <figcaption class="arch-cap"><b>Lo que muestra:</b> un solo pipeline (<code>loyalty_sync.py</code>) alimenta todo lo de negocio; el <b>P&amp;L Contable entra aparte</b>, desde los JSON canónicos que genera <code>Inputs_Planning_PnL</code> en el repo <b>B2B_Ecosystem</b> — Loyalty solo los lee y filtra las líneas "loyalty". Todo pasa por Google Drive; el dashboard lee de ahí. Pestaña <b>TOTAL</b> = suma de los 8 países; pestañas de país = el detalle.</figcaption>
+      </figure>
+    </div>
+  </div>
+
+  <!-- ══════════════════ EMPEZÁ POR ACÁ ══════════════════ -->
+  <div class="section" id="sec-empezar">
+    <div class="page-header">
+      <div class="page-tag">Guía del equipo · Onboarding</div>
+      <div class="page-title">Empezá <span>por acá</span></div>
+      <div class="page-sub">Recorrido de ~20 minutos para entender el dashboard y de dónde salen los números.</div>
+    </div>
+    <div class="card">
+      <div class="card-title">🚶 Recorrido sugerido</div>
+      <div class="steps">
+        <div class="step"><div class="step-num">1</div><div><div class="step-title">Leé el Panorama y "Cómo se conecta todo"</div><div class="step-desc">Qué resuelve el dashboard, el flujo Datalake → <code>loyalty_sync.py</code> → JSON en Drive → landing, y que el P&amp;L viene de otro repo.</div></div></div>
+        <div class="step"><div class="step-num">2</div><div><div class="step-title">Pasá por el Glosario</div><div class="step-desc">Los términos que se repiten: <strong>acumulación / redención / breakage</strong>, <strong>SSP</strong>, <strong>tier</strong>, <strong>Pasaporte D!</strong>, <strong>Baseline vs Goal</strong>, <strong>foto actual / survivorship</strong>. Sin esto, las secciones no se leen.</div></div></div>
+        <div class="step"><div class="step-num">3</div><div><div class="step-title">Abrí el dashboard y navegá cada sección</div><div class="step-desc">Con "¿Qué vista uso?" al lado. Probá cambiar de pestaña de país, cambiar Goal (Budget/Forecast), el período (Mes/Q/Half), abrir un programa.</div></div></div>
+        <div class="step"><div class="step-num">4</div><div><div class="step-title">Mirá "Quién hace qué"</div><div class="step-desc">Los 3 perfiles (Analista / Analista+query / Operador), quién corre el sync, a quién le escribís si un número se ve raro.</div></div></div>
+        <div class="step"><div class="step-num">5</div><div><div class="step-title">Cuando tengas que actualizar algo</div><div class="step-desc">Andá a <strong>Recetas por tarea</strong>, y de ahí a la <strong>Referencia operativa</strong> del pipeline si hace falta el detalle.</div></div></div>
+      </div>
+    </div>
+    <div class="alert-box info">💡 El dashboard es de <strong>autoservicio</strong>. Si la pregunta es de P&amp;L, acumulación, redención, breakage, miembros o SSP de Loyalty, casi seguro ya está en alguna vista.</div>
+  </div>
+
+  <!-- ══════════════════ GLOSARIO ══════════════════ -->
+  <div class="section" id="sec-glosario">
+    <div class="page-header">
+      <div class="page-tag">Guía del equipo</div>
+      <div class="page-title">Glosario</div>
+      <div class="page-sub">Los términos que aparecen en el dashboard y en el resto del manual.</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">💰 P&amp;L y escenarios</div>
+      <table class="doc-table"><tbody>
+        <tr><td><strong>P&amp;L Contable</strong></td><td>El P&amp;L de Loyalty con líneas de accounting. Fuente: los JSON canónicos de <code>Inputs_Planning_PnL</code> (repo B2B); la landing filtra <code>P&amp;L N1</code> que contiene "loyalty".</td></tr>
+        <tr><td><strong>Baseline</strong></td><td>La foto realista: actuals de meses cerrados + run-rate + forecast para los abiertos. Es contra lo que se compara.</td></tr>
+        <tr><td><strong>Goal</strong></td><td>El objetivo elegido en el selector: <strong>Budget</strong> (presupuesto oficial) o <strong>Forecast</strong> (última proyección).</td></tr>
+        <tr><td><strong>Δ (Baseline − Goal)</strong></td><td>La diferencia. Verde/rojo según sea mejor o peor que el Goal.</td></tr>
+        <tr><td colspan="2" class="note">El P&amp;L de Loyalty usa el mismo color-coding que el P&amp;L Accounting de B2B: BASELINE lila · GOAL azul · Δ verde.</td></tr>
+      </tbody></table>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🎟️ Puntos: los 3 movimientos</div>
+      <table class="doc-table"><tbody>
+        <tr><td><strong>Acumulación</strong> (accrual)</td><td>Puntos que el cliente gana en una transacción. Fuente: reportes de Comarch (<code>comarch_accumulation_report</code>).</td></tr>
+        <tr><td><strong>Redención</strong></td><td>Puntos que el cliente usa. Fuente: <code>comarch_redemption_report</code>.</td></tr>
+        <tr><td><strong>Breakage</strong></td><td>Puntos que <strong>expiran sin usarse</strong>. Fuente: transacciones tipo <code>PE</code> de <code>clm_transactions</code>.</td></tr>
+        <tr><td><strong>points</strong> vs <strong>points_distribuidos</strong></td><td>La query trae <code>SUM(puntos)</code> como <code>points</code>. El cierre de Loyalty usa <code>points_distribuidos</code> (~2-4% menos), que falla vía ODBC. El SSP calculado difiere ~1% del cierre por esto.</td></tr>
+        <tr><td>Agregación con <code>abs()</code></td><td>Acum y reden se suman en valor absoluto por fila (preserva el criterio del dashboard). Cambiarlo mueve todos los totales.</td></tr>
+      </tbody></table>
+    </div>
+
+    <div class="card">
+      <div class="card-title">💲 SSP — cuánto vale un punto</div>
+      <table class="doc-table"><tbody>
+        <tr><td><strong>SSP Calculado</strong></td><td>Σ USD de descuento por redención / Σ puntos redimidos, sobre redenciones de Pasaporte D! (point_type general + cobrand + partners), por país y mes. Negativo, como en el cierre.</td></tr>
+        <tr><td><strong>Breakage esperado</strong></td><td>Input manual que mantiene Control de Gestión en la planilla Config. Distinto del breakage <em>real</em> (el que se mide). <strong>Hoy es un placeholder</strong>: el valor del cierre 07 replicado a todos los meses (falta la serie mensual real).</td></tr>
+        <tr><td><strong>SSP Facturación</strong></td><td>= SSP Calculado × (1 − breakage esperado). Es el factor que multiplica la base de la acumulación para dar el valor USD.</td></tr>
+        <tr><td>Valor USD de acumulación</td><td>≈ base de ingreso no pagada con puntos × SSP Facturación[país][mes]. Factor chico (~0.3-0.9%).</td></tr>
+        <tr><td class="note" colspan="2">⚠️ Bug conocido en el Excel del cierre: MX↔CO estaban swapeados (referencias cruzadas del pivot). El pipeline lo corrige.</td></tr>
+      </tbody></table>
+    </div>
+
+    <div class="card">
+      <div class="card-title">👥 Miembros y programas</div>
+      <table class="doc-table"><tbody>
+        <tr><td><strong>Tier</strong></td><td>Nivel de reconocimiento del socio: Viajero / Explorador / Global (IDs 2352/2353/2354). "Sin tier" = no tiene nivel vigente.</td></tr>
+        <tr><td><strong>Pasaporte D!</strong></td><td>El programa "general" de puntos Despegar. En las queries es <code>point_type = 'general'</code>. NO está activo en Chile (banner explícito).</td></tr>
+        <tr><td><strong>Programa</strong></td><td>En el dashboard, un programa = <code>partner</code> + <code>point_type</code>. El mapeo (qué combinación cae en qué sección) lo define la planilla Config: Pasaporte D!, IFOOD, Cobrand, Partners, Acciones Marketing, Club Despegar, Puntos Manuales.</td></tr>
+        <tr><td><strong>Club Despegar</strong></td><td>Suscripción paga (solo Argentina). Series stock / alta / baja por plan, desde <code>membertrip_subscription</code>.</td></tr>
+        <tr><td><strong>iFood</strong></td><td>Enrollment de iFood (Brasil): "iFood enrol" (cross-cashback) y "Club iFood" (closed-loop), desde <code>ifood_dim_users</code>.</td></tr>
+        <tr><td><strong>Foto actual / survivorship</strong></td><td>Miembros y Club Despegar son un <strong>snapshot del padrón de HOY</strong>. Las "altas" de meses viejos solo cuentan a quienes siguen activos → sesgo de supervivencia. El KPI del total sí es correcto; la serie histórica de altas no. El <code>updated_at</code> de las suscripciones está bulk-touched → la fecha de baja es aproximada.</td></tr>
+      </tbody></table>
+    </div>
+
+    <div class="card">
+      <div class="card-title">⚙️ Términos técnicos</div>
+      <table class="doc-table"><tbody>
+        <tr><td><strong>CY / LY</strong></td><td>Año calendario actual / anterior. El pipeline trae los dos para las comparaciones YoY. LY = 2025 no cambia.</td></tr>
+        <tr><td>JSON <strong>canónico</strong></td><td>Los archivos del P&amp;L (`baseline_actuals+projections.json`, `budget.json`, `forecast.json`) que genera <code>Inputs_Planning_PnL</code>. Loyalty los consume, no los produce.</td></tr>
+        <tr><td>Planilla <strong>Config</strong> vs fallback</td><td>La fuente real de breakage esperado y el diccionario de programas es el Google Sheet "Loyalty Ecosystem - Config". <code>breakage_esperado.csv</code> / <code>Diccionario.xlsx</code> son solo <strong>fallback</strong> — no editarlos.</td></tr>
+        <tr><td><strong>@HEAD</strong> vs deployment publicado</td><td><code>clasp push</code> sube a <code>@HEAD</code> (la URL <code>/dev</code>). La URL <code>/exec</code> que ve el negocio queda <strong>congelada</strong> hasta un <code>clasp deploy -i &lt;id&gt;</code>.</td></tr>
+        <tr><td><code>--dry-run</code></td><td>Corre las queries y arma los JSON en <code>_out/</code> sin subir a Drive ni leer la planilla. Para validar cambios de query con solo Datalake + DSN.</td></tr>
+      </tbody></table>
+    </div>
+  </div>
+
+  <!-- ══════════════════ ¿QUÉ VISTA USO? ══════════════════ -->
+  <div class="section" id="sec-que-vista">
+    <div class="page-header">
+      <div class="page-tag">Guía del equipo</div>
+      <div class="page-title">¿Qué vista <span>uso?</span></div>
+      <div class="page-sub">Todo está en el mismo dashboard. Primero elegís la pestaña de país (o TOTAL), después la sección.</div>
+    </div>
+    <div class="card">
+      <div class="card-title">🧩 Según la pregunta</div>
+      <table class="doc-table">
+        <thead><tr><th>Necesito…</th><th>Sección</th><th>Nota</th></tr></thead>
+        <tbody>
+          <tr><td>El P&amp;L de Loyalty vs Budget / Forecast</td><td><strong>P&amp;L Contable</strong></td><td>Selector Goal (Budget/Forecast) y período (Mes/Q/Half). El default de fechas es Ene-Dic → para el FY completo poner Hasta = Marzo del año siguiente.</td></tr>
+          <tr><td>Detalle de acumulación / redención / breakage por programa</td><td><strong>Métricas de negocio</strong></td><td>Chips de programa arriba. Cada uno: 4 KPIs + 2 charts mensuales CY vs LY.</td></tr>
+          <tr><td>Cuántos miembros activos, por tier</td><td><strong>Miembros del programa</strong></td><td>Foto actual (no serie histórica). KPIs por tier + altas por mes + stock acumulado.</td></tr>
+          <tr><td>Suscriptos a Club Despegar (AR)</td><td>Sección de programa <strong>"Club Despegar"</strong></td><td>Solo pestaña Argentina + TOTAL. Stock por plan + altas/bajas.</td></tr>
+          <tr><td>Enrolados en iFood (BR)</td><td>Sección de programa <strong>"IFOOD"</strong></td><td>Solo pestaña Brasil + TOTAL.</td></tr>
+          <tr><td>Todo sumado (los 8 países)</td><td>Pestaña <strong>TOTAL</strong></td><td>Primera pestaña, es el default.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="alert-box info">ℹ️ Chile aparece con un banner: Pasaporte D! no está activo ahí. Uruguay está en WIP. Ambos suman naturalmente 0 en las métricas de puntos.</div>
+  </div>
+
+  <!-- ══════════════════ RECETAS ══════════════════ -->
+  <div class="section" id="sec-recetas">
+    <div class="page-header">
+      <div class="page-tag">Guía del equipo</div>
+      <div class="page-title">Recetas <span>por tarea</span></div>
+      <div class="page-sub">Qué hacer según lo que pasó. El detalle fino está en la Referencia operativa.</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📅 Hay datos nuevos (cerró un mes)</div>
+      <div class="step-desc">La corrida real la hace el <strong>scheduler</strong> (o Diego de backup). Manual, con VPN, desde la carpeta del repo:</div>
+      <div class="code-block">python loyalty_sync.py</div>
+      <div class="step-desc" style="margin-top:8px">Al final tiene que decir <code>OK Drive: actualizado (...)</code> para los <strong>10 archivos</strong> y NO terminar con <code>[WARN] La planilla ... no estuvo accesible</code>. El dashboard toma los datos nuevos solo (cache auto-invalidante por <code>lastUpdated</code>). Si un JSON pasa 45 MB, el script avisa <code>[WARN]</code> — el límite de Apps Script son 50.</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📝 Cambió el breakage esperado o el mapeo de programas</div>
+      <div class="step-desc">Editar la planilla <strong>"Loyalty Ecosystem - Config"</strong> en Drive (pestañas <code>breakage_esperado</code> / <code>diccionario</code>). El sync la lee en la próxima corrida. <strong>NO tocar</strong> <code>breakage_esperado.csv</code> / <code>Diccionario.xlsx</code> del repo — son solo fallback. Si el sync termina con <code>[WARN]</code> y exit code 2, significó que no pudo leer la planilla y usó el fallback viejo.</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🔬 Validar un cambio de query antes del PR</div>
+      <div class="code-block">python loyalty_sync.py --dry-run</div>
+      <div class="step-desc" style="margin-top:8px">Corre las queries, arma los 10 JSON en <code>_out/</code>, NO sube a Drive ni lee la planilla. Imprime redenciones por point_type + SSP por país + miembros por tier para chequear a ojo. Necesita solo Datalake + DSN (no credenciales de Drive).</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🎨 Cambiar el dashboard (visual o lógica)</div>
+      <div class="steps">
+        <div class="step"><div class="step-num">1</div><div><div class="step-title">branch → editar → commit → push → PR</div><div class="step-desc"><code>dashboard.html</code> / <code>Código.js</code> están en la raíz del repo.</div></div></div>
+        <div class="step"><div class="step-num">2</div><div><div class="step-title">Al mergear a <code>main</code></div><div class="step-desc">La GitHub Action hace <code>clasp push</code> + <code>clasp deploy</code> sola. <strong>Hoy la Action está rota</strong> (falta el secret <code>CLASP_CREDENTIALS</code>) — deploy manual con <code>/publicar</code>.</div></div></div>
+        <div class="step"><div class="step-num">3</div><div><div class="step-title">Verificar</div><div class="step-desc"><code>clasp deployments</code> → confirmar que el deployment estable muestra la versión nueva. Después abrir la webapp (Ctrl+F5).</div></div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🔎 Un número se ve mal</div>
+      <table class="doc-table"><tbody>
+        <tr><td>¿Está viejo el dato?</td><td>El dashboard muestra un <strong>banner rojo</strong> si los datos tienen más de 48h o si están desparejos (una subida a medias). También revisá "Ultimo sync" en el header.</td></tr>
+        <tr><td>¿El P&amp;L Contable está vacío?</td><td>Si <code>Inputs_Planning_PnL</code> (repo B2B) renombró una columna, la landing tira un error claro (guard en <code>_loyPnl</code>). Revisar la consola.</td></tr>
+        <tr><td>¿Miembros / Club se ven "raros" en meses viejos?</td><td>Es el sesgo de supervivencia (foto actual). El KPI del total es correcto; la serie histórica de altas no.</td></tr>
+        <tr><td>¿Error de conexión al correr el sync?</td><td>Casi siempre es la <strong>VPN</strong>. <code>conectar()</code> ya reintenta 4× con backoff.</td></tr>
+        <tr><td>¿Un programa nuevo cae en "Otros"?</td><td>Falta agregarlo al diccionario en la planilla Config.</td></tr>
+      </tbody></table>
+    </div>
+  </div>
+
+  <!-- ══════════════════ RESPONSABLES ══════════════════ -->
+  <div class="section" id="sec-responsables">
+    <div class="page-header">
+      <div class="page-tag">Guía del equipo</div>
+      <div class="page-title">Quién <span>hace qué</span></div>
+      <div class="page-sub">Los 3 perfiles y quién opera qué. A quién escribirle si algo no anda.</div>
+    </div>
+    <div class="card">
+      <div class="card-title">👥 Perfiles</div>
+      <table class="doc-table">
+        <thead><tr><th>Perfil</th><th>Hace</th><th>Setup</th></tr></thead>
+        <tbody>
+          <tr><td>Analista</td><td>Edita inputs de negocio (planilla Config) · cambios de dashboard/queries por PR</td><td>Acceso a repo + planilla. Nada instalado.</td></tr>
+          <tr><td>Analista + query</td><td>Además valida cambios de query con <code>--dry-run</code></td><td>+ credenciales Datalake + DSN ODBC + libs Python (sin Drive)</td></tr>
+          <tr><td>Operador</td><td>Corre la sync real (sube a Drive). En la práctica: la máquina del Task Scheduler + Diego de backup.</td><td>Setup completo (+ Drive). Ver <code>SETUP.md</code>.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="card">
+      <div class="card-title">⚙️ Operación</div>
+      <table class="doc-table"><tbody>
+        <tr><td>Sync de datos</td><td><strong>Automático</strong> (Task Scheduler diario, en <strong>una</strong> máquina) + Diego de backup manual.</td></tr>
+        <tr><td>Inputs de negocio (breakage, mapeo)</td><td>Control de Gestión, en la planilla Config.</td></tr>
+        <tr><td>Deploy de la landing</td><td>GitHub Action al mergear (hoy rota) · o <code>/publicar</code> manual.</td></tr>
+        <tr><td>Colaboradores del código</td><td>Diego Bracco · Rosario Arancedo (split Cobrand/Partners).</td></tr>
+      </tbody></table>
+    </div>
+    <div class="alert-box">⚠️ Puntos únicos de falla conocidos: el sync depende del Task Scheduler en <strong>una</strong> máquina; la service account de Drive que destrabaría a otros operadores sigue pendiente (<code>docs/PENDIENTE-DIEGO.md</code>).</div>
+  </div>
+
+  <!-- ══════════════════ EL PIPELINE ══════════════════ -->
+  <div class="section" id="sec-pipeline">
+    <div class="page-header">
+      <div class="page-tag">Referencia operativa</div>
+      <div class="page-title">El <span>pipeline</span></div>
+      <div class="page-sub"><code>loyalty_sync.py</code> — ~10 queries al Datalake + la planilla Config, agrega, sube 10 JSON a Drive.</div>
+    </div>
+
+    <div class="two-col">
+      <div class="card">
+        <div class="card-title">📍 Datos</div>
+        <table class="doc-table"><tbody>
+          <tr><td>Carpeta local</td><td>Loyalty_Ecosystem (raíz del repo)</td></tr>
+          <tr><td>Apps Script (dashboard)</td><td class="mono-id">1SXEXXwM9CromNRqhwiFFg34-rnO9Q3a85d3oMHsM9mgMS_NmpP2OrNLk</td></tr>
+          <tr><td>Drive folder (JSON loyalty)</td><td class="mono-id">1yCPp6hTusYmhhb17WiB6EuhFmsx7tlxb</td></tr>
+          <tr><td>Drive folder (P&amp;L canónico)</td><td class="mono-id">1XqQPL_rlS0NRIPUnPfj5nALBTn7kAOQV (lo llena Inputs_Planning_PnL, repo B2B)</td></tr>
+          <tr><td>Planilla Config</td><td class="mono-id">1M48FXIAFvyKpP9RSLLSuWh9DgetFPovYfWAM3lQNASI</td></tr>
+          <tr><td>Credenciales</td><td><code>envs/.env.&lt;usuario&gt;</code> (Datalake) · <code>service_account.json</code> o <code>token_drive.json</code> (Drive). Nunca en el repo.</td></tr>
+        </tbody></table>
+      </div>
+      <div class="card">
+        <div class="card-title">🗄️ Familias de tabla del Datalake</div>
+        <table class="doc-table"><tbody>
+          <tr><td><code>data.lake.*</code></td><td>Comarch (accrual/redemption/cancellation), <code>clm_*</code>. Números OK.</td></tr>
+          <tr><td><code>data.analytics.*</code></td><td>Facts transaccionales. Un <code>SELECT</code> de una columna <code>DECIMAL</code> cruda falla por ODBC — hay que envolver en <code>SUM(CAST(... AS DECIMAL))</code> (las queries centrales ya lo hacen).</td></tr>
+          <tr><td><code>data.raw.*</code> · <code>analytics.ifood_dim_users</code></td><td>Catálogos nuevos: Club Despegar, iFood. Funcionan OK.</td></tr>
+          <tr><td class="note" colspan="2">Si el ODBC tira <code>errorCode member not found</code> al <em>conectar</em> (no al correr la query), es la VPN/driver — <code>conectar()</code> ya reintenta 4×.</td></tr>
+        </tbody></table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🛡️ Guards del pipeline (auditoría 2026-09)</div>
+      <table class="doc-table"><tbody>
+        <tr><td><code>USO_FALLBACK_CONFIG</code></td><td>Si no pudo leer la planilla y usó el fallback local, termina con <code>[WARN]</code> + <code>sys.exit(2)</code> (antes: exit 0 silencioso).</td></tr>
+        <tr><td>Guard de 50 MB</td><td><code>[WARN]</code> en <code>upload_to_drive</code> si un JSON pasa 45 MB.</td></tr>
+        <tr><td>Guard de import</td><td><code>if __name__ != "__main__": raise SystemExit</code> — un <code>import loyalty_sync</code> ya no dispara las queries.</td></tr>
+        <tr><td><code>build_ssp_json</code></td><td>Aborta claro si 0 filas de redención; avisa qué <code>country_code</code> descartó sin mapear.</td></tr>
+      </tbody></table>
+    </div>
+  </div>
+
+  <!-- ══════════════════ LOS DATOS ══════════════════ -->
+  <div class="section" id="sec-datos">
+    <div class="page-header">
+      <div class="page-tag">Referencia operativa</div>
+      <div class="page-title">Los datos <span>(JSON)</span></div>
+      <div class="page-sub">Los 10 JSON que sube el pipeline, más los del P&amp;L que vienen de otro repo. Esquema común: <code>{meta, data}</code>.</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📦 Los 10 JSON de <code>loyalty_sync.py</code></div>
+      <table class="doc-table">
+        <thead><tr><th>Archivo</th><th>Query / fuente</th><th>Sección del dashboard</th></tr></thead>
+        <tbody>
+          <tr><td>loyalty_acumulaciones_{CY,LY}.json</td><td><code>_ACUM_SQL</code> — Comarch + facts. Agregado mes+país+partner+point_type.</td><td>Métricas → Acumulaciones (Q / USD)</td></tr>
+          <tr><td>loyalty_redenciones_{CY,LY}.json</td><td><code>_REDEN_SQL</code> — Comarch redemption. También alimenta el SSP.</td><td>Métricas → Redenciones</td></tr>
+          <tr><td>loyalty_breakage.json</td><td><code>build_breakage_query</code> — <code>clm_transactions</code> tipo <code>PE</code>. Formato <code>records</code> (no <code>cols/rows</code>).</td><td>Métricas → Breakage</td></tr>
+          <tr><td>loyalty_ssp.json</td><td><code>build_ssp_json</code> — redenciones Pasaporte D! + breakage esperado de la planilla.</td><td>Factor de valuación USD de la acumulación</td></tr>
+          <tr><td>loyalty_dict.json</td><td>pestaña <code>diccionario</code> de la planilla. Estructura <code>{acum, reden}</code> (sin <code>meta/data</code>).</td><td>Mapeo programa (qué combinación → qué sección)</td></tr>
+          <tr><td>loyalty_miembros.json</td><td><code>_MIEMBROS_SQL</code> — <code>clm_customers</code> status='A' × mes de enrolment × tier. Foto actual.</td><td>Miembros del programa (por tier)</td></tr>
+          <tr><td>loyalty_club_despegar.json</td><td><code>_CLUB_DESPEGAR_SQL</code> — <code>membertrip_subscription</code>. Series stock / alta / baja × plan.</td><td>Programa "Club Despegar" (AR + TOTAL)</td></tr>
+          <tr><td>loyalty_ifood_enroll.json</td><td><code>_IFOOD_ENROLL_SQL</code> — <code>ifood_dim_users</code>. Altas por mes por tipo.</td><td>Programa "IFOOD" (BR + TOTAL)</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📋 P&amp;L Contable — fuente externa</div>
+      <div class="step-desc">La landing lee <code>baseline_actuals+projections.json</code> / <code>budget.json</code> / <code>forecast.json</code> del folder Drive <code>1XqQPL…</code>, que genera <strong><code>Inputs_Planning_PnL</code> (repo B2B_Ecosystem)</strong> — NO <code>loyalty_sync.py</code>. <code>Código.js</code> (<code>_loyPnl</code>) filtra server-side las filas cuya columna <code>P&amp;L N1</code> contiene "loyalty" (~4k de ~70k) y las cachea.</div>
+      <div class="alert-box info" style="margin-top:12px">⚠️ Acople cross-repo: si <code>Inputs_Planning_PnL</code> renombra <code>P&amp;L N1</code> / <code>Pais</code> / <code>Fecha</code> / <code>Monto USD</code>, o cambia el string del LOB, el P&amp;L de Loyalty se rompe. Hay un guard en <code>_loyPnl</code> que tira un error claro (no queda vacío en silencio).</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🖥️ Cómo lo sirve el dashboard</div>
+      <table class="doc-table"><tbody>
+        <tr><td><code>Código.js</code></td><td>Solo sirve los JSON crudos de Drive (con cache por <code>lastUpdated</code>). Todo el cómputo corre en el browser. Los nombres de acum/reden se derivan del año actual (no se rompe el 1-ene).</td></tr>
+        <tr><td>Pestaña TOTAL</td><td>Pseudo-país <code>dataKey='total'</code>. Suma sobre los 8 países (<code>COUNTRY_DATAKEYS</code>), no "todo lo que haya" — así no se cuela un <code>Pais</code> agregado del P&amp;L.</td></tr>
+        <tr><td>Banner de datos viejos</td><td><code>checkStale()</code> mira el <code>generated_at</code> más viejo de todos los JSON + avisa si están desparejos o si un archivo no cargó.</td></tr>
+        <tr><td>Límite de 50 MB</td><td>Por eso acum/reden se suben agregados por mes. Si un JSON lo supera, la serie LY de los charts se cae a cero.</td></tr>
+      </tbody></table>
+    </div>
+  </div>
+
+  <!-- ══════════════════ DEPLOY ══════════════════ -->
+  <div class="section" id="sec-deploy">
+    <div class="page-header">
+      <div class="page-tag">Referencia operativa</div>
+      <div class="page-title">Deploy</div>
+      <div class="page-sub">Deploy del <strong>dashboard</strong> GAS. El pipeline no se deploya — corre agendado.</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🚀 Cómo se publica</div>
+      <table class="doc-table"><tbody>
+        <tr><td>Automático</td><td>GitHub Action (<code>deploy-gas.yml</code>) al mergear a <code>main</code> algo que toque <code>dashboard.html</code> / <code>Código.js</code> / <code>appsscript.json</code>. Necesita el secret <code>CLASP_CREDENTIALS</code>.</td></tr>
+        <tr><td><strong>Hoy: manual</strong></td><td>El secret <code>CLASP_CREDENTIALS</code> no está cargado → la Action falla en cada merge. Usar <code>/publicar</code> hasta que Diego lo cargue.</td></tr>
+        <tr><td>Comando manual</td><td class="cmd">clasp push -f<br>clasp deploy -i AKfycbzyHV8nz_AppIX81qn8QJ9dyPT77i75lBz9nerKfsjhLEk8SfSdGPXeGk52oLpXvI2Fig -d "desc"</td></tr>
+        <tr><td>Verificar</td><td><code>clasp deployments</code> → la versión del deployment estable avanzó. Después abrir la webapp (Ctrl+F5).</td></tr>
+      </tbody></table>
+    </div>
+
+    <div class="alert-box">⚠️ <code>clasp push</code> solo actualiza <code>@HEAD</code> (URL <code>/dev</code>). La webapp que ve el negocio (<code>/exec</code>) queda congelada hasta el <code>clasp deploy -i</code>. Y <code>git push</code> no publica nada.</div>
+
+    <div class="card">
+      <div class="card-title">🔐 El deploy-gas.yml</div>
+      <div class="step-desc">El mensaje de commit se pasa por <code>env:</code> (no interpolado en el <code>run:</code>) y se sanitiza — un commit con backticks/<code>$()</code> no puede ejecutar comandos en el runner (donde está <code>CLASP_CREDENTIALS</code>). Corregido en la auditoría 2026-09.</div>
+    </div>
+  </div>
+
+  <!-- ══════════════════ ARCHIVOS ══════════════════ -->
+  <div class="section" id="sec-archivos">
+    <div class="page-header">
+      <div class="page-tag">Referencia operativa</div>
+      <div class="page-title">Archivos <span>&amp; Rutas</span></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📂 Repo Loyalty_Ecosystem</div>
+      <div class="code-block">Loyalty_Ecosystem/
+  ├── loyalty_sync.py              ← Pipeline: 10 queries → agrega → 10 JSON a Drive
+  ├── Código.js                    ← Backend GAS: sirve los JSON crudos + filtra el P&L loyalty
+  ├── dashboard.html               ← SPA frontend (Chart.js)
+  ├── auth_drive.py                ← OAuth de Drive (1 vez por persona)
+  ├── setup_check.py               ← Diagnóstico de entorno del operador
+  ├── configurar_datalake.py       ← Carga credenciales Datalake a envs/.env.&lt;user&gt;
+  ├── breakage_esperado.csv        ← ⚠️ Fallback de la planilla — NO editar (la fuente es el Sheet)
+  ├── Diccionario.xlsx             ← ⚠️ Fallback del mapeo de programas — NO editar
+  ├── .github/workflows/deploy-gas.yml  ← CI de deploy (necesita secret CLASP_CREDENTIALS)
+  ├── CLAUDE.md / SETUP.md         ← Guía + runbook
+  ├── docs/PENDIENTE-DIEGO.md      ← Pasos manuales que faltan (service account, secret, scheduler…)
+  └── Manual_Loyalty_Ecosystem/    ← Este manual (subcarpeta con su propio .clasp.json)</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🔗 Links</div>
+      <table class="doc-table"><tbody>
+        <tr><td>Editor GAS (dashboard)</td><td><a class="ext-link" href="https://script.google.com/home/projects/1SXEXXwM9CromNRqhwiFFg34-rnO9Q3a85d3oMHsM9mgMS_NmpP2OrNLk/edit" target="_blank">↗ Abrir</a></td></tr>
+        <tr><td>Editor GAS (este manual)</td><td><a class="ext-link" href="https://script.google.com/home/projects/1SrytXvn5f44QzqanJGfuJQI80K4A9-oFDebmc2Bj791pDwSWRkWv_6Xq/edit" target="_blank">↗ Abrir</a></td></tr>
+        <tr><td>Carpeta Drive (JSON loyalty)</td><td><a class="ext-link" href="https://drive.google.com/drive/folders/1yCPp6hTusYmhhb17WiB6EuhFmsx7tlxb" target="_blank">↗ Abrir</a></td></tr>
+        <tr><td>Planilla "Loyalty Ecosystem - Config"</td><td><a class="ext-link" href="https://docs.google.com/spreadsheets/d/1M48FXIAFvyKpP9RSLLSuWh9DgetFPovYfWAM3lQNASI/edit" target="_blank">↗ Abrir</a></td></tr>
+      </tbody></table>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📌 Comandos frecuentes</div>
+      <table class="doc-table"><tbody>
+        <tr><td>Correr el sync real</td><td class="cmd">python loyalty_sync.py (con VPN)</td></tr>
+        <tr><td>Validar un cambio de query</td><td class="cmd">python loyalty_sync.py --dry-run</td></tr>
+        <tr><td>Auth de Drive (1 vez)</td><td class="cmd">python auth_drive.py</td></tr>
+        <tr><td>Diagnóstico de entorno</td><td class="cmd">python setup_check.py</td></tr>
+        <tr><td>Deploy manual del dashboard</td><td class="cmd">clasp push -f + clasp deploy -i AKfycbzyHV8nz_App… -d "desc"</td></tr>
+        <tr><td>Deploy manual de este manual</td><td class="cmd">cd Manual_Loyalty_Ecosystem && clasp push -f + clasp deploy -i &lt;id&gt;</td></tr>
+      </tbody></table>
+    </div>
+  </div>
+
+  <!-- ══════════════════ AGENTES ══════════════════ -->
+  <div class="section" id="sec-agentes">
+    <div class="page-header">
+      <div class="page-tag">Referencia operativa</div>
+      <div class="page-title">Agentes <span>de auditoría</span></div>
+      <div class="page-sub">4 agentes en <code>.claude/agents/</code>, cada uno con su skill en <code>.agents/skills/</code>. Revisan y reportan — <strong>no corrigen código</strong> salvo que se les pida después del reporte.</div>
+    </div>
+    <div class="card">
+      <div class="card-title">🔍 Los 4 agentes</div>
+      <table class="doc-table">
+        <thead><tr><th>Agente</th><th>Skill</th><th>Qué revisa</th></tr></thead>
+        <tbody>
+          <tr><td>auditor-de-codigo</td><td class="mono-id">code-audit</td><td>Calidad de código, integridad de datos del pipeline, credenciales, consistencia pipeline↔landing.</td></tr>
+          <tr><td>calidad-de-procesos</td><td class="mono-id">process-quality-audit</td><td>Orden / claridad / escalabilidad / integridad / eficiencia de CÓMO se trabaja. Para cada gap propone el check más barato que lo detectaría.</td></tr>
+          <tr><td>ux-designer</td><td class="mono-id">ux-consistency-review</td><td>Estética, paleta oficial Despegar, consistencia visual (interna y contra el P&amp;L Accounting de B2B), accesibilidad, contraste.</td></tr>
+          <tr><td>data-engineer</td><td class="mono-id">data-source-consistency-review</td><td>Mapeo de fuentes (query → JSON → sección), duplicidad, formato homogéneo, fechas, staleness de doc.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="card">
+      <div class="card-title">▶️ Cómo se corren</div>
+      <table class="doc-table"><tbody>
+        <tr><td>Automático</td><td><code>auditor-de-codigo</code> antes de un merge a <code>main</code> / <code>/publicar</code> y después de cambios grandes en <code>loyalty_sync.py</code> o las queries.</td></tr>
+        <tr><td>A pedido</td><td>"auditar", "revisar UX", "revisar procesos", "cómo se conectan los datos".</td></tr>
+        <tr><td>Invocación técnica</td><td>En este entorno los agentes custom NO son invocables por <code>subagent_type</code> — se lanzan como <code>general-purpose</code> diciéndoles que lean su <code>.md</code> + su <code>SKILL.md</code>.</td></tr>
+        <tr><td>Si la sesión está cerca del límite</td><td>Correr los agentes de a 1-2, no los 4 juntos (~100-140k tokens c/u).</td></tr>
+      </tbody></table>
+    </div>
+  </div>
+
+</main>
+
+<script>
+function showSection(name) {
+  document.querySelectorAll('.section').forEach(function(s){ s.classList.remove('active'); });
+  document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
+  var sec = document.getElementById('sec-' + name);
+  if (sec) sec.classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(function(n){
+    if ((n.getAttribute('onclick') || '').indexOf("showSection('" + name + "')") >= 0) n.classList.add('active');
+  });
+  window.scrollTo(0, 0);
+}
+document.querySelectorAll('.nav-item, .proj-card').forEach(function(el){
+  el.setAttribute('tabindex', '0');
+  el.setAttribute('role', 'link');
+  el.addEventListener('keydown', function(e){
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.click(); }
+  });
+});
+</script>
+</body>
+</html>

@@ -29,6 +29,7 @@ La mayoría es Analista. Para setup: skill **`/configurar-entorno`**.
 | **Inputs de negocio** (breakage esperado, mapeo de programas) | Editar la planilla **"Loyalty Ecosystem - Config"** en Drive. El sync la lee en la próxima corrida. NO tocar `breakage_esperado.csv` / `Diccionario.xlsx` (son solo fallback). |
 | **Dashboard / GAS** (`dashboard.html`, `Código.js`) | branch → editar → commit → push → PR. Al mergear a `main` la GitHub Action hace `clasp push` + `clasp deploy` sola. Deploy manual: `/publicar`. |
 | **Pipeline** (`loyalty_sync.py`, queries SQL) | branch → editar → validar con **`python loyalty_sync.py --dry-run`** (corre las queries, arma los JSON en `_out/`, NO sube a Drive ni lee la planilla — solo hace falta datalake + DSN, **no** credenciales de Drive) → PR. El operador / scheduler hace la corrida real. |
+| **Manual** (`Manual_Loyalty_Ecosystem/manual.html`) | Editar → `clasp push -f` + `clasp deploy -i <id>` **desde `Manual_Loyalty_Ecosystem/`** (subcarpeta con su propio `.clasp.json`, scriptId `1SrytXvn5f44…`). Al cambiar el proceso/IDs/queries de arriba, actualizar también el manual. |
 
 ## Archivos
 
