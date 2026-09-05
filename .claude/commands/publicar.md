@@ -24,7 +24,19 @@ clasp login   # cuenta @despegar.com con acceso al proyecto 1SXEXXw…
    clasp deploy -i AKfycbzyHV8nz_AppIX81qn8QJ9dyPT77i75lBz9nerKfsjhLEk8SfSdGPXeGk52oLpXvI2Fig -d "descripción del cambio"
    ```
 3. Confirmá que `clasp deploy` devolvió un nuevo `@N`.
-4. Abrí la webapp (Ctrl+F5) y verificá el cambio.
+4. `clasp deployments` → confirmá que el deployment estable `AKfycbzyHV8nz_App…` muestra la versión nueva (no `@HEAD` ni una vieja). Este es el chequeo de que el deploy realmente llegó a producción.
+5. Abrí la webapp (Ctrl+F5) y verificá el cambio.
+
+## Si venís de merges a `main` que NO deployaron (Action rota)
+
+Mientras el secret `CLASP_CREDENTIALS` no esté cargado, cada merge a `main` que toca
+`dashboard.html`/`Código.js`/`appsscript.json` dispara la Action y **falla**. Producción
+queda atrás de `main`. Antes de asumir que algo está publicado:
+```powershell
+clasp deployments            # ¿qué versión está viva?
+git log --oneline -5 -- dashboard.html Código.js appsscript.json   # ¿qué debería estar?
+```
+Si no coinciden, hacé el deploy manual (pasos de arriba) desde `main` actualizado.
 
 ## Notas
 

@@ -59,12 +59,20 @@ function _loyPnl(filename, baseKey) {
   var cached = cacheGet_(key);
   if (cached) return JSON.parse(cached);
   var raw = JSON.parse(file.getBlob().getDataAsString());
+  // Acople cross-repo: estas columnas las define Inputs_Planning_PnL (repo B2B).
+  // Si renombran alguna, sin este guard el P&L Contable quedaría vacío sin error.
   var n1i = raw.cols.indexOf('P&L N1');
+  if (n1i === -1) throw new Error(
+    'Esquema P&L cambió en ' + filename + ': no está la columna "P&L N1". ' +
+    'Revisar los nombres de columna en Inputs_Planning_PnL (repo B2B_Ecosystem).');
   var rows = [];
   for (var i = 0; i < raw.rows.length; i++) {
     var v = raw.rows[i][n1i];
     if (v && String(v).toLowerCase().indexOf('loyalty') !== -1) rows.push(raw.rows[i]);
   }
+  if (rows.length === 0) throw new Error(
+    'Cero filas "loyalty" en ' + filename + '. El filtro dejó de matchear — ' +
+    'probablemente cambió el string del LOB en Inputs_Planning_PnL.');
   var result = { meta: raw.meta, cols: raw.cols, rows: rows };
   cachePut_(key, JSON.stringify(result));
   return result;

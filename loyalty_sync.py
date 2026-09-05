@@ -1518,12 +1518,18 @@ PASAPORTE_D_REDEN = {"general", "cobrand", "partners"}
 
 
 _CONFIG_CACHE = {}
+# Se pone True si NO se pudo leer la planilla de config y se cayó a los archivos
+# locales (breakage_esperado.csv / Diccionario.xlsx). Esos archivos son un fallback
+# desactualizado a propósito — si el sync real termina con esto en True, los números
+# de breakage / mapeo de programas pueden estar mal. Se chequea al final del script.
+USO_FALLBACK_CONFIG = False
 
 
 def config_sheet_tab(tab: str):
     """DataFrame de una pestaña de la planilla de config, o None si no se puede leer."""
     if DRY_RUN:
         return None
+    global USO_FALLBACK_CONFIG
     if "tabs" not in _CONFIG_CACHE:
         tabs = {}
         try:
@@ -1536,6 +1542,7 @@ def config_sheet_tab(tab: str):
             print(f"  [config] planilla OK — pestañas: {list(tabs)}")
         except Exception as e:
             print(f"  [config] planilla no disponible ({str(e)[:120]}) → archivos locales")
+            USO_FALLBACK_CONFIG = True
         _CONFIG_CACHE["tabs"] = tabs
     return _CONFIG_CACHE["tabs"].get(tab)
 
@@ -1764,8 +1771,19 @@ def _get_drive_service():
     return build("drive", "v3", credentials=creds)
 
 
+# Apps Script no puede leer blobs > 50 MB (getDataAsString() tira). Si un JSON se
+# acerca, la serie LY de los charts se cae a cero sin aviso (fyYears() -> NaN).
+_APPS_SCRIPT_BLOB_LIMIT = 50 * 1024 * 1024
+_SIZE_WARN_THRESHOLD    = 45 * 1024 * 1024
+
+
 def upload_to_drive(json_bytes: bytes, filename: str):
     from googleapiclient.http import MediaInMemoryUpload
+    if len(json_bytes) > _SIZE_WARN_THRESHOLD:
+        mb = len(json_bytes) / 1024 / 1024
+        print(f"  [WARN] {filename} = {mb:.1f} MB — cerca del límite de 50 MB de "
+              f"Apps Script. Si lo pasa, el dashboard muestra ceros. Volver a "
+              f"agregar más (por mes ya se hace; agregar por trimestre o quitar dims).")
     service = _get_drive_service()
     media   = MediaInMemoryUpload(json_bytes, mimetype="application/json", resumable=False)
     results  = service.files().list(
@@ -1930,3 +1948,13 @@ else:
         upload_to_drive(data, name)
 
 print(f"\nOK Completado: {datetime.now().strftime('%d-%m-%Y %H:%M')}")
+
+if USO_FALLBACK_CONFIG and not DRY_RUN:
+    print(
+        "\n  [WARN] La planilla 'Loyalty Ecosystem - Config' no estuvo accesible.\n"
+        "         Se usó el fallback local (breakage_esperado.csv / Diccionario.xlsx),\n"
+        "         que está desactualizado a propósito y NO cubre CL/UY. Los números de\n"
+        "         breakage y el mapeo de programas de esta corrida pueden estar mal.\n"
+        "         Revisar el acceso a la planilla y volver a correr."
+    )
+    sys.exit(2)

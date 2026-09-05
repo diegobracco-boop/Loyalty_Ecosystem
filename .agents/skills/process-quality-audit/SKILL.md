@@ -16,7 +16,7 @@ Leer `CLAUDE.md`, `SETUP.md` y `docs/PENDIENTE-DIEGO.md` — ahí está el proce
 ## Eje 1 — Orden y estructura
 
 - ¿Los pasos de cada proceso están en un orden explícito y reproducible (`/configurar-entorno`, `/publicar`, `python loyalty_sync.py --dry-run`), o dependen de que la persona recuerde la secuencia?
-- Pasos ad-hoc que solo una persona sabe hacer — buscar rutas hardcodeadas a la máquina de una sola persona, comentarios tipo "preguntale a Diego", one-shots sin doc (`reaggregate_legacy_jsons.py`, `build_ssp_legacy.py`).
+- Pasos ad-hoc que solo una persona sabe hacer — buscar rutas hardcodeadas a la máquina de una sola persona, comentarios tipo "preguntale a Diego", one-shots sin doc que reimplementan lógica del pipeline (patrón que ya causó problemas acá: dos one-shots divergentes que subían a producción, eliminados 2026-09-05 — si vuelve a aparecer uno, es hallazgo).
 - Los tres perfiles (Analista / Analista+query / Operador) — ¿el `CLAUDE.md` deja claro qué hace cada uno y qué setup necesita, o hay solapamiento confuso?
 
 ## Eje 2 — Claridad
@@ -47,7 +47,7 @@ Eje de mayor costo si falla — una corrida olvidada o un fallback silencioso de
 
 - Pasos redundantes o repetidos a mano que podrían ser un script/comando único.
 - Tareas manuales frecuentes candidatas a un slash command (`/configurar-entorno`, `/publicar` ya existen — ¿falta uno para "correr el sync real" o "validar contra el cierre"?).
-- One-shots (`reaggregate_legacy_jsons.py`, `build_ssp_legacy.py`) que se corren seguido y deberían integrarse al flujo normal.
+- One-shots o scripts de migración que se corren seguido y deberían integrarse al flujo normal como un flag del pipeline (ej. `--solo-ssp`, `--reagregar`) que reusa la lógica real, en vez de reimplementarla.
 - Regenerar algo que no cambió (¿el sync re-corre las 10 queries siempre, aunque solo cambió una?).
 
 ## Reporte final

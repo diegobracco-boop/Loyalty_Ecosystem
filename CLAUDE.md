@@ -43,7 +43,6 @@ La mayoría es Analista. Para setup: skill **`/configurar-entorno`**.
 | `breakage_esperado.csv` · `Diccionario.xlsx` | **Fallback** de la planilla de config. La fuente real es el Sheet. |
 | `auth_drive.py` | OAuth de Drive (necesita `credentials_drive.json`, que no está en el repo) |
 | `setup_check.py` · `configurar_datalake.py` | Diagnóstico y carga de credenciales para operadores |
-| `reaggregate_legacy_jsons.py` · `build_ssp_legacy.py` | One-shots: regeneran JSON/SSP desde data vieja sin re-sync |
 | `.github/workflows/deploy-gas.yml` | CI: deploy a Apps Script al mergear a `main` |
 | `SETUP.md` | Runbook operativo completo |
 
@@ -62,10 +61,10 @@ La mayoría es Analista. Para setup: skill **`/configurar-entorno`**.
 - **Club Despegar / iFood** usan catálogos nuevos del datalake (`data.raw.*`, `analytics.ifood_dim_users`) — no `data.lake.*`. Si el ODBC tira `errorCode member not found` al *conectar* (no al correr la query), es la VPN/driver, reintentar (`conectar()` ya reintenta 4×).
 - **`membertrip_subscription.updated_at` está BULK-TOUCHED** (todos los ACTIVE actualizados ago-2026; cero bajas registradas dic25→may26, pico de 4k en jun26). NO usarlo para stock histórico ni timing real de bajas. Único timestamp confiable = `created_at`. Por eso el "stock por mes" del dashboard es la base activa acumulada (survivorship), no un snapshot real, y la tablita de bajas dice "fecha registrada (aprox.)".
 - **iFood**: la query de Metabase (150076) arrancaba en 2026-01; el pipeline la bajó a 2025-01 para tener LY. `event_date` de `closed_loop_discount` es la fecha de alta de Club iFood (la query original solo tenía fecha para cross_cashback).
-- **`points` vs `points_distribuidos`**: la query trae `SUM(puntosv2)` como `points`. El cierre de Loyalty usa `points_distribuidos` (~2-4% menos). El SSP calculado difiere ~1% del cierre por esto.
+- **`points` vs `points_distribuidos`**: la query trae `SUM(puntosv2)` como `points`. El cierre de Loyalty usa `points_distribuidos` (~2-4% menos), que **falla vía ODBC** → el pipeline usa `points`. El SSP calculado difiere ~1% del cierre por esto. En el frontend, `getPts(row)` usa `points` directo (el fallback a `points_distribuidos` se eliminó porque nunca venía en los JSON).
 - **Agregación con `abs()` por fila**: acum/reden se suman en valor absoluto por fila (preserva el criterio previo del dashboard). Cambiarlo mueve todos los totales.
 - **SSP / valor de acumulación**: `getAcumUsd = acum_usd_base · SSP_Facturación[país][mes]`, con `SSP_Facturación = SSP_Calculado · (1 − breakage_esperado)`. `SSP_Calculado` sale de las redenciones Pasaporte D!. El Excel de cierre tenía un **swap MX↔CO** que el pipeline ya corrige.
-- **ODBC + columnas numéricas de `data.analytics.*`**: fallan (`errorCode member not found`). Usar solo VARCHAR/DATE de esas tablas; números solo de `data.lake.*`.
+- **ODBC + `data.analytics.*`**: un `SELECT` directo de una columna **`DECIMAL` cruda** de esas tablas tira `errorCode member not found`. El workaround —que ya usan `_ACUM_SQL` y `_REDEN_SQL`— es envolver en `SUM(CAST(col AS DECIMAL(18,2)))` o similar; así las queries centrales SÍ leen numéricos de `data.analytics.bi_transactional_fact_*` sin problema. NO es "cualquier número de analytics falla".
 - El P&L Contable NO sale del datalake — es `baseline_actuals+projections.json` / `budget.json` / `forecast.json` del repo **B2B_Ecosystem/Inputs_Planning_PnL**.
 
 ## Comandos

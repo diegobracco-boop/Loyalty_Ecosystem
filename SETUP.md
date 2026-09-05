@@ -89,9 +89,12 @@ python loyalty_sync.py --dry-run    # valida queries: JSON en _out\, SIN Drive n
 `--dry-run` no necesita credenciales de Drive — sirve para validar un cambio de query
 antes de un PR (imprime redenciones por point_type y SSP por país).
 
-La corrida real, al final, tiene que decir `OK Drive: actualizado (...)` para los 7 archivos:
+La corrida real, al final, tiene que decir `OK Drive: actualizado (...)` para los **10 archivos**:
 `loyalty_acumulaciones_{2026,2025}.json`, `loyalty_redenciones_{2026,2025}.json`,
-`loyalty_breakage.json`, `loyalty_dict.json`, `loyalty_ssp.json`.
+`loyalty_breakage.json`, `loyalty_dict.json`, `loyalty_ssp.json`,
+`loyalty_miembros.json`, `loyalty_club_despegar.json`, `loyalty_ifood_enroll.json`.
+Y **no** debe terminar con `[WARN] La planilla ... no estuvo accesible` (exit code 2) —
+si aparece eso, los números de breakage / mapeo salieron del fallback local viejo.
 
 ### A.6 — Agendado (Task Scheduler, en la máquina "de turno")
 

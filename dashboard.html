@@ -249,6 +249,12 @@ table.bk tr:hover td { background: #f8fafc; }
 </div>
 </div>
 
+<div class="main" style="padding-bottom:0">
+  <div class="banner warning hidden" id="stale-banner">
+    <div class="bt" id="stale-banner-text"></div>
+  </div>
+</div>
+
 <div class="main" id="panels"></div>
 
 <script>
@@ -348,10 +354,10 @@ function getProgramFromReden(row) {
   return d[pt] || 'Otros';
 }
 
-// Points: use points_distribuidos when available, fallback to points
+// Puntos. Los JSON agregados solo traen `points` (= SUM(points) de comarch).
+// `points_distribuidos` (el que usa el cierre de Loyalty, ~2-4% menos) NO viene:
+// la columna falla vía ODBC. Por eso el SSP calculado difiere ~1% del cierre.
 function getPts(row) {
-  var v = row.points_distribuidos;
-  if (v !== undefined && v !== null && v !== '' && v !== 0) return Math.abs(+v);
   return Math.abs(+(row.points) || 0);
 }
 
@@ -562,7 +568,6 @@ function inRange(ym, from, to) {
   return true;
 }
 
-var TODAY_YM = '2026-08';  // actuals/projections split
 
 // ============================================================
 // P&L group classifier
@@ -581,9 +586,19 @@ function classifyN1(n1) {
 // ============================================================
 // P&L data builder
 // ============================================================
+var _pnlSchemaWarned = false;
 function buildPnl(country) {
   var rows = expandBaseline(RAW.baseline);
   var r = getRange();
+  // Si NO hay NINGUNA fila loyalty en todo el baseline (sin filtro de país/fecha),
+  // el problema no es el período: cambió el esquema o el nombre del LOB en
+  // Inputs_Planning_PnL (repo B2B). Avisar una vez en consola.
+  if (rows.length && !_pnlSchemaWarned &&
+      !rows.some(function(row){ return (row['P&L N1'] || '').toLowerCase().indexOf('loyalty') !== -1; })) {
+    _pnlSchemaWarned = true;
+    console.error('[P&L] 0 filas "loyalty" en baseline_actuals+projections.json — ' +
+      'revisar nombres de columna / LOB en Inputs_Planning_PnL (repo B2B_Ecosystem).');
+  }
   var filtered = rows.filter(function(row) {
     return matchCountryRow(row['Pais'], country)
         && (row['P&L N1'] || '').toLowerCase().indexOf('loyalty') !== -1
@@ -1413,8 +1428,31 @@ function onLoaded(key, data) {
     document.getElementById('loading').classList.add('hidden');
     var meta = (RAW.acum_cy || {}).meta || {};
     document.getElementById('last-sync').textContent = 'Ultimo sync: ' + (meta.generated_at || '—');
+    checkStale(meta.generated_at);
     buildPanels();
     renderActive();
+  }
+}
+
+// Avisa si los JSON de Drive están viejos (el sync agendado se colgó: VPN, máquina,
+// token). Sin esto el único indicio es la fecha en el header, que hay que leer y restar.
+function checkStale(generatedAt) {
+  var el = document.getElementById('stale-banner');
+  var txt = document.getElementById('stale-banner-text');
+  if (!generatedAt) {
+    txt.textContent = 'No se pudo determinar la fecha del último sync de los datos.';
+    el.classList.remove('hidden');
+    return;
+  }
+  var ts = Date.parse(generatedAt.replace(' ', 'T'));
+  if (isNaN(ts)) return;
+  var horas = (Date.now() - ts) / 36e5;
+  if (horas > 48) {
+    var dias = Math.floor(horas / 24);
+    txt.innerHTML = '<strong>Datos desactualizados.</strong> El último sync fue hace ' +
+      dias + ' días (' + generatedAt + '). El proceso automático puede estar caído — ' +
+      'avisar al equipo de Loyalty antes de usar estos números.';
+    el.classList.remove('hidden');
   }
 }
 
