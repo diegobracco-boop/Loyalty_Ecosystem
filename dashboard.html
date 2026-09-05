@@ -39,6 +39,8 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, 'S
 .ctab { padding: 11px 18px; font-size: 13px; font-weight: 600; color: #94a3b8; cursor: pointer; border: none; background: none; border-bottom: 3px solid transparent; white-space: nowrap; transition: .15s; }
 .ctab:hover  { color: #e2e8f0; }
 .ctab.active { color: #fff; border-bottom-color: var(--accent); }
+.ctab-manual { margin-left: auto; color: #c4b5fd; text-decoration: none; display: inline-flex; align-items: center; gap: 5px; }
+.ctab-manual:hover { color: #fff; background: var(--accent-a15); }
 
 /* ---- Filters ---- */
 .filters { display: flex; align-items: center; gap: 14px; padding: 10px 24px; background: var(--surface); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
@@ -1399,6 +1401,15 @@ function buildPanels() {
     div.innerHTML = inner;
     panelsEl.appendChild(div);
   });
+
+  // Botón al Manual — pegado al extremo derecho de la barra de pestañas
+  var man = document.createElement('a');
+  man.className = 'ctab ctab-manual';
+  man.href = 'https://script.google.com/a/macros/despegar.com/s/AKfycbyjLwtf88NdVdoruWH0BAOFnCFS35JrYPDE5eCTUFEwT76oIpNctrMxF-6etUCGs04k6g/exec';
+  man.target = '_blank';
+  man.rel = 'noopener';
+  man.textContent = '📖 Manual';
+  tabsEl.appendChild(man);
 }
 
 // ============================================================
