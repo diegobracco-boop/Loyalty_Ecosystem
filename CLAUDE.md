@@ -72,3 +72,20 @@ La mayoría es Analista. Para setup: skill **`/configurar-entorno`**.
 
 - `/configurar-entorno` — setup de analista u operador
 - `/publicar` — deploy manual de la landing GAS a producción
+
+## Agentes de auditoría (`.claude/agents/`)
+
+4 agentes de auditoría, cada uno con su skill en `.agents/skills/`. **Revisan y reportan — no corrigen código** salvo que se les pida explícitamente después del reporte.
+
+| Agente | Skill | Para qué |
+|---|---|---|
+| `auditor-de-codigo` | `code-audit` | Calidad de código, integridad de datos del pipeline, credenciales, consistencia pipeline↔landing |
+| `calidad-de-procesos` | `process-quality-audit` | Orden / claridad / escalabilidad / integridad / eficiencia de CÓMO se trabaja (no del código) |
+| `ux-designer` | `ux-consistency-review` | Estética, paleta oficial Despegar, consistencia visual, accesibilidad del `dashboard.html` |
+| `data-engineer` | `data-source-consistency-review` | Mapeo de fuentes (queries → JSON → sección), duplicidad, formato homogéneo, fechas, staleness de doc |
+
+**Cuándo:** correr `auditor-de-codigo` antes de un merge a `main` / `/publicar` y después de cambios grandes en `loyalty_sync.py` o las queries. Los demás a pedido ("revisar UX", "revisar procesos", "cómo se conectan los datos"). Si hay hallazgos bloqueantes, avisar al usuario y esperar confirmación antes de mergear/deployar.
+
+**Cómo invocarlos en este entorno:** los agentes custom de `.claude/agents/` **NO son invocables por `subagent_type`** — lanzarlos como `general-purpose` con un prompt que diga: "leé completo `.claude/agents/<nombre>.md` (tu rol) y `.agents/skills/<skill>/SKILL.md` (la skill que corrés), y seguí eso al pie de la letra; alcance = <lo que sea>; no edites nada, solo reportá".
+
+**Si la sesión está cerca del límite de uso:** correr los agentes de a 1-2, no los 4 juntos (cada uno son ~100-140k tokens).
