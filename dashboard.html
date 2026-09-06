@@ -352,10 +352,10 @@ var IFOOD_COLOR = { 'iFood enrol': CAT_FILL[2], 'Club iFood': CAT_FILL[3] };
 // ============================================================
 var PASIVO_EXCL = ['IFOOD', 'Acciones Marketing'];
 
-// Saldo de apertura por país (puntos) — de la solapa "Control de Pasivo ML" del
-// cierre, sumando la entidad DOMESTIC + su slice TRAVEL (601). Corte 2026-08-31
-// (Cierre 2026 08.xlsx). El roll-forward arranca desde este mes; meses previos
-// muestran solo flujos. Actualizar cuando cierre un mes nuevo.
+// Saldo real por país (puntos) al mes PASIVO_SEED_YM — solapa "Control de Pasivo ML"
+// del Cierre 2026 08.xlsx, sumando entidad DOMESTIC + su slice TRAVEL (601).
+// El Saldo del dashboard se ancla en ese mes y acumula hacia adelante (+ flujo neto)
+// y hacia atrás (− flujo neto del mes siguiente). Actualizar cada cierre nuevo.
 var PASIVO_SEED_YM = '2026-08';
 var PASIVO_SEED = {
   brasil:    3329803647,   // EL 104 + 601
@@ -1293,9 +1293,9 @@ function pasivoBreakageMap(country) {
 }
 
 // Roll-forward por período: 2025 colapsado en una columna de movimientos del año
-// + un mes por columna desde 2026-01. El Saldo es un acumulado continuo — se ancla
-// al cierre (PASIVO_SEED_YM) y se propaga hacia adelante (+neto) y hacia atrás
-// (−neto del mes siguiente) para tener saldo en cada columna.
+// + un mes por columna desde 2026-01. El Saldo se ancla en PASIVO_SEED_YM (saldo
+// real del cierre) y se propaga hacia adelante (+ flujo neto) y hacia atrás
+// (− flujo neto del mes siguiente), así hay saldo en cada columna.
 // Devuelve { periods:[{key,label}], data:{key:{acum,reden,brk,neto,saldo}}, ... }.
 function pasivoSeries(country) {
   var acum = pasivoFlowMap('acum', country);
@@ -1327,9 +1327,9 @@ function pasivoSeries(country) {
     ? COUNTRY_DATAKEYS.reduce(function(s, k){ return s + (PASIVO_SEED[k] || 0); }, 0)
     : (PASIVO_SEED[country.dataKey] || 0);
 
-  // Anclar en el mes del cierre y propagar en las dos direcciones.
+  // Anclar el Saldo en el mes del cierre y propagar en las dos direcciones.
   var si = periods.indexOf(PASIVO_SEED_YM);
-  if (si === -1) si = periods.length - 1;          // fallback: ancla en el último período
+  if (si === -1) si = periods.length - 1;   // fallback: último período disponible
   agg[periods[si]].saldo = seed;
   for (var i = si + 1; i < periods.length; i++)
     agg[periods[i]].saldo = agg[periods[i - 1]].saldo + agg[periods[i]].neto;
@@ -1356,8 +1356,8 @@ function renderPasivo() {
   var h = '<div class="stitle">Pasivo — stock de puntos (roll-forward)</div>'
     + '<div class="ppl-bar"><label class="fl">Pais</label> '
     + '<select id="pasivo-country" onchange="PASIVO_COUNTRY=this.value;renderPasivo();">' + opts + '</select></div>'
-    + '<div class="proj-note"><strong>Saldo</strong> = saldo del período previo + Acumulacion &minus; Redencion &minus; Breakage. '
-    + 'Anclado al Saldo real del cierre <strong>' + fmtMonthLbl(res.seedCol + '-01') + '</strong> (Control de Pasivo ML) y propagado hacia atras y adelante. '
+    + '<div class="proj-note"><strong>Saldo</strong> = stock de puntos vivos en clientes = saldo mes previo + Acumulacion &minus; Redencion &minus; Breakage. '
+    + 'Anclado al saldo real del cierre <strong>' + fmtMonthLbl(res.seedCol + '-01') + '</strong> ("Control de Pasivo ML") y propagado hacia atras y adelante. '
     + 'Se excluyen siempre <strong>IFOOD</strong> y <strong>Acciones Marketing</strong>. '
     + '2025 va colapsado en una columna (movimientos del año). Solo puntos — sin valuacion.</div>';
 
