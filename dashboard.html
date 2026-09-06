@@ -1292,9 +1292,11 @@ function pasivoBreakageMap(country) {
   return { map: agg, parcial: parcial };
 }
 
-// Roll-forward por período: 2025 colapsado en una columna de movimientos acumulados
-// + un mes por columna desde 2026-01. Devuelve { periods:[{key,label,proj}],
-// data:{key:{acum,reden,brk,neto,cum,saldo}}, parcialBrk:bool }.
+// Roll-forward por período: 2025 colapsado en una columna de movimientos del año
+// + un mes por columna desde 2026-01. El Saldo es un acumulado continuo — se ancla
+// al cierre (PASIVO_SEED_YM) y se propaga hacia adelante (+neto) y hacia atrás
+// (−neto del mes siguiente) para tener saldo en cada columna.
+// Devuelve { periods:[{key,label}], data:{key:{acum,reden,brk,neto,saldo}}, ... }.
 function pasivoSeries(country) {
   var acum = pasivoFlowMap('acum', country);
   var reden = pasivoFlowMap('reden', country);
@@ -1308,7 +1310,7 @@ function pasivoSeries(country) {
     Object.keys(m).forEach(function(ym){ if (ym.length === 7) keys[bucket(ym)] = 1; });
   });
   var periods = Object.keys(keys).sort();
-  if (!periods.length) return { periods: [], data: {}, parcialBrk: bk.parcial };
+  if (!periods.length) return { periods: [], data: {}, parcialBrk: bk.parcial, seedCol: PASIVO_SEED_YM };
 
   var agg = {};
   periods.forEach(function(p){ agg[p] = { acum: 0, reden: 0, brk: 0 }; });
@@ -1319,21 +1321,23 @@ function pasivoSeries(country) {
     });
   }
   add(acum, 'acum'); add(reden, 'reden'); add(brk, 'brk');
+  periods.forEach(function(p){ agg[p].neto = agg[p].acum - agg[p].reden - agg[p].brk; });
 
   var seed = isTotal(country)
     ? COUNTRY_DATAKEYS.reduce(function(s, k){ return s + (PASIVO_SEED[k] || 0); }, 0)
     : (PASIVO_SEED[country.dataKey] || 0);
 
-  var cum = 0, saldo = null, out = [];
-  periods.forEach(function(p){
-    var d = agg[p];
-    d.neto = d.acum - d.reden - d.brk;
-    cum += d.neto;
-    d.cum = cum;
-    if (p === PASIVO_SEED_YM)      saldo = seed;
-    else if (saldo !== null)       saldo = saldo + d.neto;
-    d.saldo = saldo;
-    out.push({ key: p, label: p === '2025' ? '2025 (acum.)' : fmtMonthLbl(p + '-01') });
+  // Anclar en el mes del cierre y propagar en las dos direcciones.
+  var si = periods.indexOf(PASIVO_SEED_YM);
+  if (si === -1) si = periods.length - 1;          // fallback: ancla en el último período
+  agg[periods[si]].saldo = seed;
+  for (var i = si + 1; i < periods.length; i++)
+    agg[periods[i]].saldo = agg[periods[i - 1]].saldo + agg[periods[i]].neto;
+  for (var j = si - 1; j >= 0; j--)
+    agg[periods[j]].saldo = agg[periods[j + 1]].saldo - agg[periods[j + 1]].neto;
+
+  var out = periods.map(function(p){
+    return { key: p, label: p === '2025' ? '2025 (mov.)' : fmtMonthLbl(p + '-01') };
   });
   return { periods: out, data: agg, parcialBrk: bk.parcial, seedCol: PASIVO_SEED_YM };
 }
@@ -1352,10 +1356,10 @@ function renderPasivo() {
   var h = '<div class="stitle">Pasivo — stock de puntos (roll-forward)</div>'
     + '<div class="ppl-bar"><label class="fl">Pais</label> '
     + '<select id="pasivo-country" onchange="PASIVO_COUNTRY=this.value;renderPasivo();">' + opts + '</select></div>'
-    + '<div class="proj-note">Saldo = Saldo mes previo + Acumulacion &minus; Redencion &minus; Breakage. '
+    + '<div class="proj-note"><strong>Saldo</strong> = saldo del período previo + Acumulacion &minus; Redencion &minus; Breakage. '
+    + 'Anclado al Saldo real del cierre <strong>' + fmtMonthLbl(res.seedCol + '-01') + '</strong> (Control de Pasivo ML) y propagado hacia atras y adelante. '
     + 'Se excluyen siempre <strong>IFOOD</strong> y <strong>Acciones Marketing</strong>. '
-    + '2025 va colapsado en una columna (movimientos acumulados). '
-    + 'El <strong>Saldo</strong> arranca del cierre ' + fmtMonthLbl(res.seedCol + '-01') + ' (Control de Pasivo ML); antes solo se ven los flujos. Solo puntos — sin valuacion.</div>';
+    + '2025 va colapsado en una columna (movimientos del año). Solo puntos — sin valuacion.</div>';
 
   if (res.parcialBrk) {
     h += '<div class="banner warning"><div class="bt">El breakage se muestra <strong>completo</strong> por ahora '
@@ -1391,7 +1395,6 @@ function renderPasivo() {
     + row('(&minus;) Redencion', function(d){ return d.reden ? -d.reden : 0; })
     + row('(&minus;) Breakage',  function(d){ return d.brk ? -d.brk : 0; })
     + row('Flujo neto',          function(d){ return d.neto; }, { rowClass: 'subtotal', color: true, signed: true })
-    + row('Neto acumulado',      function(d){ return d.cum; },  { color: true, signed: true })
     + row('Saldo',               function(d){ return d.saldo; }, { rowClass: 'grand-total' })
     + '</tbody></table></div></div>';
   el.innerHTML = h;
