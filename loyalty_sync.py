@@ -44,6 +44,19 @@ _SCRIPT_DIR      = Path(__file__).resolve().parent
 DICT_XLSX        = str(_SCRIPT_DIR / "Diccionario.xlsx")
 BREAKAGE_ESP_CSV = str(_SCRIPT_DIR / "breakage_esperado.csv")
 
+# Precios de facturación de Cobrand/Partners + FX mensual por moneda.
+# Fuente: Input_Precios.xlsx (lo mantiene Control de Gestión en OneDrive). Solapas:
+# `Cobrand` / `Partners` (fecha_inicio, fecha_fin, pais, cobrand|partner, point_type,
+# moneda, precio_facturacion) y `FX_Currency` (Pais, Moneda, Fecha, FX_Cuerrency).
+# Se prueba: env PRECIOS_XLSX → ruta OneDrive → copia local en el repo (fallback).
+# Si no se encuentra ninguno, `acum_usd_precio` sale 0 (sin romper la corrida).
+PRECIOS_XLSX_CANDIDATES = [
+    os.environ.get("PRECIOS_XLSX", ""),
+    str(Path.home() / "OneDrive - despegar365" / "Control de Gestión - Loyalty"
+        / "Loyalty_Ecosystem" / "Input_Precios.xlsx"),
+    str(_SCRIPT_DIR / "Input_Precios.xlsx"),
+]
+
 # Planilla "Loyalty Ecosystem - Config" (folder Drive de loyalty). Pestañas que
 # editan los analistas sin tocar el repo: `breakage_esperado`, `diccionario`.
 # Si no se puede leer, el sync cae a los archivos locales (breakage_esperado.csv /
@@ -1350,15 +1363,18 @@ def _fix_date(val) -> str:
 # SUBS (Club Despegar) es exclusivo de Argentina.
 PARTNER_COUNTRY = {
     "IFOODBR": "Brasil", "C6BANKBR": "Brasil", "BRBBR": "Brasil",
-    "KIDDLEBR": "Brasil", "ENTREGOBR": "Brasil",
-    "BONDAAR": "Argentina", "ICBCAR": "Argentina", "FOCOAR": "Argentina",
+    "KIDDLEBR": "Brasil", "ENTREGOBR": "Brasil", "NOMADBR": "Brasil", "GETNET": "Brasil",
+    "BONDAAR": "Argentina", "ICBCAR": "Argentina", "FOCOAR": "Argentina", "MASLOWAR": "Argentina",
     "INVEXMX": "Mexico", "BBVAMX": "Mexico",
+    "BDBCO": "Colombia",
     "SUBS": "Argentina",
 }
 PARTNER_COUNTRY_CODE = {
     "IFOODBR": "BR", "C6BANKBR": "BR", "BRBBR": "BR", "KIDDLEBR": "BR", "ENTREGOBR": "BR",
-    "BONDAAR": "AR", "ICBCAR": "AR", "FOCOAR": "AR",
+    "NOMADBR": "BR", "GETNET": "BR",
+    "BONDAAR": "AR", "ICBCAR": "AR", "FOCOAR": "AR", "MASLOWAR": "AR",
     "INVEXMX": "MX", "BBVAMX": "MX",
+    "BDBCO": "CO",
     "SUBS": "AR",
 }
 
@@ -1669,6 +1685,135 @@ def aggregate_acum(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ------------------------------------------------------------------------------
+# Valuación USD de Cobrand / Partners por PRECIO DE FACTURACIÓN (Input_Precios.xlsx)
+# ------------------------------------------------------------------------------
+# Cobrand y Partners no generan `acum_usd_base` (no hay comisión/GB de viaje detrás),
+# así que el dashboard los mostraba en $0. Acá se calcula `acum_usd_precio` = puntos ×
+# precio_facturacion, con el precio por país + point_type (Cobrand) o país + partner
+# (Partners) y ventana [fecha_inicio, fecha_fin]. Si el precio está en moneda local
+# (BRL / MXN) se pasa a USD con el FX del mes (solapa FX_Currency). El dashboard usa
+# esta columna para esos dos programas y sigue con acum_usd_base×SSP para el resto.
+_COBRAND_PARTNERS  = {"ICBCAR", "INVEXMX", "BDBCO"}
+_PARTNERS_PARTNERS = {"FOCOAR", "BONDAAR", "MASLOWAR", "NOMADBR", "GETNET",
+                      "C6BANKBR", "BRBBR", "ENTREGOBR", "KIDDLEBR", "BBVAMX"}
+_PAIS_A_CC = {"mexico": "MX", "méxico": "MX", "argentina": "AR", "colombia": "CO",
+              "brasil": "BR", "brazil": "BR", "chile": "CL", "peru": "PE", "perú": "PE",
+              "uruguay": "UY", "ecuador": "EC"}
+_PRECIOS_CACHE = {}
+
+
+def _load_precios():
+    """(cobrand_df, partners_df, fx) desde Input_Precios.xlsx.
+    fx = {(MONEDA, 'YYYY-MM'): rate}. Devuelve (None, None, {}) si no hay archivo."""
+    if "v" in _PRECIOS_CACHE:
+        return _PRECIOS_CACHE["v"]
+    path = next((p for p in PRECIOS_XLSX_CANDIDATES if p and Path(p).exists()), None)
+    if not path:
+        print("  [precios] Input_Precios.xlsx no encontrado (ni env PRECIOS_XLSX, ni "
+              "OneDrive, ni copia local) → acum_usd_precio = 0 para Cobrand/Partners")
+        _PRECIOS_CACHE["v"] = (None, None, {})
+        return _PRECIOS_CACHE["v"]
+
+    sheets = pd.read_excel(path, sheet_name=None)
+
+    def _norm_precio(df):
+        df = df.copy()
+        df.columns = [str(c).strip().lower() for c in df.columns]
+        df["cc"] = df["pais"].astype(str).str.strip().str.lower().map(_PAIS_A_CC)
+        df["fi"] = pd.to_datetime(df["fecha_inicio"], errors="coerce")
+        df["ff"] = pd.to_datetime(df["fecha_fin"], errors="coerce")
+        df["moneda"] = df["moneda"].astype(str).str.strip().str.upper()
+        df["precio_facturacion"] = pd.to_numeric(df["precio_facturacion"], errors="coerce")
+        if "point_type" in df.columns:
+            df["point_type"] = df["point_type"].astype(str).str.strip()
+        if "partner" in df.columns:
+            df["partner"] = df["partner"].astype(str).str.strip()
+        return df.dropna(subset=["cc", "fi", "ff", "precio_facturacion"])
+
+    cob = _norm_precio(sheets["Cobrand"])
+    par = _norm_precio(sheets["Partners"])
+
+    fxdf = sheets["FX_Currency"].copy()
+    fxdf.columns = [str(c).strip().lower() for c in fxdf.columns]
+    fxcol = "fx_cuerrency" if "fx_cuerrency" in fxdf.columns else "fx_currency"
+    fxdf["moneda"] = fxdf["moneda"].astype(str).str.strip().str.upper()
+    fxdf["ym"] = pd.to_datetime(fxdf["fecha"], errors="coerce").dt.strftime("%Y-%m")
+    fxdf[fxcol] = pd.to_numeric(fxdf[fxcol], errors="coerce")
+    fxdf = fxdf.dropna(subset=["moneda", "ym", fxcol])
+    fx = {(r["moneda"], r["ym"]): float(r[fxcol]) for _, r in fxdf.iterrows()}
+
+    print(f"  [precios] {Path(path).name} OK — cobrand {len(cob)} filas · "
+          f"partners {len(par)} filas · fx {len(fx)} puntos")
+    _PRECIOS_CACHE["v"] = (cob, par, fx)
+    return _PRECIOS_CACHE["v"]
+
+
+def _fx_rate(fx: dict, moneda: str, ym: str):
+    """Rate del mes; si falta, el último mes disponible <= ym; si no, el más viejo."""
+    if (moneda, ym) in fx:
+        return fx[(moneda, ym)]
+    yms = sorted(k[1] for k in fx if k[0] == moneda)
+    if not yms:
+        return None
+    prev = [y for y in yms if y <= ym]
+    return fx[(moneda, prev[-1])] if prev else fx[(moneda, yms[0])]
+
+
+def apply_precios_facturacion(df: pd.DataFrame) -> pd.DataFrame:
+    """Agrega la columna `acum_usd_precio` al df de acumulaciones agregado."""
+    cob, par, fx = _load_precios()
+    if cob is None:
+        df = df.copy()
+        df["acum_usd_precio"] = 0.0
+        return df
+
+    sin_precio, sin_fx = {}, {}
+
+    def _valor(row):
+        cc = str(row.country_code or "").strip().upper()
+        partner = str(row.partner or "").strip()
+        if cc in ("", "N/D"):
+            cc = PARTNER_COUNTRY_CODE.get(partner, "N/D")
+        es_cob = partner in _COBRAND_PARTNERS
+        es_par = partner in _PARTNERS_PARTNERS
+        if not (es_cob or es_par):
+            return 0.0
+        ym = str(row.processing_date)[:7]
+        ts = pd.Timestamp(ym + "-01")
+        if es_cob:
+            m = cob[(cob["cc"] == cc) & (cob["point_type"] == str(row.point_type).strip())
+                    & (cob["fi"] <= ts) & (cob["ff"] >= ts)]
+        else:
+            m = par[(par["cc"] == cc) & (par["partner"] == partner)
+                    & (par["fi"] <= ts) & (par["ff"] >= ts)]
+        if len(m) == 0:
+            sin_precio[(cc, partner, str(row.point_type))] = \
+                sin_precio.get((cc, partner, str(row.point_type)), 0) + (row.points or 0)
+            return 0.0
+        r = m.iloc[-1]  # si hay solapamiento de ventanas, gana la última fila
+        local = (row.points or 0) * float(r["precio_facturacion"])
+        if r["moneda"] == "USD":
+            return round(local, 2)
+        rate = _fx_rate(fx, r["moneda"], ym)
+        if not rate:
+            sin_fx[(r["moneda"], ym)] = sin_fx.get((r["moneda"], ym), 0) + (row.points or 0)
+            return 0.0
+        return round(local / rate, 2)
+
+    df = df.copy()
+    df["acum_usd_precio"] = [_valor(r) for r in df.itertuples(index=False)]
+
+    if sin_precio:
+        tot = sum(sin_precio.values())
+        print(f"  [WARN] precios: {len(sin_precio)} combinaciones Cobrand/Partners sin "
+              f"precio en Input_Precios.xlsx ({tot:,.0f} puntos → $0): "
+              f"{ {k: round(v) for k, v in sin_precio.items()} }")
+    if sin_fx:
+        print(f"  [WARN] precios: sin FX para {sorted(sin_fx)} → esas filas quedan en $0")
+    return df
+
+
+# ------------------------------------------------------------------------------
 # IFOOD Welcome Clube — accruals via transaction_type 'CA'
 # ------------------------------------------------------------------------------
 # Los accruals reales de IFOOD Welcome Clube entran como transaction_type='CA'
@@ -1856,10 +2001,10 @@ if __name__ != "__main__":
         "Usá: python loyalty_sync.py [--dry-run]")
 
 print("\n--- Acumulaciones CY ---")
-df_acum_cy = aggregate_acum(apply_wclube(clean_acum(fetch(build_acum_query(ACTUALS_DESDE, ACTUALS_HASTA), f"Acumulaciones {CY_YEAR}")), ACTUALS_DESDE, ACTUALS_HASTA))
+df_acum_cy = apply_precios_facturacion(aggregate_acum(apply_wclube(clean_acum(fetch(build_acum_query(ACTUALS_DESDE, ACTUALS_HASTA), f"Acumulaciones {CY_YEAR}")), ACTUALS_DESDE, ACTUALS_HASTA)))
 
 print("\n--- Acumulaciones LY ---")
-df_acum_ly = aggregate_acum(apply_wclube(clean_acum(fetch(build_acum_query(LY_DESDE, LY_HASTA), f"Acumulaciones {LY_YEAR}")), LY_DESDE, LY_HASTA))
+df_acum_ly = apply_precios_facturacion(aggregate_acum(apply_wclube(clean_acum(fetch(build_acum_query(LY_DESDE, LY_HASTA), f"Acumulaciones {LY_YEAR}")), LY_DESDE, LY_HASTA)))
 
 print("\n--- Redenciones CY ---")
 _reden_cy_clean = clean_reden(fetch(build_reden_query(ACTUALS_DESDE, ACTUALS_HASTA), f"Redenciones {CY_YEAR}"))

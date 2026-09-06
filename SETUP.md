@@ -127,6 +127,25 @@ Los valores que cambian seguido viven en una planilla, no en el repo:
 
 Editar la planilla → efecto en el próximo sync (o inmediato para lo que el dashboard lee en vivo).
 
+### `Input_Precios.xlsx` — precios de facturación Cobrand/Partners + FX
+
+Aparte de la planilla, la valuación USD de **Cobrand y Partners** sale de un Excel que
+mantiene Control de Gestión en OneDrive:
+
+`…\OneDrive - despegar365\Control de Gestión - Loyalty\Loyalty_Ecosystem\Input_Precios.xlsx`
+
+| Solapa | Columnas |
+|---|---|
+| `Cobrand` / `Partners` | `fecha_inicio, fecha_fin, pais, cobrand`\|`partner, point_type, moneda, precio_facturacion` |
+| `FX_Currency` | `Pais, Moneda, Fecha (1° de cada mes), FX_Cuerrency` (unidades de moneda local por USD) |
+
+El sync resuelve la ruta así: env `PRECIOS_XLSX` → la ruta OneDrive de arriba →
+copia local en el repo (`Input_Precios.xlsx`, fallback). Calcula
+`acum_usd_precio = puntos × precio_facturacion`, pasando BRL/MXN a USD con el FX del
+mes. Combinación país+point_type / país+partner sin fila de precio → esa parte queda
+en $0 y sale un `[WARN]` en el log. **Al editar el Excel en OneDrive, actualizar
+también la copia del repo** (`cp` + commit) para que el fallback no quede viejo.
+
 ---
 
 ## C. Cambios de código → GitHub + deploy manual

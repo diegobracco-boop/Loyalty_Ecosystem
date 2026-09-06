@@ -380,10 +380,15 @@ function sspFactor(dataKey, ym) {
   return SSP_BREAKAGE[dataKey];
 }
 
-// Valor USD de Acumulaciones: acum_usd_base * SSP_Facturación[país][mes del accrual].
-// acum_usd_base = suma de |(comision + fee + descuentos) * (1 - pct_pagado_con_puntos)|
-// pre-calculada por loyalty_sync.py al agregar.
+// Valor USD de Acumulaciones. Dos métodos, excluyentes por fila:
+//  - Cobrand / Partners → `acum_usd_precio`: puntos × precio_facturacion, ya en USD
+//    (FX BRL/MXN aplicado por loyalty_sync desde Input_Precios.xlsx). No tienen
+//    acum_usd_base, antes daban $0.
+//  - Resto → acum_usd_base × SSP_Facturación[país][mes], con acum_usd_base =
+//    Σ|(comision + fee + descuentos) × (1 − pct_pagado_con_puntos)|.
 function getAcumUsd(row, dataKey) {
+  var precio = +row.acum_usd_precio || 0;
+  if (precio > 0) return precio;
   var factor = sspFactor(dataKey, (row.processing_date || '').substring(0, 7));
   if (factor === undefined || factor === null) return 0;
   return Math.abs((+row.acum_usd_base || 0) * factor);
