@@ -1200,13 +1200,16 @@ categoria AS (
         GROUP BY customer_id
     ) b ON a.customer_id = b.customer_id AND a.start_date = b.start_date
 )
-SELECT Expiration_Date, country, tier, points_type_id,
+SELECT Expiration_Date, country, tier, points_type_id, code,
        SUM(points) * -1 AS Points
 FROM points a
 LEFT JOIN categoria b ON a.account_id = b.account_id
-GROUP BY Expiration_Date, Country, tier, points_type_id
+GROUP BY Expiration_Date, Country, tier, points_type_id, code
 ORDER BY 1,2,3,4
 """
+# `code` sale para poder clasificar el breakage por programa en el dashboard
+# (loyalty_dict.reden[code] -> sección) — ej. excluir IFOOD / Acciones Marketing
+# del roll-forward de pasivo. points_type_id -> code es 1:1, no cambia el grain.
 
 
 # Miembros del programa — snapshot de la base activa (status = 'A') abierta por

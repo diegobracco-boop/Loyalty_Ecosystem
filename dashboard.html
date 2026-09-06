@@ -46,6 +46,7 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, 'S
 .filters { display: flex; align-items: center; gap: 14px; padding: 10px 24px; background: var(--surface); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
 .fg { display: flex; flex-direction: column; gap: 3px; }
 .fl { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
+.ppl-bar { display: flex; align-items: center; gap: 8px; padding: 10px 0 4px; }
 select, input[type=month] {
   padding: 5px 10px; border: 1px solid var(--border); border-radius: 6px;
   background: #f8fafc; font-size: 13px; color: var(--text); cursor: pointer;
@@ -343,6 +344,29 @@ var CDD_PLAN_COLOR       = { 'Plan 1': CAT_FILL[0],  'Plan 2': CAT_FILL[1],  'Pl
 //      de programa "IFOOD" (solo Brasil + TOTAL). ----
 var IFOOD_TIPOS = ['iFood enrol', 'Club iFood'];
 var IFOOD_COLOR = { 'iFood enrol': CAT_FILL[2], 'Club iFood': CAT_FILL[3] };
+
+// ============================================================
+// Pasivo — roll-forward mensual del stock de puntos (solo puntos, sin valuación)
+//   Saldo_t = Saldo_{t-1} + Acumulación − Redención − Breakage
+//   Se EXCLUYEN siempre IFOOD y Acciones Marketing de los 3 flujos.
+// ============================================================
+var PASIVO_EXCL = ['IFOOD', 'Acciones Marketing'];
+
+// Saldo de apertura por país (puntos) — de la solapa "Control de Pasivo ML" del
+// cierre, sumando la entidad DOMESTIC + su slice TRAVEL (601). Corte 2026-08-31
+// (Cierre 2026 08.xlsx). El roll-forward arranca desde este mes; meses previos
+// muestran solo flujos. Actualizar cuando cierre un mes nuevo.
+var PASIVO_SEED_YM = '2026-08';
+var PASIVO_SEED = {
+  brasil:    3329803647,   // EL 104 + 601
+  argentina: 1267356035,   // EL 101 + 601
+  mexico:    1072556160,   // EL 103 + 601
+  ecuador:     20266517,   // EL 113 + 601
+  colombia:   308545482,   // EL 116 + 601
+  peru:       167273957,   // EL 115 + 601
+  uruguay:      6448665,   // EL 125 + 601
+  chile:        1150683    // EL 108 + 601
+};
 
 function getProgramFromAcum(row) {
   var d = (RAW.dict || {}).acum || {};
@@ -1223,6 +1247,127 @@ function yoyRowHtml(prevValues, currValues) {
   }).join('');
 }
 
+// ============================================================
+// Pasivo — roll-forward mensual de puntos
+// ============================================================
+
+// Suma de puntos por mes (todos los años que traigan los JSON), filtrando país y
+// excluyendo programas. src = 'acum' | 'reden'.
+function pasivoFlowMap(src, country) {
+  var raws  = src === 'acum' ? [RAW.acum_cy, RAW.acum_ly] : [RAW.reden_cy, RAW.reden_ly];
+  var progFn = src === 'acum' ? getProgramFromAcum : getProgramFromReden;
+  var agg = {};
+  raws.forEach(function(raw){
+    expand(raw).forEach(function(row){
+      if (!matchCountryRow(row.country, country)) return;
+      if (PASIVO_EXCL.indexOf(progFn(row)) !== -1) return;
+      var ym = (row.processing_date || '').substring(0, 7);
+      if (ym.length !== 7) return;
+      agg[ym] = (agg[ym] || 0) + getPts(row);
+    });
+  });
+  return agg;
+}
+
+// Breakage por mes, excluyendo IFOOD / Acciones Marketing si el JSON trae `code`
+// (loyalty_dict.reden[code] -> sección). Si no lo trae (sync viejo), devuelve el
+// total con la bandera `parcial = true`.
+function pasivoBreakageMap(country) {
+  var isoSet = isTotal(country)
+    ? COUNTRY_DATAKEYS.map(function(k){ return COUNTRY_ISO[k] || k; })
+    : [COUNTRY_ISO[country.dataKey] || country.dataKey];
+  var rows = Array.isArray((RAW.breakage || {}).data) ? RAW.breakage.data : expand(RAW.breakage);
+  var dict = (RAW.dict || {}).reden || {};
+  var hasCode = rows.length > 0 && rows[0] && ('code' in rows[0]);
+  var agg = {}, parcial = !hasCode;
+  rows.forEach(function(b){
+    if (isoSet.indexOf((b.country || '').toLowerCase()) === -1) return;
+    if (hasCode && PASIVO_EXCL.indexOf(dict[b.code] || 'Otros') !== -1) return;
+    var ed = b.expiration_date || '';
+    var mm = ed.substring(0, 2), yyyy = ed.substring(3, 7);
+    if (mm.length !== 2 || yyyy.length !== 4) return;
+    var ym = yyyy + '-' + mm;
+    agg[ym] = (agg[ym] || 0) + Math.abs(+(b.points) || 0);
+  });
+  return { map: agg, parcial: parcial };
+}
+
+// Serie mensual ordenada con el roll-forward. Devuelve { rows:[{ym,acum,reden,brk,
+// neto,cum,saldo}], parcialBrk:bool }.
+function pasivoSeries(country) {
+  var acum = pasivoFlowMap('acum', country);
+  var reden = pasivoFlowMap('reden', country);
+  var bk   = pasivoBreakageMap(country);
+  var brk  = bk.map;
+
+  var yms = {};
+  [acum, reden, brk].forEach(function(m){ Object.keys(m).forEach(function(k){ yms[k] = 1; }); });
+  var sorted = Object.keys(yms).sort();
+  if (!sorted.length) return { rows: [], parcialBrk: bk.parcial };
+
+  // Saldo de apertura: para TOTAL, suma de los países; para un país, el suyo.
+  var seed = isTotal(country)
+    ? COUNTRY_DATAKEYS.reduce(function(s, k){ return s + (PASIVO_SEED[k] || 0); }, 0)
+    : (PASIVO_SEED[country.dataKey] || 0);
+
+  var cum = 0, saldo = null, out = [];
+  sorted.forEach(function(ym){
+    var a = acum[ym] || 0, r = reden[ym] || 0, b = brk[ym] || 0;
+    var neto = a - r - b;
+    cum += neto;
+    if (ym === PASIVO_SEED_YM)      saldo = seed;
+    else if (saldo !== null)        saldo = saldo + neto;   // meses posteriores al seed
+    out.push({ ym: ym, acum: a, reden: r, brk: b, neto: neto, cum: cum, saldo: saldo });
+  });
+  return { rows: out, parcialBrk: bk.parcial };
+}
+
+var PASIVO_COUNTRY = 'total';
+
+function renderPasivo() {
+  var el = document.getElementById('panel-pasivo');
+  if (!el) return;
+  var country = { key: PASIVO_COUNTRY, dataKey: PASIVO_COUNTRY };
+  var res = pasivoSeries(country);
+  var opts = COUNTRIES.map(function(c){
+    return '<option value="' + c.dataKey + '"' + (c.dataKey === PASIVO_COUNTRY ? ' selected' : '') + '>' + c.label + '</option>';
+  }).join('');
+
+  var h = '<div class="stitle">Pasivo — stock de puntos (roll-forward)</div>'
+    + '<div class="ppl-bar"><label class="fl">Pais</label> '
+    + '<select id="pasivo-country" onchange="PASIVO_COUNTRY=this.value;renderPasivo();">' + opts + '</select></div>'
+    + '<div class="proj-note">Saldo<sub>t</sub> = Saldo<sub>t-1</sub> + Acumulacion &minus; Redencion &minus; Breakage. '
+    + 'Se excluyen <strong>IFOOD</strong> y <strong>Acciones Marketing</strong>. '
+    + 'Apertura: cierre ' + PASIVO_SEED_YM + ' (Control de Pasivo ML). Solo puntos — sin valuacion.</div>';
+
+  if (res.parcialBrk) {
+    h += '<div class="banner warning"><div class="bt">El breakage todavia se muestra <strong>completo</strong> '
+       + '(el JSON no trae <code>code</code> para excluir IFOOD/Acciones Marketing). Se corrige en la proxima corrida del sync.</div></div>';
+  }
+
+  if (!res.rows.length) {
+    h += '<div class="empty">Sin datos de acumulacion / redencion / breakage.</div>';
+    el.innerHTML = h;
+    return;
+  }
+
+  h += '<div class="bk-card"><div class="tbl-scroll"><table class="bk"><thead><tr>'
+    + '<th>Mes</th><th class="r">Acumulacion</th><th class="r">Redencion</th><th class="r">Breakage</th>'
+    + '<th class="r">Flujo neto</th><th class="r">Neto acum.</th><th class="r">Saldo</th></tr></thead><tbody>';
+  res.rows.forEach(function(x){
+    var seedRow = x.ym === PASIVO_SEED_YM;
+    h += '<tr' + (seedRow ? ' class="tot"' : '') + '><td>' + x.ym + (seedRow ? ' &bull; apertura' : '') + '</td>'
+      + '<td class="r">' + fmtPts(x.acum) + '</td>'
+      + '<td class="r neg">' + (x.reden ? '-' + fmtPts(x.reden) : '0') + '</td>'
+      + '<td class="r neg">' + (x.brk ? '-' + fmtPts(x.brk) : '0') + '</td>'
+      + '<td class="r ' + (x.neto < 0 ? 'neg' : '') + '">' + (x.neto >= 0 ? '+' : '-') + fmtPts(Math.abs(x.neto)) + '</td>'
+      + '<td class="r ly">' + (x.cum >= 0 ? '+' : '-') + fmtPts(Math.abs(x.cum)) + '</td>'
+      + '<td class="r">' + (x.saldo === null ? '&mdash;' : fmtPts(x.saldo)) + '</td></tr>';
+  });
+  h += '</tbody></table></div></div>';
+  el.innerHTML = h;
+}
+
 // Fila debajo del YoY (solo Redenciones): precio/pt de LY + variacion YoY de ese precio.
 function priceRowHtml(prevPrice, currPrice) {
   return FISCAL_LABELS.map(function(lbl, i){
@@ -1403,6 +1548,19 @@ function buildPanels() {
     panelsEl.appendChild(div);
   });
 
+  // Pestaña "Pasivo" — vista de control transversal (roll-forward de puntos)
+  var pbtn = document.createElement('button');
+  pbtn.className = 'ctab';
+  pbtn.dataset.key = 'pasivo';
+  pbtn.textContent = '🧮 Pasivo';
+  pbtn.addEventListener('click', function(){ switchCountry('pasivo'); });
+  tabsEl.appendChild(pbtn);
+
+  var pdiv = document.createElement('div');
+  pdiv.id = 'panel-pasivo';
+  pdiv.classList.add('hidden');
+  panelsEl.appendChild(pdiv);
+
   // Botón al Manual — pegado al extremo derecho de la barra de pestañas
   var man = document.createElement('a');
   man.className = 'ctab ctab-manual';
@@ -1423,10 +1581,13 @@ function switchCountry(key) {
     var p = document.getElementById('panel-' + c.key);
     if (p) p.classList.toggle('hidden', c.key !== key);
   });
+  var pp = document.getElementById('panel-pasivo');
+  if (pp) pp.classList.toggle('hidden', key !== 'pasivo');
   renderCountry(key);
 }
 
 function renderCountry(key) {
+  if (key === 'pasivo') { renderPasivo(); return; }
   var c = COUNTRIES.filter(function(x){ return x.key === key; })[0];
   if (!c) return;
   renderPnl('pnl-' + key, c);
