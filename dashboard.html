@@ -1292,34 +1292,50 @@ function pasivoBreakageMap(country) {
   return { map: agg, parcial: parcial };
 }
 
-// Serie mensual ordenada con el roll-forward. Devuelve { rows:[{ym,acum,reden,brk,
-// neto,cum,saldo}], parcialBrk:bool }.
+// Roll-forward por período: 2025 colapsado en una columna de movimientos acumulados
+// + un mes por columna desde 2026-01. Devuelve { periods:[{key,label,proj}],
+// data:{key:{acum,reden,brk,neto,cum,saldo}}, parcialBrk:bool }.
 function pasivoSeries(country) {
   var acum = pasivoFlowMap('acum', country);
   var reden = pasivoFlowMap('reden', country);
   var bk   = pasivoBreakageMap(country);
   var brk  = bk.map;
 
-  var yms = {};
-  [acum, reden, brk].forEach(function(m){ Object.keys(m).forEach(function(k){ yms[k] = 1; }); });
-  var sorted = Object.keys(yms).sort();
-  if (!sorted.length) return { rows: [], parcialBrk: bk.parcial };
+  // Bucket: todo lo previo a 2026 va a la columna '2025'; desde 2026 es mensual.
+  function bucket(ym) { return ym < '2026-01' ? '2025' : ym; }
+  var keys = {};
+  [acum, reden, brk].forEach(function(m){
+    Object.keys(m).forEach(function(ym){ if (ym.length === 7) keys[bucket(ym)] = 1; });
+  });
+  var periods = Object.keys(keys).sort();
+  if (!periods.length) return { periods: [], data: {}, parcialBrk: bk.parcial };
 
-  // Saldo de apertura: para TOTAL, suma de los países; para un país, el suyo.
+  var agg = {};
+  periods.forEach(function(p){ agg[p] = { acum: 0, reden: 0, brk: 0 }; });
+  function add(map, field) {
+    Object.keys(map).forEach(function(ym){
+      if (ym.length !== 7) return;
+      agg[bucket(ym)][field] += map[ym] || 0;
+    });
+  }
+  add(acum, 'acum'); add(reden, 'reden'); add(brk, 'brk');
+
   var seed = isTotal(country)
     ? COUNTRY_DATAKEYS.reduce(function(s, k){ return s + (PASIVO_SEED[k] || 0); }, 0)
     : (PASIVO_SEED[country.dataKey] || 0);
 
   var cum = 0, saldo = null, out = [];
-  sorted.forEach(function(ym){
-    var a = acum[ym] || 0, r = reden[ym] || 0, b = brk[ym] || 0;
-    var neto = a - r - b;
-    cum += neto;
-    if (ym === PASIVO_SEED_YM)      saldo = seed;
-    else if (saldo !== null)        saldo = saldo + neto;   // meses posteriores al seed
-    out.push({ ym: ym, acum: a, reden: r, brk: b, neto: neto, cum: cum, saldo: saldo });
+  periods.forEach(function(p){
+    var d = agg[p];
+    d.neto = d.acum - d.reden - d.brk;
+    cum += d.neto;
+    d.cum = cum;
+    if (p === PASIVO_SEED_YM)      saldo = seed;
+    else if (saldo !== null)       saldo = saldo + d.neto;
+    d.saldo = saldo;
+    out.push({ key: p, label: p === '2025' ? '2025 (acum.)' : fmtMonthLbl(p + '-01') });
   });
-  return { rows: out, parcialBrk: bk.parcial };
+  return { periods: out, data: agg, parcialBrk: bk.parcial, seedCol: PASIVO_SEED_YM };
 }
 
 var PASIVO_COUNTRY = 'total';
@@ -1336,35 +1352,48 @@ function renderPasivo() {
   var h = '<div class="stitle">Pasivo — stock de puntos (roll-forward)</div>'
     + '<div class="ppl-bar"><label class="fl">Pais</label> '
     + '<select id="pasivo-country" onchange="PASIVO_COUNTRY=this.value;renderPasivo();">' + opts + '</select></div>'
-    + '<div class="proj-note">Saldo<sub>t</sub> = Saldo<sub>t-1</sub> + Acumulacion &minus; Redencion &minus; Breakage. '
-    + 'Se excluyen <strong>IFOOD</strong> y <strong>Acciones Marketing</strong>. '
-    + 'Apertura: cierre ' + PASIVO_SEED_YM + ' (Control de Pasivo ML). Solo puntos — sin valuacion.</div>';
+    + '<div class="proj-note">Saldo = Saldo mes previo + Acumulacion &minus; Redencion &minus; Breakage. '
+    + 'Se excluyen siempre <strong>IFOOD</strong> y <strong>Acciones Marketing</strong>. '
+    + '2025 va colapsado en una columna (movimientos acumulados). '
+    + 'El <strong>Saldo</strong> arranca del cierre ' + fmtMonthLbl(res.seedCol + '-01') + ' (Control de Pasivo ML); antes solo se ven los flujos. Solo puntos — sin valuacion.</div>';
 
   if (res.parcialBrk) {
-    h += '<div class="banner warning"><div class="bt">El breakage todavia se muestra <strong>completo</strong> '
-       + '(el JSON no trae <code>code</code> para excluir IFOOD/Acciones Marketing). Se corrige en la proxima corrida del sync.</div></div>';
+    h += '<div class="banner warning"><div class="bt">El breakage se muestra <strong>completo</strong> por ahora '
+       + '(el JSON todavia no trae <code>code</code> para excluir IFOOD/Acciones Marketing). Se corrige en la proxima corrida del sync.</div></div>';
   }
 
-  if (!res.rows.length) {
+  if (!res.periods.length) {
     h += '<div class="empty">Sin datos de acumulacion / redencion / breakage.</div>';
     el.innerHTML = h;
     return;
   }
 
-  h += '<div class="bk-card"><div class="tbl-scroll"><table class="bk"><thead><tr>'
-    + '<th>Mes</th><th class="r">Acumulacion</th><th class="r">Redencion</th><th class="r">Breakage</th>'
-    + '<th class="r">Flujo neto</th><th class="r">Neto acum.</th><th class="r">Saldo</th></tr></thead><tbody>';
-  res.rows.forEach(function(x){
-    var seedRow = x.ym === PASIVO_SEED_YM;
-    h += '<tr' + (seedRow ? ' class="tot"' : '') + '><td>' + x.ym + (seedRow ? ' &bull; apertura' : '') + '</td>'
-      + '<td class="r">' + fmtPts(x.acum) + '</td>'
-      + '<td class="r neg">' + (x.reden ? '-' + fmtPts(x.reden) : '0') + '</td>'
-      + '<td class="r neg">' + (x.brk ? '-' + fmtPts(x.brk) : '0') + '</td>'
-      + '<td class="r ' + (x.neto < 0 ? 'neg' : '') + '">' + (x.neto >= 0 ? '+' : '-') + fmtPts(Math.abs(x.neto)) + '</td>'
-      + '<td class="r ly">' + (x.cum >= 0 ? '+' : '-') + fmtPts(Math.abs(x.cum)) + '</td>'
-      + '<td class="r">' + (x.saldo === null ? '&mdash;' : fmtPts(x.saldo)) + '</td></tr>';
-  });
-  h += '</tbody></table></div></div>';
+  var P = res.periods, D = res.data;
+  function hdr() {
+    return '<th class="lc"></th>' + P.map(function(p){ return '<th>' + p.label + '</th>'; }).join('');
+  }
+  function row(label, pick, opt) {
+    opt = opt || {};
+    var cls = opt.rowClass ? ' class="' + opt.rowClass + '"' : '';
+    var cells = P.map(function(p){
+      var v = pick(D[p.key]);
+      var tc = p.key === res.seedCol ? ' tc' : '';
+      if (v === null || v === undefined) return '<td class="' + tc + '">&mdash;</td>';
+      var vcls = opt.color ? (v > 0 ? ' vp' : v < 0 ? ' vn' : ' vz') : '';
+      var txt = (opt.signed && v > 0 ? '+' : '') + fmtPts(v);
+      return '<td class="' + tc + vcls + '">' + txt + '</td>';
+    }).join('');
+    return '<tr' + cls + '><td class="lc">' + label + '</td>' + cells + '</tr>';
+  }
+
+  h += '<div class="bk-card"><div class="tbl-scroll"><table class="pnl"><thead><tr>' + hdr() + '</tr></thead><tbody>'
+    + row('Acumulacion',        function(d){ return d.acum; })
+    + row('(&minus;) Redencion', function(d){ return d.reden ? -d.reden : 0; })
+    + row('(&minus;) Breakage',  function(d){ return d.brk ? -d.brk : 0; })
+    + row('Flujo neto',          function(d){ return d.neto; }, { rowClass: 'subtotal', color: true, signed: true })
+    + row('Neto acumulado',      function(d){ return d.cum; },  { color: true, signed: true })
+    + row('Saldo',               function(d){ return d.saldo; }, { rowClass: 'grand-total' })
+    + '</tbody></table></div></div>';
   el.innerHTML = h;
 }
 
