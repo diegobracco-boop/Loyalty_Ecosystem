@@ -299,15 +299,39 @@ var COUNTRIES = [
 // La pestaña TOTAL agrega la suma de estos países (P&L + métricas de negocio).
 var COUNTRY_DATAKEYS = COUNTRIES.filter(function(c){ return c.dataKey !== 'total'; })
                                 .map(function(c){ return c.dataKey; });
+// country_code (acum/reden) viene en nombre completo ('brasil'); breakage.country
+// viene en ISO ('br') — mapa para poder identificar el mismo pais en ambas fuentes.
+var COUNTRY_ISO = { argentina: 'ar', brasil: 'br', colombia: 'co', ecuador: 'ec', mexico: 'mx', peru: 'pe', uruguay: 'uy', chile: 'cl' };
+// Derivados de COUNTRY_ISO, usados por matchCountryCode/rowCountryKey (abajo).
+var COUNTRY_ISO_SET = COUNTRY_DATAKEYS.map(function(k){ return COUNTRY_ISO[k]; });
+var ISO_TO_DATAKEY = {};
+Object.keys(COUNTRY_ISO).forEach(function(k){ ISO_TO_DATAKEY[COUNTRY_ISO[k]] = k; });
+
 function isTotal(country) { return (country && (country.dataKey || country)) === 'total'; }
+// Helper comun: ¿el valor de una fila (nombre completo o code ISO, segun `values`)
+// pertenece a la vista pedida? En TOTAL, ¿esta en el set de los 8 paises?
+function _matchCountry(value, country, values, single) {
+  var p = (value || '').toLowerCase();
+  return isTotal(country) ? values.indexOf(p) !== -1 : p === single;
+}
 // ¿la fila (país en nombre completo, ej 'brasil') pertenece a la vista pedida?
+// Solo para datasets sin country_code (P&L baseline/budget/forecast, columna 'Pais').
 function matchCountryRow(rowCountry, country) {
-  var p = (rowCountry || '').toLowerCase();
-  return isTotal(country) ? COUNTRY_DATAKEYS.indexOf(p) !== -1 : p === country.dataKey;
+  return _matchCountry(rowCountry, country, COUNTRY_DATAKEYS, country && country.dataKey);
+}
+// ¿la fila (country_code ISO de 2 letras, ej 'BR') pertenece a la vista pedida?
+// Preferido sobre matchCountryRow para acum/reden: el nombre completo ('country')
+// puede venir 'N/D' (welcome bonuses/subs sin transaccion de viaje para el JOIN)
+// aun cuando el pipeline ya resolvio el country_code via PARTNER_COUNTRY_CODE.
+function matchCountryCode(rowCode, country) {
+  return _matchCountry(rowCode, country, COUNTRY_ISO_SET, COUNTRY_ISO[country && country.dataKey]);
 }
 // dataKey a usar para lookups por país de una fila (en TOTAL, el país real de la fila).
+// Prioriza country_code (ver matchCountryCode); cae al nombre si no hay code mapeado.
 function rowCountryKey(row, country) {
-  return isTotal(country) ? (row.country || '').toLowerCase() : country.dataKey;
+  if (!isTotal(country)) return country.dataKey;
+  var byCode = ISO_TO_DATAKEY[(row.country_code || '').toLowerCase()];
+  return byCode || (row.country || '').toLowerCase();
 }
 
 // P&L grouping — keywords matched against P&L N1 (lowercase, stripped of "loyalty -" prefix)
@@ -471,10 +495,6 @@ function setSecMode(btn, evt) {
   SEC_MODE[wrap.dataset.suffix + '|' + wrap.dataset.prog] = btn.dataset.v;
   renderCountry(wrap.dataset.suffix);
 }
-
-// country_code (acum/reden) viene en nombre completo ('brasil'); breakage.country
-// viene en ISO ('br') — mapa para poder identificar el mismo pais en ambas fuentes.
-var COUNTRY_ISO = { argentina: 'ar', brasil: 'br', colombia: 'co', ecuador: 'ec', mexico: 'mx', peru: 'pe', uruguay: 'uy', chile: 'cl' };
 
 // FALLBACK del factor SSP de Facturación por pais (se usa solo si falta loyalty_ssp.json
 // o el mes pedido). Valores del cierre "SSP Facturación" — ojo: MX/CO venían con un
@@ -828,7 +848,7 @@ function buildMetrics(country) {
 
   function filterCY(rows) {
     return rows.filter(function(row) {
-      return matchCountryRow(row.country, country)
+      return matchCountryCode(row.country_code, country)
           && inRange((row.processing_date || '').substring(0, 7), r.from, r.to);
     });
   }
@@ -836,7 +856,7 @@ function buildMetrics(country) {
     return rows.filter(function(row) {
       var ym = (row.processing_date || '').substring(0, 7);
       var cy = ym ? (String(+ym.substring(0,4)+1) + ym.substring(4)) : '';
-      return matchCountryRow(row.country, country) && inRange(cy, r.from, r.to);
+      return matchCountryCode(row.country_code, country) && inRange(cy, r.from, r.to);
     });
   }
 
@@ -1264,7 +1284,7 @@ var FISCAL_LABELS = ['Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic','Ene'
 function monthlyMap(raw, country, prog, getProgFn, valueFn) {
   var agg = {};
   expand(raw).forEach(function(row){
-    if (!matchCountryRow(row.country, country)) return;
+    if (!matchCountryCode(row.country_code, country)) return;
     if (getProgFn(row) !== prog) return;
     var ym = (row.processing_date||'').substring(0,7);
     agg[ym] = (agg[ym]||0) + valueFn(row);
@@ -1321,7 +1341,7 @@ function pasivoFlowMap(src, country) {
   var agg = {};
   raws.forEach(function(raw){
     expand(raw).forEach(function(row){
-      if (!matchCountryRow(row.country, country)) return;
+      if (!matchCountryCode(row.country_code, country)) return;
       if (PASIVO_EXCL.indexOf(progFn(row)) !== -1) return;
       var ym = (row.processing_date || '').substring(0, 7);
       if (ym.length !== 7) return;
