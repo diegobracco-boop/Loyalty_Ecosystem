@@ -1667,9 +1667,20 @@ _AGG_KEYS = ["processing_date", "country", "country_code", "partner", "point_typ
 def aggregate_acum(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df["processing_date"] = df["processing_date"].str.slice(0, 7) + "-01"
-    # El dashboard tomaba abs() por fila y luego sumaba — se preserva ese criterio
-    # acá (sumar |valor| por fila) para que los totales no cambien al agregar.
-    df["points"] = pd.to_numeric(df["points"], errors="coerce").fillna(0).abs()
+    # Puntos CON signo (sin abs()). _ACUM_SQL trae dos ramas — Accumulation
+    # (positivo) y Cancellation (ya negado con *-1 en la query) — para que al
+    # sumar por mes/país/partner/point_type la cancelación reste del accrual.
+    # El abs() que había acá anulaba esa resta: cualquier partner/point_type
+    # con cancelaciones quedaba sumado en vez de neteado (accrual + |cancel|
+    # en vez de accrual − cancel). Confirmado contra el bajada real del cierre
+    # de 06-2026 (Pasaporte D!/DP+general: el cierre neta a 234,6M vía SUMA
+    # simple de la columna con signo; con abs() salían 259,2M, +24,6M de más
+    # solo en ese mes — para el año completo la sobreestimación es ~+157%).
+    # Impacto medido (2026, todos los partner/point_type): +5.814M puntos de
+    # más sobre un total correcto de 18.026M (+32%), concentrado casi 100% en
+    # DP/general (Pasaporte D!) y FORTUNE/FORTUNE — el resto de los programas
+    # no tiene cancelaciones registradas y no cambia.
+    df["points"] = pd.to_numeric(df["points"], errors="coerce").fillna(0)
     for c in ("comision", "fee", "descuentos", "pct_pagado_con_puntos"):
         if c not in df.columns:
             df[c] = 0.0
@@ -1822,8 +1833,10 @@ def apply_precios_facturacion(df: pd.DataFrame) -> pd.DataFrame:
 # Los accruals reales de IFOOD Welcome Clube entran como transaction_type='CA'
 # (point code IFO_WE_CLU) en clm_transactions y NO estan en comarch_accumulation_report,
 # por eso faltaban en acumulaciones. En comarch si estan los REVERSOS bajo el name largo
-# IFOOD_WELCOME_CLUBE (puntos negativos), que hoy se contaban mal como acumulacion (el
-# pipeline hace abs() por fila). Los reversos caen casi todos en un mes (jul-2026) y no se
+# IFOOD_WELCOME_CLUBE (puntos negativos), que se contaban mal como acumulacion (el
+# pipeline hacia abs() por fila — aggregate_acum ya no, ver gotcha del abs() en CLAUDE.md,
+# pero esta exclusion sigue siendo la decision correcta igual, ver mas abajo). Los
+# reversos caen casi todos en un mes (jul-2026) y no se
 # alinean con los accruals (may-jul), asi que netear mensualmente daria barras negativas.
 # Decision (Rosario, 2026-08-31): mostrar los accruals BRUTOS (~10.04B YTD) e ignorar los
 # reversos. Por eso: (1) se excluye IFOOD_WELCOME_CLUBE del accrual de comarch, y (2) se
@@ -1875,6 +1888,102 @@ def apply_wclube(df_acum: pd.DataFrame, desde: str, hasta: str) -> pd.DataFrame:
     ca = fetch_wclube_ca(desde, hasta)
     if ca is not None and len(ca):
         df_acum = pd.concat([df_acum, ca], ignore_index=True)
+    return df_acum
+
+
+# ------------------------------------------------------------------------------
+# Fallback de país para accruals 'ER' sin reserva de viaje asociada (FORTUNE/
+# MISSIONS: campañas/misiones que no traen ar1.country ni dsp_transaction_id en
+# comarch_accumulation_report, así que el JOIN contra la reserva de _ACUM_SQL
+# nunca les resuelve país — quedaban 100% en 'N/D', invisibles en el dashboard
+# en todos los países y hasta en TOTAL). Va en query APARTE a propósito: sumar
+# este JOIN adentro de _ACUM_SQL tira en Presto "Number of stages (61) exceeds
+# the allowed maximum (60)" — esa query ya está en el límite. Resuelve vía
+# clm_transaction_id -> clm_transactions.account_id -> clm_customers.ext_country_program
+# (mismo campo que ya usan Breakage/Miembros). Validado con query diagnóstica
+# contra el datalake (2026): 100% de los puntos resuelven, 0 perdidos.
+# Incluye tambien la cancelacion (comarch_cancellation_report, negada) para
+# netear igual que _ACUM_SQL — sin esto quedaría el mismo bug de abs() que
+# aggregate_acum (ver mas abajo) para estos dos point_type puntualmente.
+# ------------------------------------------------------------------------------
+_ACUM_ER_COUNTRY_SQL = """
+SELECT processing_date, country_code, partner, point_type, SUM(points) AS points
+FROM (
+    SELECT CAST(ar1.processing_date AS DATE) AS processing_date
+         , cm.ext_country_program              AS country_code
+         , ar1.partner
+         , ar1.point_type
+         , ar1.points                          AS points
+    FROM data.lake.comarch_accumulation_report ar1
+    JOIN data.lake.clm_transactions t ON t.id = ar1.clm_transaction_id
+    JOIN data.lake.clm_customers cm  ON cm.account_id = t.account_id
+    WHERE ar1.processing_date >= {{Desde}}
+      AND ar1.processing_date <  {{Hasta}}
+      AND COALESCE(ar1.dsp_transaction_type,'Nulo') <> 'REFUND'
+      AND ar1.point_type IN ('FORTUNE','MISSIONS')
+
+    UNION ALL
+
+    -- Cancelaciones (negadas) de esos mismos accruals — sin esto se repite el
+    -- mismo bug de aggregate_acum (abs() neutraliza la resta) para estos dos
+    -- point_type especificamente. Mismo mecanismo de pais (clm_transaction_id).
+    SELECT CAST(cr1.generation_date AS DATE) AS processing_date
+         , cm.ext_country_program              AS country_code
+         , cr1.partner
+         , cr1.point_type
+         , (cr1.points * -1)                    AS points
+    FROM data.lake.comarch_cancellation_report cr1
+    JOIN data.lake.clm_transactions t ON t.id = cr1.clm_transaction_id
+    JOIN data.lake.clm_customers cm  ON cm.account_id = t.account_id
+    WHERE cr1.generation_date >= {{Desde}}
+      AND cr1.generation_date <  {{Hasta}}
+      AND cr1.point_type IN ('FORTUNE','MISSIONS')
+) u
+GROUP BY processing_date, country_code, partner, point_type
+"""
+
+_CC_TO_NAME = {
+    "AR": "Argentina", "BR": "Brasil", "CO": "Colombia", "EC": "Ecuador",
+    "MX": "Mexico", "PE": "Peru", "UY": "Uruguay", "CL": "Chile",
+}
+
+
+def fetch_acum_er_country(desde: str, hasta: str) -> pd.DataFrame:
+    df = fetch(_sub(_ACUM_ER_COUNTRY_SQL, desde, hasta), "Acumulaciones (país FORTUNE/MISSIONS)")
+    if df.empty:
+        return df
+    df["processing_date"] = df["processing_date"].apply(_fix_date)
+    df = df.dropna(subset=["processing_date"])
+    df["points"] = pd.to_numeric(df["points"], errors="coerce").fillna(0)
+    df["country_code"] = df["country_code"].fillna("N/D").astype(str)
+    df["country"] = df["country_code"].map(_CC_TO_NAME).fillna("N/D")
+    for c in ("comision", "fee", "descuentos", "pct_pagado_con_puntos"):
+        df[c] = 0.0
+    return df
+
+
+def apply_acum_er_country(df_acum: pd.DataFrame, desde: str, hasta: str) -> pd.DataFrame:
+    """Reemplaza las filas FORTUNE/MISSIONS sin país (quedan 'N/D' en _ACUM_SQL)
+    por la versión con país resuelto de fetch_acum_er_country(). Solo toca esas
+    filas puntuales — si por lo que sea el fallback no resuelve nada, no cambia
+    nada (se preserva el 'N/D' de siempre, no se pierden puntos)."""
+    if "point_type" not in df_acum.columns or "country" not in df_acum.columns:
+        return df_acum
+    resolved = fetch_acum_er_country(desde, hasta)
+    if resolved is None or not len(resolved):
+        return df_acum
+    mask_er = df_acum["point_type"].isin(["FORTUNE", "MISSIONS"]) & (df_acum["country"] == "N/D")
+    removed_pts = pd.to_numeric(df_acum.loc[mask_er, "points"], errors="coerce").fillna(0).sum()
+    resolved_pts = pd.to_numeric(resolved["points"], errors="coerce").fillna(0).sum()
+    # Guarda de integridad: sale de _ACUM_SQL el 100% de FORTUNE/MISSIONS con
+    # country='N/D' (accrual y cancelación, verificado contra el datalake) — si
+    # algún día eso deja de ser así, esta resta no da ~0 y hay que revisar antes
+    # de confiar en el reemplazo (podría estar duplicando o perdiendo puntos).
+    if abs(removed_pts - resolved_pts) > max(1.0, abs(removed_pts) * 0.001):
+        print(f"  [WARN] FORTUNE/MISSIONS: se sacaron {removed_pts:,.0f} puntos (N/D) y "
+              f"se agregaron {resolved_pts:,.0f} resueltos — no coinciden, revisar "
+              f"antes de confiar en apply_acum_er_country")
+    df_acum = pd.concat([df_acum[~mask_er], resolved], ignore_index=True)
     return df_acum
 
 
@@ -2004,10 +2113,10 @@ if __name__ != "__main__":
         "Usá: python loyalty_sync.py [--dry-run]")
 
 print("\n--- Acumulaciones CY ---")
-df_acum_cy = apply_precios_facturacion(aggregate_acum(apply_wclube(clean_acum(fetch(build_acum_query(ACTUALS_DESDE, ACTUALS_HASTA), f"Acumulaciones {CY_YEAR}")), ACTUALS_DESDE, ACTUALS_HASTA)))
+df_acum_cy = apply_precios_facturacion(aggregate_acum(apply_acum_er_country(apply_wclube(clean_acum(fetch(build_acum_query(ACTUALS_DESDE, ACTUALS_HASTA), f"Acumulaciones {CY_YEAR}")), ACTUALS_DESDE, ACTUALS_HASTA), ACTUALS_DESDE, ACTUALS_HASTA)))
 
 print("\n--- Acumulaciones LY ---")
-df_acum_ly = apply_precios_facturacion(aggregate_acum(apply_wclube(clean_acum(fetch(build_acum_query(LY_DESDE, LY_HASTA), f"Acumulaciones {LY_YEAR}")), LY_DESDE, LY_HASTA)))
+df_acum_ly = apply_precios_facturacion(aggregate_acum(apply_acum_er_country(apply_wclube(clean_acum(fetch(build_acum_query(LY_DESDE, LY_HASTA), f"Acumulaciones {LY_YEAR}")), LY_DESDE, LY_HASTA), LY_DESDE, LY_HASTA)))
 
 print("\n--- Redenciones CY ---")
 _reden_cy_clean = clean_reden(fetch(build_reden_query(ACTUALS_DESDE, ACTUALS_HASTA), f"Redenciones {CY_YEAR}"))
