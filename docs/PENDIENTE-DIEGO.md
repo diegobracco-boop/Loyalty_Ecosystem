@@ -58,3 +58,23 @@ nunca necesita correr la sync.
 
 La planilla *Config* → pestaña `breakage_esperado` tiene hoy el placeholder del cierre 07
 replicado a todos los meses. Cargá los valores reales mes a mes.
+
+## 6. Avisar a Control de Gestión: KPI de Acumulación de Pasaporte D! / IFOOD cambió (07-sep)
+
+`loyalty_sync.py` tenía un bug desde el commit inicial del proyecto: `aggregate_acum()`
+sumaba `abs(points)` en vez de netear, así que cualquier accrual con cancelaciones
+quedaba sumado (`accrual + |cancelación|`) en vez de restado (`accrual − cancelación`).
+Confirmado contra el bajada real de cierre de 06-2026 y su tabla dinámica (suma simple
+con signo, sin abs()): **el cierre neteaba bien, el pipeline no.**
+
+Ya está arreglado y deployado (commit `9f2ec2a`, sync corrida 07-sep 17:48). Efecto
+visible en el dashboard, retroactivo a todo 2025/2026:
+- **Pasaporte D! (`DP`/`general`) bajó a menos de la mitad** (2026: de 5.289M a 2.057M
+  puntos acumulados, −157% relativo al número viejo).
+- **IFOOD 2025 bajó ~34%** (de 4.645M a 3.472M), por una cancelación grande de
+  `IFOOD_WEL` en oct-dic 2025 que antes se sumaba en vez de restarse.
+- 2026 de IFOOD casi no cambia (<0,01%).
+
+Si alguien ya usó los números viejos en algún reporte/conversación con el negocio,
+conviene que lo sepan antes de que alguien note la diferencia solo. Detalle completo
+en la memoria de Claude `bug-abs-cancelaciones-acumulacion` / commit `9f2ec2a`.
