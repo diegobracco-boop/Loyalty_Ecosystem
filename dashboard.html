@@ -439,13 +439,15 @@ function sspFactor(dataKey, ym) {
 //  - Cobrand / Partners → `acum_usd_precio`: puntos × precio_facturacion, ya en USD
 //    (FX BRL/MXN aplicado por loyalty_sync desde Input_Precios.xlsx). No tienen
 //    acum_usd_base, antes daban $0.
-//  - IFOOD / Acciones Marketing (fix 08-sep) → directo `PV` (puntos × factor SSP,
-//    signo corregido). Son welcome bonuses / campañas sin comisión de reserva de
-//    viaje detrás (`acum_usd_base` = 0 siempre para estos dos programas — confirmado
-//    contra el JSON real: IFOOD 23,6B ptos/2026 y Acciones Marketing ~438M ptos/2026,
-//    ambos con acum_usd_base=0) → la fórmula DRO de abajo daría $0 siempre (si R=0,
-//    el ratio PV/(|PV|+R) da 1 pero se multiplica × R = 0). No hay revenue de viaje
-//    que repartir, así que se valúa el punto entero en vez de una porción.
+//  - IFOOD / Acciones Marketing / Club Despegar (fix 08-sep) → directo `PV`
+//    (puntos × factor SSP, signo corregido). Son welcome bonuses / campañas /
+//    subscripción sin comisión de reserva de viaje detrás (`acum_usd_base` = 0
+//    siempre para los 3 — confirmado contra el JSON real: IFOOD 23,6B ptos/2026,
+//    Acciones Marketing ~438M ptos/2026, Club Despegar (SUBS) ~176M ptos/2026,
+//    los 3 con acum_usd_base=0 en el 100% de sus filas) → la fórmula DRO de abajo
+//    daría $0 siempre (si R=0, el ratio PV/(|PV|+R) da 1 pero se multiplica × R = 0).
+//    No hay revenue de viaje que repartir, así que se valúa el punto entero en vez
+//    de una porción.
 //  - Resto (Pasaporte D! genuino) → método "relative fair value" (DRO, fix 08-sep)
 //    para diferir el revenue de la reserva entre el servicio vendido y el "derecho
 //    material" (los puntos). La fórmula vieja (|acum_usd_base × factor SSP|) mezclaba
@@ -467,7 +469,7 @@ function getAcumUsd(row, dataKey) {
   if (factor === undefined || factor === null) return 0;
   var PV = -((+row.points || 0) * factor);
   var prog = getProgramFromAcum(row);
-  if (prog === 'IFOOD' || prog === 'Acciones Marketing') return PV;
+  if (prog === 'IFOOD' || prog === 'Acciones Marketing' || prog === 'Club Despegar') return PV;
   var R = +row.acum_usd_base || 0;
   var denom = Math.abs(PV) + R;
   if (!denom) return 0;
