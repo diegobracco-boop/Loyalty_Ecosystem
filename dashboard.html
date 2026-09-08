@@ -481,7 +481,12 @@ function getAcumUsd(row, dataKey) {
 // Input_Precios.xlsx) y el costo real de esos puntos cuando se redimen (SSP,
 // mismo factor que el resto del dashboard). Filas sin precio (acum_usd_precio=0,
 // o programas que no son Cobrand/Partners) no tienen con qué comparar → 0.
+// BDBCO (Cobrand Colombia) EXCLUIDO a propósito (08-sep): factura al banco por
+// puntos REDIMIDOS en vez de acumulados (regla de negocio dada el 04-sep, ver
+// memoria cobrand-partners-precio-venta-vs-ssp) — la fórmula de acá (sobre
+// acumulados) no le aplica. Queda pendiente implementar esa lógica aparte.
 function getBankRevenue(row, dataKey) {
+  if (row.partner === 'BDBCO') return 0;
   var precio = +row.acum_usd_precio || 0;
   if (precio <= 0) return 0;
   var factor = sspFactor(dataKey, (row.processing_date || '').substring(0, 7));
