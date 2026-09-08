@@ -67,13 +67,12 @@ de diagnóstico, interpretar.
    Corré vos: `pip install -r requirements.txt`.
 
 5. **Acceso a Google Drive** (`[FALTA] Drive`).
-   - **Preferido — service account**: si le pasaron un `service_account.json`, que
-     lo copie a `Loyalty_Ecosystem/service_account.json`. No expira, no necesita browser.
-   - **Alternativa — OAuth personal**: necesita `credentials_drive.json` (NO está en
-     el repo — GitHub bloquea el client secret; se lo pasa Diego o está en el folder
-     Drive "Ops" restringido). Con ese archivo en la carpeta, que corra
-     `! python auth_drive.py` → browser → cuenta @despegar.com → queda `token_drive.json`.
-   - En ambos casos necesita acceso *Editor* al folder Drive `1yCPp6…` (lo da Diego).
+   OAuth de usuario, mismo patrón que B2B. Necesita `credentials_drive.json` (NO está
+   en el repo — GitHub bloquea el client secret; es el mismo archivo para todos, se lo
+   pasa Diego o está en el folder Drive "Ops" restringido). Con ese archivo en la
+   carpeta, que corra `! python auth_drive.py` → browser → cuenta @despegar.com → queda
+   `token_drive.json` (personal, gitignoreado). También necesita acceso *Editor* al
+   folder Drive `1yCPp6…` (lo da Diego).
 
 6. **Verificación.** `python setup_check.py --full` (prueba conexión real a datalake
    y Drive). Repetí desde el paso 1 hasta `Entorno listo`.

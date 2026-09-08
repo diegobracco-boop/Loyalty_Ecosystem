@@ -33,13 +33,9 @@ def add(status, item, hint=""):
 
 def _drive_service():
     from googleapiclient.discovery import build
-    SCOPES = ["https://www.googleapis.com/auth/drive"]
-    _sa = BASE / "service_account.json"
-    if _sa.exists():
-        from google.oauth2.service_account import Credentials as SAC
-        return build("drive", "v3", credentials=SAC.from_service_account_file(str(_sa), scopes=SCOPES))
     from google.oauth2.credentials import Credentials
     from google.auth.transport.requests import Request
+    SCOPES = ["https://www.googleapis.com/auth/drive"]
     c = Credentials.from_authorized_user_file(str(BASE / "token_drive.json"), SCOPES)
     if not c.valid:
         c.refresh(Request())
@@ -87,19 +83,16 @@ else:
     add(OK, "librerías Python")
 
 # ── 4) Acceso a Google Drive ───────────────────────────────────────────────
-sa   = BASE / "service_account.json"
 tok  = BASE / "token_drive.json"
 cred = BASE / "credentials_drive.json"
-if sa.exists():
-    add(OK, "Drive: service_account.json", "método recomendado (no expira)")
-elif tok.exists():
+if tok.exists():
     add(OK, "Drive: token_drive.json (OAuth personal)")
 elif cred.exists():
     add(NO, "Drive: token_drive.json", "correr:  python auth_drive.py  (login con tu cuenta @despegar.com)")
 else:
     add(NO, "Drive: sin credenciales",
-        "conseguir service_account.json (recomendado) o credentials_drive.json de Diego / "
-        "folder Drive 'Ops' (no está en el repo), y despues correr auth_drive.py")
+        "conseguir credentials_drive.json de Diego / folder Drive 'Ops' (no está en "
+        "el repo), y despues correr auth_drive.py")
 
 # ── 5) Pruebas de conexión (--full) ────────────────────────────────────────
 if "--full" in sys.argv:

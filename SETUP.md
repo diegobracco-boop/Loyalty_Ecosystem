@@ -48,7 +48,9 @@ pip install -r "C:\Users\<tu.usuario>\Proyectos IA\Loyalty_Ecosystem\requirement
 
 ### A.4 — Acceso a Google Drive (1 vez por persona)
 
-**Opción A — OAuth personal (por defecto, lo hace cada analista):**
+Mismo patrón que `B2B_Ecosystem` (`Daily_Dashboard`, `Inputs_Planning_PnL`): **OAuth de
+usuario**, sin cuenta de servicio.
+
 ```powershell
 cd "C:\Users\<tu.usuario>\Proyectos IA\Loyalty_Ecosystem"
 python auth_drive.py
@@ -57,26 +59,15 @@ Abre el navegador → autorizás con tu cuenta @despegar.com → queda en `token
 (gitignoreado, personal). Requisitos:
 - `credentials_drive.json` en la carpeta del repo. **No está versionado** (GitHub bloquea
   el client secret por push protection, aunque para apps de escritorio no es realmente
-  confidencial). Te lo pasa Diego o está en el folder Drive **"Loyalty Ecosystem - Ops"**
-  (restringido a operadores).
+  confidencial). Es el **mismo archivo para todos**; te lo pasa Diego o está en el folder
+  Drive **"Loyalty Ecosystem - Ops"** (restringido a operadores).
 - Acceso *Editor* al folder `1yCPp6…` (lo da Diego).
 
-**Opción B — cuenta de servicio (mejor para el agendado; la crea Diego 1 vez):**
-
-Un "usuario robot" con su propio archivo de credenciales. No expira ni depende del
-login de nadie. `loyalty_sync.py` la usa automáticamente si existe `service_account.json`
-en la carpeta del proyecto.
-
-1. [console.cloud.google.com](https://console.cloud.google.com) → elegir/crear proyecto (podés reusar el de `credentials_drive.json`).
-2. **APIs y servicios → Biblioteca** → buscar "Google Drive API" → **Habilitar**.
-3. **IAM y administración → Cuentas de servicio** → **Crear cuenta de servicio** → nombre `loyalty-sync` → Crear y continuar → (sin roles) → Listo.
-4. Click en la cuenta creada → pestaña **Claves** → **Agregar clave → Crear clave nueva → JSON** → se descarga un `.json`.
-5. Renombrar ese archivo a **`service_account.json`** y copiarlo a la carpeta del repo (queda gitignoreado).
-6. Copiar el **email** de la cuenta (`loyalty-sync@<proyecto>.iam.gserviceaccount.com`) y compartir con ese email, como si fuera una persona:
-   - Folder `1yCPp6hTusYmhhb17WiB6EuhFmsx7tlxb` → **Editor**
-   - Folder `1XqQPL_rlS0NRIPUnPfj5nALBTn7kAOQV` → **Lector**
-   - Planilla *Loyalty Ecosystem - Config* → **Lector**
-7. Distribución a analistas: el `service_account.json` es una credencial — **no** va al repo ni a un Drive público. Compartilo por un folder de Drive restringido (solo analistas) o 1:1.
+El refresh token de `token_drive.json` **no expira** mientras la pantalla de
+consentimiento del proyecto GCP (el de `credentials_drive.json`) esté en modo
+**"Internal"** — que es el caso, es el mismo client OAuth que usa el daily de B2B en su
+Task Scheduler. Si el sync agendado quedara con datos viejos (banner rojo en el
+dashboard), la recuperación es un solo comando: `python auth_drive.py`.
 
 ### A.5 — Ejecutar
 

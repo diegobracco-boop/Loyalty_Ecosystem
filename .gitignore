@@ -1,5 +1,6 @@
 credentials_drive.json
 token_drive.json
+# service_account.json ya no se usa (auth = OAuth de usuario); se ignora por las dudas
 service_account.json
 __pycache__/
 *.pyc

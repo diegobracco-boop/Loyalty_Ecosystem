@@ -2031,16 +2031,13 @@ def _build_drive_service():
     from googleapiclient.discovery import build
 
     base       = Path(__file__).resolve().parent
-    sa_file    = base / "service_account.json"
     creds_file = base / "credentials_drive.json"
     token_file = base / "token_drive.json"
 
-    # Preferencia: cuenta de servicio (no expira, no depende de un usuario).
-    if sa_file.exists():
-        from google.oauth2.service_account import Credentials as SACredentials
-        return build("drive", "v3",
-                     credentials=SACredentials.from_service_account_file(str(sa_file), scopes=DRIVE_SCOPES))
-
+    # Auth de Drive = OAuth de usuario, mismo patrón que B2B_Ecosystem: el client
+    # compartido credentials_drive.json + token_drive.json personal (lo genera
+    # auth_drive.py con la cuenta @despegar.com). El refresh token no expira
+    # mientras la consent screen del proyecto GCP esté en modo "Internal".
     if creds_file.exists():
         from google_auth_oauthlib.flow import InstalledAppFlow
         creds = None

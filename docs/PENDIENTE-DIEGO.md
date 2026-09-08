@@ -3,22 +3,25 @@
 Lo que sigue **no lo puede hacer Claude** (necesita consola de GCP, settings de
 GitHub, o compartir en Drive). Todo lo demás del onboarding ya está en el repo.
 
-## 1. Service account de Drive  ·  ~10 min  ·  destraba a TODOS los operadores
+## 1. Auth de Drive — OAuth de usuario (mismo patrón que B2B)  ·  ~2 min por persona
 
-Es lo que resuelve de raíz el problema de credenciales (sin esto, cada operador
-necesita `credentials_drive.json` + OAuth por browser).
+**Decisión (07-sep):** NO se usa cuenta de servicio. `B2B_Ecosystem` corre su daily en
+Task Scheduler con OAuth de usuario (`credentials_drive.json` compartido + `token_drive.json`
+personal, lo genera `auth_drive.py`) y funciona bien; Loyalty queda igual. El código ya
+no tiene la rama de service account.
 
-1. [console.cloud.google.com](https://console.cloud.google.com) → proyecto `despegar-anaconda-juniper` (o el que uses).
-2. **APIs y servicios → Biblioteca** → "Google Drive API" → **Habilitar**.
-3. **IAM → Cuentas de servicio → Crear** → nombre `loyalty-sync` → Crear → (sin roles) → Listo.
-4. Click en la cuenta → **Claves → Agregar clave → JSON** → se baja un `.json`.
-5. Renombrar a `service_account.json`.
-6. Copiar el email `loyalty-sync@…iam.gserviceaccount.com` y **compartir** (como a una persona):
-   - Folder `1yCPp6hTusYmhhb17WiB6EuhFmsx7tlxb` → **Editor**
-   - Folder `1XqQPL_rlS0NRIPUnPfj5nALBTn7kAOQV` → **Lector**
-   - Planilla *Loyalty Ecosystem - Config* → **Lector**
-7. Guardar `service_account.json` en un lugar restringido (folder Drive solo-operadores,
-   o vault). Cada operador lo copia a su carpeta del repo. `loyalty_sync.py` lo usa solo.
+Por cada operador nuevo:
+1. Pasarle `credentials_drive.json` (es el **mismo archivo para todos** — client OAuth de
+   escritorio, no versionado por push protection de GitHub). Dejarlo en el folder Drive
+   restringido **"Loyalty Ecosystem - Ops"** o mandarlo 1:1.
+2. La persona lo copia a la carpeta del repo y corre `python auth_drive.py` → login con su
+   cuenta @despegar.com → se genera `token_drive.json` (personal, gitignoreado).
+3. Darle acceso **Editor** al folder `1yCPp6hTusYmhhb17WiB6EuhFmsx7tlxb`.
+
+Único chequeo pendiente en GCP: confirmar que la pantalla de consentimiento del proyecto
+del `credentials_drive.json` está en modo **"Internal"** (solo @despegar.com). En ese modo
+el refresh token no expira y el sync agendado no se corta. Es el mismo client OAuth que
+usa B2B, así que casi seguro ya está así — solo verificarlo una vez.
 
 ## 2. (Opcional) Secret `CLASP_CREDENTIALS` en GitHub  ·  ~3 min  ·  habilita el deploy automático
 
@@ -42,7 +45,7 @@ al mergear a `main`:
 | Repo GitHub `Loyalty_Ecosystem` (collaborator) | Write | todos |
 | Planilla *Loyalty Ecosystem - Config* | Editor | analistas |
 | Folder Drive `1yCPp6…` | Editor | operadores |
-| `service_account.json` (folder restringido) | — | operadores |
+| `credentials_drive.json` (folder restringido "Ops") | — | operadores |
 | Apps Script project | Editor | solo si deployan a mano |
 | Datalake | usuario propio (equipo de datos) | quien corra `--dry-run` o la sync real |
 

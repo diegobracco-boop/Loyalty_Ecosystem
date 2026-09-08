@@ -479,7 +479,7 @@ a.ext-link:hover { text-decoration: underline; }
         <tr><td>Colaboradores del código</td><td>Diego Bracco · Rosario Arancedo (split Cobrand/Partners).</td></tr>
       </tbody></table>
     </div>
-    <div class="alert-box">⚠️ Puntos únicos de falla conocidos: el sync depende del Task Scheduler en <strong>una</strong> máquina; la service account de Drive que destrabaría a otros operadores sigue pendiente (<code>docs/PENDIENTE-DIEGO.md</code>).</div>
+    <div class="alert-box">⚠️ Punto único de falla conocido: el sync depende del Task Scheduler en <strong>una</strong> máquina. La auth de Drive es OAuth de usuario (mismo patrón que B2B): otro operador se suma corriendo <code>auth_drive.py</code> una vez con su cuenta @despegar.com (<code>docs/PENDIENTE-DIEGO.md</code> item 1).</div>
   </div>
 
   <!-- ══════════════════ EL PIPELINE ══════════════════ -->
@@ -499,7 +499,7 @@ a.ext-link:hover { text-decoration: underline; }
           <tr><td>Drive folder (JSON loyalty)</td><td class="mono-id">1yCPp6hTusYmhhb17WiB6EuhFmsx7tlxb</td></tr>
           <tr><td>Drive folder (P&amp;L canónico)</td><td class="mono-id">1XqQPL_rlS0NRIPUnPfj5nALBTn7kAOQV (lo llena Inputs_Planning_PnL, repo B2B)</td></tr>
           <tr><td>Planilla Config</td><td class="mono-id">1M48FXIAFvyKpP9RSLLSuWh9DgetFPovYfWAM3lQNASI</td></tr>
-          <tr><td>Credenciales</td><td><code>envs/.env.&lt;usuario&gt;</code> (Datalake) · <code>service_account.json</code> o <code>token_drive.json</code> (Drive). Nunca en el repo.</td></tr>
+          <tr><td>Credenciales</td><td><code>envs/.env.&lt;usuario&gt;</code> (Datalake) · <code>credentials_drive.json</code> + <code>token_drive.json</code> (Drive, OAuth de usuario). Nunca en el repo.</td></tr>
         </tbody></table>
       </div>
       <div class="card">
@@ -612,7 +612,7 @@ a.ext-link:hover { text-decoration: underline; }
   ├── Diccionario.xlsx             ← ⚠️ Fallback del mapeo de programas — NO editar
   ├── .github/workflows/deploy-gas.yml  ← CI de deploy (necesita secret CLASP_CREDENTIALS)
   ├── CLAUDE.md / SETUP.md         ← Guía + runbook
-  ├── docs/PENDIENTE-DIEGO.md      ← Pasos manuales que faltan (service account, secret, scheduler…)
+  ├── docs/PENDIENTE-DIEGO.md      ← Pasos manuales que faltan (auth Drive, secret CLASP, scheduler…)
   └── Manual_Loyalty_Ecosystem/    ← Este manual (subcarpeta con su propio .clasp.json)</div>
     </div>
 
