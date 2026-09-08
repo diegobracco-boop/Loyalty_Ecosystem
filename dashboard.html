@@ -439,14 +439,30 @@ function sspFactor(dataKey, ym) {
 //  - Cobrand / Partners → `acum_usd_precio`: puntos × precio_facturacion, ya en USD
 //    (FX BRL/MXN aplicado por loyalty_sync desde Input_Precios.xlsx). No tienen
 //    acum_usd_base, antes daban $0.
-//  - Resto → acum_usd_base × SSP_Facturación[país][mes], con acum_usd_base =
-//    Σ|(comision + fee + descuentos) × (1 − pct_pagado_con_puntos)|.
+//  - Resto → método "relative fair value" (DRO, fix 08-sep) para diferir el
+//    revenue de la reserva entre el servicio vendido y el "derecho material"
+//    (los puntos). La fórmula vieja (|acum_usd_base × factor SSP|) mezclaba
+//    unidades (USD × USD/punto) y daba un Valor Acumulado ~6x menor al real
+//    (ago-2026 Pasaporte D!: $177k vs $1,13M de Valor Redimido — no cerraba
+//    contablemente). Fórmula correcta (Rosario), validada contra ago-2026:
+//      R  (Revenue)          = acum_usd_base (Σ(comision+fee+descuentos) ×
+//                               (1−pct_pagado_con_puntos), siempre ≥0)
+//      PV (Puntos Valuados)  = −(points × factor SSP) — el "−" cancela el
+//                              signo negativo del factor SSP (negativo por
+//                              convención en este código)
+//      DRO (Valor Acumulado) = [PV / (|PV| + R)] × R
+//    Da $1.146.115 vs $1.126.805 redimido real (ratio 1,017) para ago-2026
+//    Pasaporte D! — antes $177.140 (6,4x de menos).
 function getAcumUsd(row, dataKey) {
   var precio = +row.acum_usd_precio || 0;
   if (precio > 0) return precio;
   var factor = sspFactor(dataKey, (row.processing_date || '').substring(0, 7));
   if (factor === undefined || factor === null) return 0;
-  return Math.abs((+row.acum_usd_base || 0) * factor);
+  var R = +row.acum_usd_base || 0;
+  var PV = -((+row.points || 0) * factor);
+  var denom = Math.abs(PV) + R;
+  if (!denom) return 0;
+  return (PV / denom) * R;
 }
 
 // Valor segun modo Q/USD, usado por Redenciones (el toggle vive dentro de cada
