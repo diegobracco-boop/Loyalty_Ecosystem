@@ -476,6 +476,19 @@ function getAcumUsd(row, dataKey) {
   return (PV / denom) * R;
 }
 
+// Bank Revenue (solo Cobrand/Partners): margen entre el precio de venta al banco/
+// partner (acum_usd_precio, ya en USD — puntos × precio_facturacion de
+// Input_Precios.xlsx) y el costo real de esos puntos cuando se redimen (SSP,
+// mismo factor que el resto del dashboard). Filas sin precio (acum_usd_precio=0,
+// o programas que no son Cobrand/Partners) no tienen con qué comparar → 0.
+function getBankRevenue(row, dataKey) {
+  var precio = +row.acum_usd_precio || 0;
+  if (precio <= 0) return 0;
+  var factor = sspFactor(dataKey, (row.processing_date || '').substring(0, 7));
+  if (factor === undefined || factor === null) return 0;
+  return precio - ((+row.points || 0) * Math.abs(factor));
+}
+
 // Valor segun modo Q/USD, usado por Redenciones (el toggle vive dentro de cada
 // seccion de metrica de negocio, ver SEC_MODE). Acumulaciones usa getAcumUsd.
 function valueForMode(row, mode) { return mode === 'USD' ? getUsd(row) : getPts(row); }
@@ -898,15 +911,16 @@ function buildMetrics(country) {
   var bkCY  = bkAll.filter(function(b){ return bkIsoSet.indexOf((b.country || '').toLowerCase()) !== -1; });
 
   function aggAcum(rows) {
-    var pts = 0, usd = 0, byProg = {};
+    var pts = 0, usd = 0, br = 0, byProg = {};
     rows.forEach(function(row) {
-      var p = getPts(row), u = getAcumUsd(row, rowCountryKey(row, country));
-      pts += p; usd += u;
+      var dk = rowCountryKey(row, country);
+      var p = getPts(row), u = getAcumUsd(row, dk), b = getBankRevenue(row, dk);
+      pts += p; usd += u; br += b;
       var prog = getProgramFromAcum(row);
-      if (!byProg[prog]) byProg[prog] = { pts: 0, usd: 0 };
-      byProg[prog].pts += p; byProg[prog].usd += u;
+      if (!byProg[prog]) byProg[prog] = { pts: 0, usd: 0, br: 0 };
+      byProg[prog].pts += p; byProg[prog].usd += u; byProg[prog].br += b;
     });
-    return { pts: pts, usd: usd, byProg: byProg };
+    return { pts: pts, usd: usd, br: br, byProg: byProg };
   }
 
   function aggReden(rows) {
@@ -1102,8 +1116,8 @@ function renderMetrics(country, m) {
   var ifd = m.ifd || { total: 0, byTipo: {}, altasByTipoYm: {}, altasByYm: {} };
 
   programs.forEach(function(prog) {
-    var acCY = m.acCY.byProg[prog] || { pts: 0, usd: 0 };
-    var acLY = m.acLY.byProg[prog] || { pts: 0, usd: 0 };
+    var acCY = m.acCY.byProg[prog] || { pts: 0, usd: 0, br: 0 };
+    var acLY = m.acLY.byProg[prog] || { pts: 0, usd: 0, br: 0 };
     var rdCY = m.rdCY.byProg[prog] || { pts: 0, usd: 0 };
     var rdLY = m.rdLY.byProg[prog] || { pts: 0, usd: 0 };
     var canvasId = 'ch-' + prog.replace(/[^a-z0-9]/gi, '') + '-' + suffix;
@@ -1182,6 +1196,18 @@ function renderMetrics(country, m) {
           + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-ch-ifd-altas-' + suffix + '"></div></div></div>';
       }
       html += '</div>';
+    }
+
+    // ---- Bank Revenue: va DENTRO de Cobrand y Partners (margen precio de venta vs SSP) ----
+    if (prog === 'Cobrand' || prog === 'Partners') {
+      var brCanvasId = 'ch-br-' + prog.replace(/[^a-z0-9]/gi, '') + '-' + suffix;
+      html += '<div class="sub-block"><div class="sub-title">Bank Revenue — margen acumulación vs SSP</div>'
+        + '<div class="kpi-row">'
+        +   kpiHtml('Bank Revenue', fmtUSD(acCY.br), 'vs LY ' + fmtPct(acCY.br, acLY.br), '#029687')
+        + '</div>'
+        + '<div class="cc"><div class="ct">Bank Revenue — USD por mes</div><div class="cw"><canvas id="' + brCanvasId + '"></canvas></div>'
+        + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-' + brCanvasId + '"></div></div></div>'
+        + '</div>';
     }
 
     html += '</div></div>';  // prog-body, prog-section
@@ -1287,6 +1313,17 @@ function renderMetrics(country, m) {
         { label: 'Total ' + fy.ly, data: ifdAltasLY });
       var yEl2 = document.getElementById('yoy-ch-ifd-altas-' + suffix);
       if (yEl2) yEl2.innerHTML = yoyRowHtml(ifdAltasLY, ifdAltasCY);
+    }
+
+    // Bank Revenue — mensual, país+mes (Cobrand/Partners).
+    if (prog === 'Cobrand' || prog === 'Partners') {
+      var brCanvasId2 = 'ch-br-' + prog.replace(/[^a-z0-9]/gi, '') + '-' + suffix;
+      var brFn = function(row){ return getBankRevenue(row, rowCountryKey(row, country)); };
+      var brCY_map = monthlyMap(RAW.acum_cy, country, prog, getProgramFromAcum, brFn);
+      var brLY_map = monthlyMap(RAW.acum_ly, country, prog, getProgramFromAcum, brFn);
+      var brPrev = fiscalSeries(brCY_map, brLY_map, fy.cy, fy.ly, fy.ly);
+      var brCurr = fiscalSeries(brCY_map, brLY_map, fy.cy, fy.ly, fy.cy);
+      buildBarChart(brCanvasId2, brPrev, brCurr, fy.ly, fy.cy, 'rgba(2,150,135,.75)', fmtUSDChart);
     }
   });
 
