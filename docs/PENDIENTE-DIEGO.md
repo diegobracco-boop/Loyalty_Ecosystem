@@ -81,3 +81,29 @@ visible en el dashboard, retroactivo a todo 2025/2026:
 Si alguien ya usó los números viejos en algún reporte/conversación con el negocio,
 conviene que lo sepan antes de que alguien note la diferencia solo. Detalle completo
 en la memoria de Claude `bug-abs-cancelaciones-acumulacion` / commit `9f2ec2a`.
+
+## 7. Avisar a Control de Gestión: "Valor Acumulado" (USD) cambió de fórmula (08-sep) — impacto grande y visible
+
+`getAcumUsd` (`dashboard.html`) tenía una fórmula dimensionalmente inválida
+(`|acum_usd_base × factor SSP|`, mezclaba USD × USD/punto) que daba un "Valor
+Acumulado" ~6x menor al real para Pasaporte D! (ago-2026: $177k vs $1,13M de
+Valor Redimido real — no cerraba contablemente). Se reemplazó por el método
+contable estándar "relative fair value" (DRO): `R=acum_usd_base`,
+`PV=-(puntos×factor SSP)`, `DRO=(PV/(|PV|+R))×R`. Commit `80fd681`, deploy `@31`.
+
+Además, **IFOOD, Acciones Marketing y Club Despegar** (welcome bonuses / campañas /
+subscripción, sin comisión de reserva de viaje detrás) tienen `acum_usd_base=0` en
+el 100% de sus filas — con la fórmula DRO esto siempre daba `$0`, sin importar los
+puntos (IFOOD: 34,2 mil millones de puntos en 2026 mostraban Valor Acumulado $0).
+Se les aplicó un tercer método: valuar directo `puntos × factor SSP` (sin repartir
+vía DRO, porque no hay revenue de viaje que diferir). Commits `81fc911` (IFOOD/
+Acciones Marketing) y `77720d2` (Club Despegar), deploys `@33`/`@34`.
+
+**Efecto visible, retroactivo a todo 2025/2026:** el KPI "Valor Acumulado" y el
+gráfico "Acumulaciones — Valor USD por mes" cambiaron de forma sustancial para
+CASI TODOS los programas (antes solo Pasaporte D! mostraba un valor USD ≠ $0 y
+Cobrand/Partners vía `Input_Precios.xlsx`; ahora también IFOOD, Acciones
+Marketing y Club Despegar muestran valores reales). Si alguien ya usó los
+números viejos (o el hecho de que esos 3 programas daban $0) en algún reporte,
+conviene que lo sepan. Detalle completo en la memoria de Claude
+`dro-valor-acumulado-formula`.
