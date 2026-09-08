@@ -1211,14 +1211,15 @@ function renderMetrics(country, m) {
       html += '</div>';
     }
 
-    // ---- Bank Revenue: va DENTRO de Cobrand y Partners (margen precio de venta vs SSP) ----
+    // ---- Bank/Partner Revenue: va DENTRO de Cobrand y Partners (margen precio de venta vs SSP) ----
     if (prog === 'Cobrand' || prog === 'Partners') {
       var brCanvasId = 'ch-br-' + prog.replace(/[^a-z0-9]/gi, '') + '-' + suffix;
-      html += '<div class="sub-block"><div class="sub-title">Bank Revenue — margen acumulación vs SSP</div>'
+      var brLabel = prog === 'Partners' ? 'Partner Revenue' : 'Bank Revenue';
+      html += '<div class="sub-block"><div class="sub-title">' + brLabel + ' — margen acumulación vs SSP</div>'
         + '<div class="kpi-row">'
-        +   kpiHtml('Bank Revenue', fmtUSD(acCY.br), 'vs LY ' + fmtPct(acCY.br, acLY.br), '#029687')
+        +   kpiHtml(brLabel, fmtUSD(acCY.br), 'vs LY ' + fmtPct(acCY.br, acLY.br), '#029687')
         + '</div>'
-        + '<div class="cc"><div class="ct">Precio de venta por mes — costo (SSP) vs Bank Revenue (CY, línea = total ' + fyYears().ly + ')</div><div class="cw"><canvas id="' + brCanvasId + '"></canvas></div>'
+        + '<div class="cc"><div class="ct">Precio de venta por mes — costo (SSP) vs ' + brLabel + ' (CY, línea = total ' + fyYears().ly + ')</div><div class="cw"><canvas id="' + brCanvasId + '"></canvas></div>'
         + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-' + brCanvasId + '"></div></div></div>'
         + '</div>';
     }
@@ -1328,9 +1329,10 @@ function renderMetrics(country, m) {
       if (yEl2) yEl2.innerHTML = yoyRowHtml(ifdAltasLY, ifdAltasCY);
     }
 
-    // Bank Revenue — apilado (costo SSP + margen) por mes, con línea de total LY.
+    // Bank/Partner Revenue — apilado (costo SSP + margen) por mes, con línea de total LY.
     if (prog === 'Cobrand' || prog === 'Partners') {
       var brCanvasId2 = 'ch-br-' + prog.replace(/[^a-z0-9]/gi, '') + '-' + suffix;
+      var brLabel2 = prog === 'Partners' ? 'Partner Revenue' : 'Bank Revenue';
       var costFn = function(row){ return getBankRevenueCost(row, rowCountryKey(row, country)); };
       var revFn  = function(row){ return getBankRevenue(row, rowCountryKey(row, country)); };
       var costCY_map = monthlyMap(RAW.acum_cy, country, prog, getProgramFromAcum, costFn);
@@ -1345,7 +1347,7 @@ function renderMetrics(country, m) {
       var totalPrev = costPrev.map(function(v, i){ return v + revPrev[i]; });
       buildStackedBarChart(brCanvasId2, [
         { label: 'Costo (SSP)', data: costCurr, backgroundColor: 'rgba(100,116,139,.5)' },
-        { label: 'Bank Revenue',                data: revCurr,  backgroundColor: 'rgba(2,150,135,.8)' }
+        { label: brLabel2,      data: revCurr,  backgroundColor: 'rgba(2,150,135,.8)' }
       ], fmtUSDChart, true, { label: 'Total ' + fy.ly, data: totalPrev });
       var yElBr = document.getElementById('yoy-' + brCanvasId2);
       if (yElBr) yElBr.innerHTML = yoyRowHtml(totalPrev, totalCurr);
