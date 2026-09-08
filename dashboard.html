@@ -156,7 +156,7 @@ table.pnl tr.grand-total td.tc { background: #0f172a !important; }
 .prog-title { font-size: 13px; font-weight: 700; color: var(--text); padding: 10px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; border-bottom: 2px solid var(--accent); display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer; user-select: none; }
 .prog-title:hover { background: #f8fafc; }
 .prog-title:hover .prog-caret { color: var(--accent); }
-.prog-title-right { display: flex; align-items: center; gap: 8px; }
+.prog-title-right { display: flex; align-items: center; gap: 20px; }
 .prog-caret { display: inline-block; font-size: 13px; color: var(--muted); transition: transform .15s, color .15s; }
 .prog-section.is-collapsed .prog-caret { transform: rotate(-90deg); }
 .prog-section.is-collapsed .prog-body { display: none; }
@@ -1344,7 +1344,7 @@ function renderMetrics(country, m) {
       var totalCurr = costCurr.map(function(v, i){ return v + revCurr[i]; });
       var totalPrev = costPrev.map(function(v, i){ return v + revPrev[i]; });
       buildStackedBarChart(brCanvasId2, [
-        { label: 'Costo (SSP) — no es revenue', data: costCurr, backgroundColor: 'rgba(100,116,139,.5)' },
+        { label: 'Costo (SSP)', data: costCurr, backgroundColor: 'rgba(100,116,139,.5)' },
         { label: 'Bank Revenue',                data: revCurr,  backgroundColor: 'rgba(2,150,135,.8)' }
       ], fmtUSDChart, true, { label: 'Total ' + fy.ly, data: totalPrev });
       var yElBr = document.getElementById('yoy-' + brCanvasId2);
