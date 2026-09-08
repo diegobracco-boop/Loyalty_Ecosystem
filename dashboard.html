@@ -476,22 +476,30 @@ function getAcumUsd(row, dataKey) {
   return (PV / denom) * R;
 }
 
-// Bank Revenue (solo Cobrand/Partners): margen entre el precio de venta al banco/
-// partner (acum_usd_precio, ya en USD — puntos × precio_facturacion de
-// Input_Precios.xlsx) y el costo real de esos puntos cuando se redimen (SSP,
-// mismo factor que el resto del dashboard). Filas sin precio (acum_usd_precio=0,
-// o programas que no son Cobrand/Partners) no tienen con qué comparar → 0.
+// Bank Revenue (solo Cobrand/Partners): el precio de venta al banco/partner
+// (acum_usd_precio, ya en USD — puntos × precio_facturacion de Input_Precios.xlsx)
+// se descompone en 2 partes: el costo real de esos puntos cuando se redimen (SSP,
+// mismo factor que el resto del dashboard — "no es revenue", es lo que ese punto
+// termina costando) y el margen que queda (Bank Revenue real). Filas sin precio
+// (acum_usd_precio=0, o programas que no son Cobrand/Partners) no aplican → 0.
 // BDBCO (Cobrand Colombia) EXCLUIDO a propósito (08-sep): factura al banco por
 // puntos REDIMIDOS en vez de acumulados (regla de negocio dada el 04-sep, ver
 // memoria cobrand-partners-precio-venta-vs-ssp) — la fórmula de acá (sobre
 // acumulados) no le aplica. Queda pendiente implementar esa lógica aparte.
-function getBankRevenue(row, dataKey) {
-  if (row.partner === 'BDBCO') return 0;
-  var precio = +row.acum_usd_precio || 0;
-  if (precio <= 0) return 0;
+function _bankRevenueApplies(row) {
+  return row.partner !== 'BDBCO' && (+row.acum_usd_precio || 0) > 0;
+}
+function getBankRevenueCost(row, dataKey) {
+  if (!_bankRevenueApplies(row)) return 0;
   var factor = sspFactor(dataKey, (row.processing_date || '').substring(0, 7));
   if (factor === undefined || factor === null) return 0;
-  return precio - ((+row.points || 0) * Math.abs(factor));
+  return (+row.points || 0) * Math.abs(factor);
+}
+function getBankRevenue(row, dataKey) {
+  if (!_bankRevenueApplies(row)) return 0;
+  var factor = sspFactor(dataKey, (row.processing_date || '').substring(0, 7));
+  if (factor === undefined || factor === null) return 0;
+  return (+row.acum_usd_precio) - ((+row.points || 0) * Math.abs(factor));
 }
 
 // Valor segun modo Q/USD, usado por Redenciones (el toggle vive dentro de cada
@@ -1210,7 +1218,7 @@ function renderMetrics(country, m) {
         + '<div class="kpi-row">'
         +   kpiHtml('Bank Revenue', fmtUSD(acCY.br), 'vs LY ' + fmtPct(acCY.br, acLY.br), '#029687')
         + '</div>'
-        + '<div class="cc"><div class="ct">Bank Revenue — USD por mes</div><div class="cw"><canvas id="' + brCanvasId + '"></canvas></div>'
+        + '<div class="cc"><div class="ct">Precio de venta por mes — costo (SSP) vs Bank Revenue (CY, línea = total ' + fyYears().ly + ')</div><div class="cw"><canvas id="' + brCanvasId + '"></canvas></div>'
         + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-' + brCanvasId + '"></div></div></div>'
         + '</div>';
     }
@@ -1320,15 +1328,27 @@ function renderMetrics(country, m) {
       if (yEl2) yEl2.innerHTML = yoyRowHtml(ifdAltasLY, ifdAltasCY);
     }
 
-    // Bank Revenue — mensual, país+mes (Cobrand/Partners).
+    // Bank Revenue — apilado (costo SSP + margen) por mes, con línea de total LY.
     if (prog === 'Cobrand' || prog === 'Partners') {
       var brCanvasId2 = 'ch-br-' + prog.replace(/[^a-z0-9]/gi, '') + '-' + suffix;
-      var brFn = function(row){ return getBankRevenue(row, rowCountryKey(row, country)); };
-      var brCY_map = monthlyMap(RAW.acum_cy, country, prog, getProgramFromAcum, brFn);
-      var brLY_map = monthlyMap(RAW.acum_ly, country, prog, getProgramFromAcum, brFn);
-      var brPrev = fiscalSeries(brCY_map, brLY_map, fy.cy, fy.ly, fy.ly);
-      var brCurr = fiscalSeries(brCY_map, brLY_map, fy.cy, fy.ly, fy.cy);
-      buildBarChart(brCanvasId2, brPrev, brCurr, fy.ly, fy.cy, 'rgba(2,150,135,.75)', fmtUSDChart);
+      var costFn = function(row){ return getBankRevenueCost(row, rowCountryKey(row, country)); };
+      var revFn  = function(row){ return getBankRevenue(row, rowCountryKey(row, country)); };
+      var costCY_map = monthlyMap(RAW.acum_cy, country, prog, getProgramFromAcum, costFn);
+      var costLY_map = monthlyMap(RAW.acum_ly, country, prog, getProgramFromAcum, costFn);
+      var revCY_map  = monthlyMap(RAW.acum_cy, country, prog, getProgramFromAcum, revFn);
+      var revLY_map  = monthlyMap(RAW.acum_ly, country, prog, getProgramFromAcum, revFn);
+      var costCurr = fiscalSeries(costCY_map, costLY_map, fy.cy, fy.ly, fy.cy);
+      var costPrev = fiscalSeries(costCY_map, costLY_map, fy.cy, fy.ly, fy.ly);
+      var revCurr  = fiscalSeries(revCY_map,  revLY_map,  fy.cy, fy.ly, fy.cy);
+      var revPrev  = fiscalSeries(revCY_map,  revLY_map,  fy.cy, fy.ly, fy.ly);
+      var totalCurr = costCurr.map(function(v, i){ return v + revCurr[i]; });
+      var totalPrev = costPrev.map(function(v, i){ return v + revPrev[i]; });
+      buildStackedBarChart(brCanvasId2, [
+        { label: 'Costo (SSP) — no es revenue', data: costCurr, backgroundColor: 'rgba(100,116,139,.5)' },
+        { label: 'Bank Revenue',                data: revCurr,  backgroundColor: 'rgba(2,150,135,.8)' }
+      ], fmtUSDChart, true, { label: 'Total ' + fy.ly, data: totalPrev });
+      var yElBr = document.getElementById('yoy-' + brCanvasId2);
+      if (yElBr) yElBr.innerHTML = yoyRowHtml(totalPrev, totalCurr);
     }
   });
 
