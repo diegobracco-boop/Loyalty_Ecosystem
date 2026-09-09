@@ -269,8 +269,14 @@ SELECT processing_date
      , SUM(CASE WHEN rn_gb = 1 THEN comision   ELSE 0 END) AS comision
      , SUM(CASE WHEN rn_gb = 1 THEN fee         ELSE 0 END) AS fee
      , SUM(CASE WHEN rn_gb = 1 THEN descuentos  ELSE 0 END) AS descuentos
-     , SUM(CASE WHEN rn_gb = 1 THEN gb_basebi   ELSE 0 END) AS gb_basebi
-     , SUM(CASE WHEN rn_gb = 1 THEN gb_basebi_2 ELSE 0 END) AS gb_basebi_2
+     -- FIX GB (2026-09-09): solo se cuenta el GB si el combo (dsp_transaction_id,
+     -- product, business) tiene puntos NETOS > 0. Evita contar GB de reservas cuyos
+     -- puntos general fueron cancelados (accrual + cancelacion neteaban <= 0), que
+     -- inflaban el GB por encima del GB completo del producto. net_pts_combo se
+     -- calcula abajo, junto a rn_gb. SOLO afecta gb_basebi/gb_basebi_2 - el resto
+     -- de las columnas queda igual que antes.
+     , SUM(CASE WHEN rn_gb = 1 AND net_pts_combo > 0 THEN gb_basebi   ELSE 0 END) AS gb_basebi
+     , SUM(CASE WHEN rn_gb = 1 AND net_pts_combo > 0 THEN gb_basebi_2 ELSE 0 END) AS gb_basebi_2
      , COALESCE(
            CAST(SUM(CASE WHEN rn_gb = 1 THEN descuento_consumo_puntos_usd ELSE 0 END) AS DOUBLE)
            / NULLIF(SUM(CASE WHEN rn_gb = 1 THEN gb_basebi_2 ELSE 0 END) + ABS(SUM(CASE WHEN rn_gb = 1 THEN descuentos ELSE 0 END)), 0)
@@ -319,6 +325,11 @@ FROM (
              PARTITION BY dsp_transaction_id, product, business
              ORDER BY processing_date
          ) AS rn_gb
+       -- FIX GB (2026-09-09): neto de puntos por combo. "points" ya viene con signo
+       -- (accrual +, cancelacion * -1), asi que esta suma es accrual - cancelacion.
+       , SUM(points) OVER (
+             PARTITION BY dsp_transaction_id, product, business
+         ) AS net_pts_combo
   FROM (
 
     -- ACCUMULATION branch
