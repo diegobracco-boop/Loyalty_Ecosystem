@@ -37,12 +37,14 @@ SSP_FILE        = "loyalty_ssp.json"
 MIEMBROS_FILE       = "loyalty_miembros.json"
 CLUB_DESPEGAR_FILE  = "loyalty_club_despegar.json"
 IFOOD_ENROLL_FILE   = "loyalty_ifood_enroll.json"
+RATIO_ACUM_FILE     = "loyalty_ratio_acumulacion.json"
 # Fallbacks locales de la planilla de config: viven al lado de este script en todo
 # clon (ambos trackeados en git), asi que se resuelven relativos a el — antes eran la
 # ruta absoluta de una maquina y rompian el --dry-run del resto (no lee la planilla).
 _SCRIPT_DIR      = Path(__file__).resolve().parent
 DICT_XLSX        = str(_SCRIPT_DIR / "Diccionario.xlsx")
 BREAKAGE_ESP_CSV = str(_SCRIPT_DIR / "breakage_esperado.csv")
+REGLA_PRODUCTO_CSV = str(_SCRIPT_DIR / "regla_producto.csv")
 
 # Precios de facturación de Cobrand/Partners + FX mensual por moneda.
 # Fuente: Input_Precios.xlsx (lo mantiene Control de Gestión en OneDrive). Solapas:
@@ -58,14 +60,16 @@ PRECIOS_XLSX_CANDIDATES = [
 ]
 
 # Planilla "Loyalty Ecosystem - Config" (folder Drive de loyalty). Pestañas que
-# editan los analistas sin tocar el repo: `breakage_esperado`, `diccionario`.
+# editan los analistas sin tocar el repo: `breakage_esperado`, `diccionario`,
+# `regla producto` (agregado 09-sep: mapeo produto_agrupado/product → grupo P&L,
+# mismo criterio que usa Control de Gestión — insumo del ratio de acumulación).
 # Si no se puede leer, el sync cae a los archivos locales (breakage_esperado.csv /
-# Diccionario.xlsx). Ver SETUP.md sección B.
+# Diccionario.xlsx / regla_producto.csv). Ver SETUP.md sección B.
 CONFIG_SHEET_ID = "1M48FXIAFvyKpP9RSLLSuWh9DgetFPovYfWAM3lQNASI"
 
 # --dry-run / --no-upload: corre queries y arma los JSON en ./_out/ SIN subir a
-# Drive ni leer la planilla de config (usa breakage_esperado.csv / Diccionario.xlsx).
-# Para validar cambios de query sin credenciales de Drive.
+# Drive ni leer la planilla de config (usa breakage_esperado.csv / Diccionario.xlsx /
+# regla_producto.csv). Para validar cambios de query sin credenciales de Drive.
 DRY_RUN = ("--dry-run" in sys.argv) or ("--no-upload" in sys.argv)
 
 TODAY        = date.today()
@@ -1710,6 +1714,108 @@ def aggregate_acum(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ------------------------------------------------------------------------------
+# Ratio de acumulación (puntos otorgados / GB) — Pasaporte D! genuino (09-sep)
+# ------------------------------------------------------------------------------
+# Definición confirmada por Rosario: SUM(points) / SUM(GB), por producto, SOLO
+# sobre point_type='general' (partner=DP, "Pasaporte D! genuino" — no Cobrand/
+# Partners/IFOOD/etc.). GB = gb_basebi_2 (gross_booking), ya neteado por el fix
+# de net_pts_combo>0 del 2026-09-09 (commit 83dd0bf) — antes se inflaba con GB
+# de reservas cuyos puntos general fueron cancelados.
+#
+# Se corre ANTES de aggregate_acum(), que descarta 'produto' (nombre de
+# producto) y 'gb_basebi_2' al agregar por partner+point_type — acá sí hacen
+# falta, así que este agregado toma como input el DataFrame ya limpio
+# (clean_acum + apply_wclube + apply_acum_er_country) pero SIN pasar por
+# aggregate_acum().
+#
+# "Producto" en el output = grupo del P&L (mismo criterio que usa Control de
+# Gestión para armar el P&L), NO el código crudo de Comarch — viene de la
+# pestaña 'regla producto' del Sheet Config (ver load_regla_producto()).
+# Nota: la key de nombre para el match es 'produto' (array_agg(product_type) de
+# _ACUM_SQL, normalizado a string en clean_acum), NO una columna 'produto_agrupado'
+# — esa solo existe en _REDEN_SQL, no en _ACUM_SQL.
+_PASAPORTE_GENERAL_POINT_TYPE = "general"
+
+
+def load_regla_producto() -> tuple[dict, dict]:
+    """(by_name, by_code): mapeo producto → grupo P&L, desde la pestaña
+    'regla producto' del Sheet Config (fallback: regla_producto.csv).
+
+    La tabla mezcla en la misma columna llave nombres de produto_agrupado
+    (ej. 'Vuelos', 'Hoteles') y códigos de product (ej. 'FLIGHT', 'HOTEL') —
+    regla de Rosario (09-sep): buscar primero por produto_agrupado (nombre);
+    si no matchea (viene vacío o no está en la tabla), caer a product (código).
+    by_name usa la key tal cual (nombres, case-sensitive); by_code la uppercasea
+    (los códigos reales de comarch_accumulation_report.product son siempre
+    mayúsculas, pero el Sheet no siempre respeta el casing — ej. 'Transfer').
+    """
+    df = config_sheet_tab("regla producto")
+    src = "planilla"
+    if df is None:
+        path = Path(REGLA_PRODUCTO_CSV)
+        if not path.exists():
+            print(f"  [WARN] ratio acum: sin 'regla producto' (ni planilla ni {path.name}) "
+                  f"→ todo cae a 'Sin clasificar'")
+            return {}, {}
+        df = pd.read_csv(path, header=None)
+        src = path.name
+    else:
+        df = df.copy()
+    df = df.iloc[:, :2]
+    df.columns = ["key", "grupo_pnl"]
+    df = df.dropna(subset=["key", "grupo_pnl"])
+    by_name, by_code = {}, {}
+    for _, r in df.iterrows():
+        key = str(r["key"]).strip()
+        grupo = str(r["grupo_pnl"]).strip()
+        if not key or not grupo:
+            continue
+        by_name[key] = grupo
+        by_code[key.upper()] = grupo
+    print(f"  [ratio acum] regla producto: {len(by_name)} filas desde {src}")
+    return by_name, by_code
+
+
+def aggregate_ratio_acum(df: pd.DataFrame, by_name: dict, by_code: dict) -> pd.DataFrame:
+    cols = ["processing_date", "country", "country_code", "grupo_pnl", "points", "gb"]
+    d = df[df["point_type"].astype(str).str.lower() == _PASAPORTE_GENERAL_POINT_TYPE].copy()
+    if d.empty:
+        return pd.DataFrame(columns=cols)
+    d["processing_date"] = d["processing_date"].str.slice(0, 7) + "-01"
+    d["points"] = pd.to_numeric(d["points"], errors="coerce").fillna(0)
+    d["gb_basebi_2"] = pd.to_numeric(d.get("gb_basebi_2", 0), errors="coerce").fillna(0)
+
+    def _grupo(row):
+        # 'produto' viene de array_agg(product_type) en Presto SIN ORDER BY interno
+        # -> el orden de los elementos no esta garantizado entre corridas cuando una
+        # fila agrupa varios product_type distintos. sorted() hace que "el primero
+        # que matchea" sea determinístico (aunque arbitrario) en vez de depender del
+        # orden que devuelva Presto esa corrida.
+        nombres = sorted(n.strip() for n in str(row.get("produto", "")).split(",") if n.strip())
+        for n in nombres:
+            if n in by_name:
+                return by_name[n]
+        codigo = str(row.get("product", "")).strip().upper()
+        return by_code.get(codigo)
+
+    d["grupo_pnl"] = d.apply(_grupo, axis=1)
+    sin_map = d[d["grupo_pnl"].isna()]
+    if len(sin_map):
+        combos = sorted(set(zip(sin_map["produto"], sin_map["product"])))
+        pts = sin_map["points"].sum()
+        print(f"  [WARN] ratio acum: {len(combos)} combinaciones producto/código sin grupo P&L "
+              f"en 'regla producto' ({pts:,.0f} pts → 'Sin clasificar'): {combos}")
+    d["grupo_pnl"] = d["grupo_pnl"].fillna("Sin clasificar")
+
+    out = (d.groupby(["processing_date", "country", "country_code", "grupo_pnl"],
+                      as_index=False, dropna=False)
+             .agg(points=("points", "sum"), gb=("gb_basebi_2", "sum")))
+    out["points"] = out["points"].round(2)
+    out["gb"] = out["gb"].round(2)
+    return out[cols]
+
+
+# ------------------------------------------------------------------------------
 # Valuación USD de Cobrand / Partners por PRECIO DE FACTURACIÓN (Input_Precios.xlsx)
 # ------------------------------------------------------------------------------
 # Cobrand y Partners no generan `acum_usd_base` (no hay comisión/GB de viaje detrás),
@@ -2121,10 +2227,14 @@ if __name__ != "__main__":
         "Usá: python loyalty_sync.py [--dry-run]")
 
 print("\n--- Acumulaciones CY ---")
-df_acum_cy = apply_precios_facturacion(aggregate_acum(apply_acum_er_country(apply_wclube(clean_acum(fetch(build_acum_query(ACTUALS_DESDE, ACTUALS_HASTA), f"Acumulaciones {CY_YEAR}")), ACTUALS_DESDE, ACTUALS_HASTA), ACTUALS_DESDE, ACTUALS_HASTA)))
+# _acum_cy_pre queda ANTES de aggregate_acum() (que descarta 'produto'/'gb_basebi_2')
+# para que el ratio de acumulación (ver aggregate_ratio_acum) pueda usarlos.
+_acum_cy_pre = apply_acum_er_country(apply_wclube(clean_acum(fetch(build_acum_query(ACTUALS_DESDE, ACTUALS_HASTA), f"Acumulaciones {CY_YEAR}")), ACTUALS_DESDE, ACTUALS_HASTA), ACTUALS_DESDE, ACTUALS_HASTA)
+df_acum_cy = apply_precios_facturacion(aggregate_acum(_acum_cy_pre))
 
 print("\n--- Acumulaciones LY ---")
-df_acum_ly = apply_precios_facturacion(aggregate_acum(apply_acum_er_country(apply_wclube(clean_acum(fetch(build_acum_query(LY_DESDE, LY_HASTA), f"Acumulaciones {LY_YEAR}")), LY_DESDE, LY_HASTA), LY_DESDE, LY_HASTA)))
+_acum_ly_pre = apply_acum_er_country(apply_wclube(clean_acum(fetch(build_acum_query(LY_DESDE, LY_HASTA), f"Acumulaciones {LY_YEAR}")), LY_DESDE, LY_HASTA), LY_DESDE, LY_HASTA)
+df_acum_ly = apply_precios_facturacion(aggregate_acum(_acum_ly_pre))
 
 print("\n--- Redenciones CY ---")
 _reden_cy_clean = clean_reden(fetch(build_reden_query(ACTUALS_DESDE, ACTUALS_HASTA), f"Redenciones {CY_YEAR}"))
@@ -2145,6 +2255,13 @@ df_club = clean_club_despegar(fetch(_CLUB_DESPEGAR_SQL, "Club Despegar (stock/al
 
 print("\n--- iFood enrolados ---")
 df_ifood = clean_ifood_enroll(fetch(_IFOOD_ENROLL_SQL, "iFood enrol + Club iFood"))
+
+print("\n--- Ratio de acumulación Pasaporte D! (puntos/GB por producto) ---")
+_regla_by_name, _regla_by_code = load_regla_producto()
+df_ratio = pd.concat([
+    aggregate_ratio_acum(_acum_cy_pre, _regla_by_name, _regla_by_code),
+    aggregate_ratio_acum(_acum_ly_pre, _regla_by_name, _regla_by_code),
+], ignore_index=True)
 
 print("\n--- Construyendo diccionario de puntos ---")
 dict_bytes = build_dict_json()
@@ -2197,6 +2314,15 @@ META_IFOOD = {
 }
 ifood_bytes = json.dumps({"meta": META_IFOOD, "data": to_compact(df_ifood)}, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
 
+META_RATIO = {
+    "generated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+    "fuente": "comarch_accumulation_report point_type='general' (Pasaporte D! genuino, partner=DP); "
+              "gb = gb_basebi_2 (gross_booking, neteado por combo con net_pts_combo>0 desde 09-sep); "
+              "grupo_pnl = pestaña 'regla producto' del Sheet Config (nombre de producto, si no matchea cae a codigo); "
+              "ratio de acumulación = points / gb",
+}
+ratio_bytes = json.dumps({"meta": META_RATIO, "data": to_compact(df_ratio)}, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+
 _stk = df_club[df_club["serie"] == "stock"]
 _club_act = int(_stk[_stk["ym"] == _stk["ym"].max()]["n"].sum()) if len(_stk) else 0
 print(f"  Acum {CY_YEAR}:  {len(acum_cy_bytes)//1024:.0f} KB  ({len(df_acum_cy):,} filas)")
@@ -2207,6 +2333,7 @@ print(f"  Breakage:       {len(breakage_bytes)//1024:.0f} KB  ({len(df_breakage)
 print(f"  Miembros:       {len(miembros_bytes)//1024:.0f} KB  ({len(df_miembros):,} filas · {df_miembros['clientes'].sum():,} miembros)")
 print(f"  Club Despegar:  {len(club_bytes)//1024:.0f} KB  ({len(df_club):,} filas · {_club_act:,} activos)")
 print(f"  iFood enrol:    {len(ifood_bytes)//1024:.0f} KB  ({len(df_ifood):,} filas · {int(df_ifood['n'].sum()):,} altas)")
+print(f"  Ratio acum.:    {len(ratio_bytes)//1024:.0f} KB  ({len(df_ratio):,} filas)")
 
 _OUT = [
     (acum_cy_bytes,  ACUM_CY_FILE), (acum_ly_bytes,  ACUM_LY_FILE),
@@ -2214,6 +2341,7 @@ _OUT = [
     (breakage_bytes, BREAKAGE_FILE), (dict_bytes, DICT_FILE), (ssp_bytes, SSP_FILE),
     (miembros_bytes, MIEMBROS_FILE),
     (club_bytes, CLUB_DESPEGAR_FILE), (ifood_bytes, IFOOD_ENROLL_FILE),
+    (ratio_bytes, RATIO_ACUM_FILE),
 ]
 
 if DRY_RUN:
@@ -2256,6 +2384,15 @@ if DRY_RUN:
     print("\n  iFood enrolados — total por tipo:")
     for t, v in df_ifood.groupby("tipo")["n"].sum().items():
         print(f"    {t:14s} {int(v):>9,}")
+
+    if len(df_ratio):
+        print("\n  Ratio de acumulación Pasaporte D! por grupo P&L (total periodo, puntos/GB):")
+        _rg = df_ratio.groupby("grupo_pnl", as_index=False).agg(points=("points", "sum"), gb=("gb", "sum"))
+        _rg["ratio"] = _rg["points"] / _rg["gb"].replace(0, pd.NA)
+        for _, r in _rg.sort_values("points", ascending=False).iterrows():
+            print(f"    {r['grupo_pnl']:18s} pts={r['points']:>15,.0f}  gb={r['gb']:>15,.0f}  ratio={r['ratio']}")
+    else:
+        print("\n  Ratio de acumulación: sin filas (revisar point_type='general' / regla producto)")
 else:
     print("\n--- Subiendo a Google Drive ---")
     for data, name in _OUT:
