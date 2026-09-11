@@ -161,6 +161,9 @@ a.ext-link:hover { text-decoration: underline; }
   <a class="nav-item" onclick="showSection('deploy')"><span class="nav-icon">🚀</span> Deploy</a>
   <a class="nav-item" onclick="showSection('archivos')"><span class="nav-icon">📁</span> Archivos &amp; rutas</a>
   <a class="nav-item" onclick="showSection('agentes')"><span class="nav-icon">🔍</span> Agentes de auditoría</a>
+
+  <div class="sidebar-section">Cierre contable (módulo aparte)</div>
+  <a class="nav-item" onclick="showSection('cierre')"><span class="nav-icon">🧮</span> Proceso de cierre</a>
 </nav>
 
 <main id="main">
@@ -212,6 +215,12 @@ a.ext-link:hover { text-decoration: underline; }
         <div class="proj-card-name">P&amp;L Contable (fuente externa)</div>
         <div class="proj-card-desc">Los JSON canónicos del P&amp;L NO los genera Loyalty — vienen de <code>Inputs_Planning_PnL</code> (repo B2B_Ecosystem). La landing filtra las líneas "loyalty".</div>
         <div style="margin-top:12px"><span class="badge badge-auto">↗ Cross-repo</span></div>
+      </div>
+      <div class="proj-card" onclick="showSection('cierre')">
+        <div class="proj-card-icon">🧮</div>
+        <div class="proj-card-name">Proceso_cierre/</div>
+        <div class="proj-card-desc">Cierre contable mensual: baja 3 queries del Datalake, arma los asientos, completa el Excel que lee Contabilidad. Módulo aparte — no comparte código ni datos con lo de arriba.</div>
+        <div style="margin-top:12px"><span class="badge badge-manual">🔧 Manual, con guardrails</span></div>
       </div>
     </div>
   </div>
@@ -613,7 +622,8 @@ a.ext-link:hover { text-decoration: underline; }
   ├── .github/workflows/deploy-gas.yml  ← CI de deploy (necesita secret CLASP_CREDENTIALS)
   ├── CLAUDE.md / SETUP.md         ← Guía + runbook
   ├── docs/PENDIENTE-DIEGO.md      ← Pasos manuales que faltan (auth Drive, secret CLASP, scheduler…)
-  └── Manual_Loyalty_Ecosystem/    ← Este manual (subcarpeta con su propio .clasp.json)</div>
+  ├── Manual_Loyalty_Ecosystem/    ← Este manual (subcarpeta con su propio .clasp.json)
+  └── Proceso_cierre/              ← Módulo aparte: cierre contable mensual (ver sección "Proceso de cierre")</div>
     </div>
 
     <div class="card">
@@ -667,6 +677,53 @@ a.ext-link:hover { text-decoration: underline; }
         <tr><td>Si la sesión está cerca del límite</td><td>Correr los agentes de a 1-2, no los 4 juntos (~100-140k tokens c/u).</td></tr>
       </tbody></table>
     </div>
+  </div>
+
+  <!-- ══════════════════ PROCESO DE CIERRE ══════════════════ -->
+  <div class="section" id="sec-cierre">
+    <div class="page-header">
+      <div class="page-tag">Cierre contable · Módulo aparte</div>
+      <div class="page-title">Proceso de <span>cierre</span></div>
+      <div class="page-sub">Automatiza el cierre mensual contable de Loyalty: baja las 3 queries del Datalake, calcula los asientos, y completa <code>Asientos Cierre Loyalty.xlsx</code> — el archivo que lee Contabilidad. <strong>Sin relación con <code>loyalty_sync.py</code> ni el dashboard</strong>: no comparte código, JSON, Drive ni credenciales.</div>
+    </div>
+
+    <div class="alert-box info">📁 Vive en <code>Proceso_cierre/</code>, en la raíz del repo — carpeta <strong>autocontenida</strong> (pensada para compartirse también por SharePoint/OneDrive con el equipo): no depende de nada fuera de ella, salvo tus credenciales del Datalake, que van aparte. El detalle paso a paso está en <code>Proceso_cierre/INSTRUCCIONES.md</code>; esta sección es el resumen.</div>
+
+    <div class="card">
+      <div class="card-title">🔁 El flujo — 2 scripts, con un paso manual en el medio</div>
+      <div class="steps">
+        <div class="step"><div class="step-num">1</div><div><div class="step-title"><code>py run_cierre_backup_manual.py</code></div><div class="step-desc">Corre los guardrails (tipos de punto nuevos, columnas/cobertura de las queries, vigencia del TC — ver abajo), baja las 3 queries (Acumulaciones, Redenciones, Puntos Expirados), calcula las columnas derivadas de Etapa 1, y recién si todos los guardrails cierran pega todo en el archivo de cierre del mes. Frena con instrucciones — todavía no toca <code>Asientos Cierre Loyalty.xlsx</code>.</div></div></div>
+        <div class="step"><div class="step-num">2</div><div><div class="step-title">Refresco manual en Excel</div><div class="step-desc"><code>openpyxl</code> no recalcula fórmulas — hay que pegar Breakage Esperado a mano (si no se hizo antes), abrir el archivo de cierre, refrescar con <strong>Ctrl+Alt+F9</strong> y guardar. Recién ahí SSP Facturación, Cobrand, Partners, Control de Pasivo ML y Accounting quedan con los valores del mes nuevo.</div></div></div>
+        <div class="step"><div class="step-num">3</div><div><div class="step-title"><code>py escribir_asientos.py</code></div><div class="step-desc">Recupera el estado guardado por el script anterior, lee las columnas ya recalculadas (Puntos Valuados / DRO / Reconocimiento de Ingresos Diferidos ML), y pega todo en <code>Asientos Cierre Loyalty.xlsx</code> — Accounting se pega a valor.</div></div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🛡️ Guardrails</div>
+      <table class="doc-table"><tbody>
+        <tr><td>Diccionario de tipos de punto</td><td>Frena si aparece un <code>code</code> nuevo que el CASE de la query todavía no mapea a un <code>point_type</code>. Se acepta con <code>--aceptar-puntos-nuevos</code>.</td></tr>
+        <tr><td>Columnas / cobertura de las queries</td><td>Frena si cambiaron las columnas de alguna de las 3 queries de Data respecto al mes anterior. Se acepta con <code>--aceptar-cambios-queries</code>.</td></tr>
+        <tr><td>Sum points vs. control</td><td>Compara el total de cada bajada contra su query de control independiente (tolerancia $0.01). Si no cierra, <strong>no se pega nada</strong> en el archivo de cierre (fix 2026-09: antes se pegaba primero y se chequeaba después — un REVISAR podía dejar el Excel ya sobreescrito).</td></tr>
+        <tr><td>Vigencia del TC (nuevo, 2026-09)</td><td><code>referencia/TC_mensual.xlsx</code> no tiene columna de período — si nadie lo actualiza, el pipeline usaba en silencio el TC del mes anterior (afecta el Reconocimiento de Ingresos Diferidos ML). Ahora alerta si el archivo no se modificó en los últimos ~45 días respecto al cierre — chequeo aproximado, no reemplaza confirmar con Rosario/Finanzas.</td></tr>
+      </tbody></table>
+    </div>
+
+    <div class="card">
+      <div class="card-title">⚙️ Preparación y config</div>
+      <table class="doc-table"><tbody>
+        <tr><td>Config del mes</td><td>Copiar <code>config.yaml.example</code> → <code>config.yaml</code> (gitignoreado — es personal/mensual: tu carpeta de SharePoint, el mes que estás cerrando).</td></tr>
+        <tr><td>Credenciales Datalake</td><td><code>C:\Users\&lt;tu.usuario&gt;\.automatizacion_cierre\.env</code> — <strong>fuera</strong> del repo y de cualquier carpeta sincronizada (no es el mismo <code>envs/.env.&lt;usuario&gt;</code> que usa <code>loyalty_sync.py</code>).</td></tr>
+        <tr><td>TC del mes</td><td><code>referencia/TC_mensual.xlsx</code> — el único archivo de referencia que se actualiza todos los meses (mail de Finanzas).</td></tr>
+        <tr><td>Breakage Esperado</td><td>Se calcula a mano (con la bajada de puntos expirados) y se pega en la solapa "Breakage Esperado" del archivo de cierre antes del paso 2 — sin esto, SSP Facturación recalcula con un breakage viejo o vacío.</td></tr>
+      </tbody></table>
+    </div>
+
+    <div class="card">
+      <div class="card-title">👥 Quién lo mantiene</div>
+      <div class="step-desc">Las queries SQL (<code>queries/</code>) las mantiene <strong>Rosario Arancedo</strong> — si algo parece un bug de una query, casi siempre se puede resolver ajustando el código Python que la envuelve en vez de tocar el <code>.sql</code>; si de verdad hace falta cambiar una query, confirmar con ella antes. El resto del código (guardrails, escritura, config) se puede ajustar sin ese paso.</div>
+    </div>
+
+    <div class="alert-box">⚠️ Al incorporar esta carpeta (pensada para SharePoint) a este repo de git, <code>config.yaml</code> quedó gitignoreado a propósito — para no versionar la ruta personal de quien lo corre cada mes. Se versiona <code>config.yaml.example</code> en su lugar.</div>
   </div>
 
 </main>
