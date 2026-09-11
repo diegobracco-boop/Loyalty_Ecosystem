@@ -1784,11 +1784,17 @@ function buildRatioBarChart(canvasId, categories, shadowValues, currValues, shad
       labels: categories,
       datasets: [
         { label: shadowLabel, data: shadowValues,
-          backgroundColor: function(c){ return c.dataIndex === lastIdx ? 'rgba(30,41,59,.4)' : 'rgba(100,116,139,.55)'; },
+          // Mismo gris neutro para todas las categorias, incl. Total (lastIdx) —
+          // antes el Total usaba el mismo tono slate que su propia barra actual
+          // (solo distinto alpha), quedaban muy parecidas entre si (hallazgo UX 11-sep).
+          backgroundColor: 'rgba(100,116,139,.55)',
           borderRadius: 3, barPercentage: 0.85, categoryPercentage: 0.7, order: 1,
           datalabels: labelCfg },
         { label: currLabel, data: currValues,
-          backgroundColor: function(c){ return c.dataIndex === lastIdx ? 'rgba(30,41,59,.85)' : 'rgba(85,15,237,.8)'; },
+          // Total (lastIdx) usa un slate oscuro solido (no la lila de los productos)
+          // para remarcar que es un agregado distinto — ahora bien diferenciado del
+          // gris de su propio "periodo anterior" arriba, en vez de ser el mismo tono.
+          backgroundColor: function(c){ return c.dataIndex === lastIdx ? 'rgba(30,41,59,.92)' : 'rgba(85,15,237,.8)'; },
           borderRadius: 3, barPercentage: 0.85, categoryPercentage: 0.7, order: 2,
           datalabels: labelCfg }
       ]
