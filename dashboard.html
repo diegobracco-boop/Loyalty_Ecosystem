@@ -165,6 +165,11 @@ table.pnl tr.grand-total td.tc { background: #0f172a !important; }
 /* Sub-bloque dentro de una seccion de programa (ej. Suscripcion en Club Despegar) */
 .sub-block { margin-top: 18px; padding-top: 16px; border-top: 2px dashed var(--border); }
 .sub-title { font-size: 12px; font-weight: 800; color: var(--accent); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 12px; }
+.sub-title-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.sub-title-row .sub-title { margin-bottom: 0; }
+.ratio-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ratio-sel { font-size: 12px; font-weight: 600; color: var(--text); background: #f8fafc; border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; }
+.ratio-hint { font-size: 11px; color: var(--muted); margin: -6px 0 10px; }
 
 /* ---- Charts ---- */
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
@@ -520,9 +525,9 @@ function programsForCountry(countryKey) {
 // ============================================================
 var RAW = { acum_cy: null, acum_ly: null, reden_cy: null, reden_ly: null, breakage: null,
             miembros: null, club: null, ifood: null,
-            baseline: null, budget: null, forecast: null, dict: null, ssp: null };
+            baseline: null, budget: null, forecast: null, dict: null, ssp: null, ratio_acum: null };
 var LOADED = 0;
-var TOTAL  = 13;
+var TOTAL  = 14;
 var ACTIVE_COUNTRY = 'total';
 var CHARTS = {};
 
@@ -1171,6 +1176,23 @@ function renderMetrics(country, m) {
       + '<div class="dtable-row"><div class="dtable-label">Precio LY / YoY</div><div class="ppr-row" id="ppr-' + canvasRdId + '"></div></div>'
       + '</div>';
 
+    // ---- Ratio de acumulacion (pts/GB por producto): va DENTRO de "Pasaporte D!" ----
+    if (prog === 'Pasaporte D!') {
+      var rMode = getRatioMode(suffix);
+      html += '<div class="sub-block"><div class="sub-title-row">'
+        + '<div class="sub-title">Ratio de acumulación — puntos por $ de GB, por producto</div>'
+        + '<div class="ratio-controls">'
+        +   '<div class="seg seg-sm">'
+        +     '<button class="seg-btn' + (rMode === 'month' ? ' active' : '') + '" type="button" onclick="setRatioMode(\'' + suffix + '\',\'month\')">Mes</button>'
+        +     '<button class="seg-btn' + (rMode === 'year'  ? ' active' : '') + '" type="button" onclick="setRatioMode(\'' + suffix + '\',\'year\')">Año</button>'
+        +   '</div>'
+        +   '<select class="ratio-sel" onchange="setRatioPeriod(\'' + suffix + '\', this.value)">' + ratioPeriodOptionsHtml(suffix, country) + '</select>'
+        + '</div></div>'
+        + '<div class="ratio-hint">Barra clara = período anterior (detrás) · Barra de color = período elegido (encima) · "Total" = ratio agregado de los 7 productos</div>'
+        + '<div class="cc"><div class="cw"><canvas id="ch-ratio-' + suffix + '"></canvas></div></div>'
+        + '</div>';
+    }
+
     // ---- Suscripción Club Despegar: va DENTRO de la sección de programa "Club Despegar" ----
     if (prog === 'Club Despegar') {
       html += '<div class="sub-block"><div class="sub-title">Suscripción — miembros por plan</div>';
@@ -1296,6 +1318,32 @@ function renderMetrics(country, m) {
 
     buildBarChart(canvasId,   acPrev, acCurr, fy.ly, fy.cy, 'rgba(85,15,237,.75)', fmtFn);
     buildBarChart(canvasRdId, rdPrev, rdCurr, fy.ly, fy.cy, 'rgba(250,80,63,.78)', fmtFn, { prev: pricePrev, curr: priceCurr });
+
+    // Ratio de acumulacion (pts/GB por producto) — periodo elegido (mes o anio
+    // fiscal) vs el inmediato anterior. RATIO_PERIOD[suffix] ya quedo resuelto a
+    // un default valido por ratioPeriodOptionsHtml en la 1ra pasada (arriba).
+    if (prog === 'Pasaporte D!') {
+      var ratioCanvasId = 'ch-ratio-' + suffix;
+      var rMode2 = getRatioMode(suffix);
+      var curPeriod = RATIO_PERIOD[suffix];
+      var ratioCats = RATIO_PRODUCTS.concat(['Total']);
+      var ratioCurr = ratioCats.map(function(){ return 0; });
+      var ratioPrev = ratioCats.map(function(){ return 0; });
+      var ratioCurLbl = 'Actual', ratioPrevLbl = 'Anterior';
+      if (curPeriod !== undefined && curPeriod !== null && curPeriod !== '') {
+        var rrows = ratioRows(country);
+        var prevPeriod = ratioPrevPeriod(rMode2, curPeriod);
+        var curAgg  = ratioAggByProduct(rrows, rMode2, curPeriod);
+        var prevAgg = ratioAggByProduct(rrows, rMode2, prevPeriod);
+        ratioCurr = RATIO_PRODUCTS.map(function(c){ var a = curAgg[c];  return a && a.gb ? a.points / a.gb : 0; });
+        ratioPrev = RATIO_PRODUCTS.map(function(c){ var a = prevAgg[c]; return a && a.gb ? a.points / a.gb : 0; });
+        ratioCurr.push(ratioTotal(curAgg));
+        ratioPrev.push(ratioTotal(prevAgg));
+        ratioCurLbl  = ratioLabel(rMode2, curPeriod);
+        ratioPrevLbl = ratioLabel(rMode2, prevPeriod);
+      }
+      buildRatioBarChart(ratioCanvasId, ratioCats, ratioPrev, ratioCurr, ratioPrevLbl, ratioCurLbl);
+    }
 
     // Club Despegar — stock de suscriptos apilado por plan (CY) + total LY como línea.
     if (prog === 'Club Despegar' && (cdd.activos || Object.keys(cdd.altasByYm).length)) {
@@ -1709,6 +1757,86 @@ function buildStackedBarChart(canvasId, datasets, fmtFn, stacked, lineOverlay) {
   });
 }
 
+// Barras por categoria (producto + "Total" al borde) con una barra "shadow" mas
+// clara y ancha DETRAS (periodo anterior) y la barra de color mas angosta ENCIMA
+// (periodo elegido) — mismas categorias, superpuestas (grouped:false, Chart.js 4),
+// no agrupadas lado a lado. currValues/shadowValues ya vienen en el mismo orden
+// que `categories`.
+function buildRatioBarChart(canvasId, categories, shadowValues, currValues, shadowLabel, currLabel) {
+  var ctx = document.getElementById(canvasId);
+  if (!ctx) return;
+  if (CHARTS[canvasId]) { CHARTS[canvasId].destroy(); }
+  if (!shadowValues.some(Boolean) && !currValues.some(Boolean)) {
+    ctx.parentElement.innerHTML = '<div class="empty" style="padding:20px">Sin datos</div>';
+    return;
+  }
+  var lastIdx = categories.length - 1;  // "Total" — separador vertical + tick mas oscuro para no leerse como un producto mas
+  var currLabelCfg = {
+    anchor: 'end', align: 'top', clamp: true, offset: 2,
+    font: { size: 11, weight: '700' }, color: '#475569',
+    formatter: function(v){ return v ? v.toFixed(2) : ''; }
+  };
+  // El shadow (periodo anterior) va DETRAS del actual, superpuesto (grouped:false) —
+  // no lado a lado como en buildBarChart/buildStackedBarChart. Alpha .55 (no .32,
+  // hallazgo de auditoria UX: por debajo de eso el contraste contra fondo blanco
+  // queda <3:1 WCAG) + datalabel propio (antes display:false, sin apoyo numerico
+  // para el unico elemento visual que representa el periodo anterior).
+  // anchor:center/align:left (no end/top como el actual) para que el numero caiga
+  // en el "hombro" izquierdo visible del shadow en vez de superponerse con el
+  // label del bar actual, que casi siempre esta a una altura muy similar.
+  var shadowLabelCfg = {
+    anchor: 'center', align: 'left', clamp: true, offset: 28,
+    font: { size: 10, weight: '600' }, color: '#334155',
+    formatter: function(v){ return v ? v.toFixed(2) : ''; }
+  };
+  CHARTS[canvasId] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: categories,
+      datasets: [
+        { label: shadowLabel, data: shadowValues,
+          backgroundColor: function(c){ return c.dataIndex === lastIdx ? 'rgba(30,41,59,.4)' : 'rgba(100,116,139,.55)'; },
+          borderRadius: 3, barPercentage: 0.92, categoryPercentage: 0.7, grouped: false, order: 1,
+          datalabels: shadowLabelCfg },
+        { label: currLabel, data: currValues,
+          backgroundColor: function(c){ return c.dataIndex === lastIdx ? 'rgba(30,41,59,.85)' : 'rgba(85,15,237,.8)'; },
+          borderRadius: 3, barPercentage: 0.46, categoryPercentage: 0.7, grouped: false, order: 2,
+          datalabels: currLabelCfg }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      layout: { padding: { top: 20 } },
+      plugins: { legend: { labels: { font: { size: 12 }, boxWidth: 10 } } },
+      scales: {
+        x: { grid: { display: false },
+             ticks: { font: { size: 11 },
+                      color: function(c){ return c.index === lastIdx ? '#1e293b' : '#556070'; } } },
+        y: { grid: { color: '#f1f5f9' }, ticks: { font: { size: 12 } } }
+      }
+    },
+    plugins: [{
+      id: 'ratioTotalSeparator',
+      afterDraw: function(chart){
+        var xScale = chart.scales.x;
+        if (!xScale || lastIdx <= 0) return;
+        var xPos = (xScale.getPixelForValue(lastIdx - 1) + xScale.getPixelForValue(lastIdx)) / 2;
+        var area = chart.chartArea;
+        var c = chart.ctx;
+        c.save();
+        c.strokeStyle = '#cbd5e1';
+        c.setLineDash([3, 3]);
+        c.lineWidth = 1;
+        c.beginPath();
+        c.moveTo(xPos, area.top);
+        c.lineTo(xPos, area.bottom);
+        c.stroke();
+        c.restore();
+      }
+    }]
+  });
+}
+
 // Tablita de altas / bajas por mes (fiscal) — CY y LY. Bajas por fecha registrada (aprox).
 function cddFlowTable(cdd, fy, suffix) {
   var aCY = fiscalSeries(cdd.altasByYm, cdd.altasByYm, fy.cy, fy.ly, fy.cy);
@@ -1744,6 +1872,108 @@ function fmtMonthLbl(ym) {
   if (!ym || ym.length < 7) return ym;
   var p = ym.split('-');
   return MES[+p[1]-1] + '-' + p[0].substring(2);
+}
+
+// ============================================================
+// Ratio de acumulacion Pasaporte D! (puntos/GB por producto)
+// Fuente: loyalty_ratio_acumulacion.json (solo point_type='general', ambos
+// anios juntos en 1 archivo). Comparacion elegible por el usuario (mes vs mes
+// anterior, o anio fiscal vs anio fiscal anterior) — no atada al filtro global
+// de fecha ni al eje fiscal fijo de 12 meses que usan los demas charts.
+// ============================================================
+// OJO: acoplada a mano con los valores de destino de la pestaña 'regla producto'
+// del Sheet Config (ver load_regla_producto() en loyalty_sync.py). Si se agrega
+// un grupo P&L nuevo ahi, agregarlo tambien aca — sino cae en el bucket implicito
+// (no aparece como barra propia, pero SI se suma al ratio "Total").
+var RATIO_PRODUCTS = ['Hotels', 'Flights', 'Cars', 'Insurance', 'Dest. Serv.', 'Vacation Rentals', 'Packages General'];
+var RATIO_MODE = {};    // suffix -> 'month' | 'year'
+var RATIO_PERIOD = {};  // suffix -> 'YYYY-MM' (mode month) o anio fiscal, numero (mode year)
+var _ratioRowsCache = null;
+
+function getRatioMode(suffix) { return RATIO_MODE[suffix] || 'month'; }
+function setRatioMode(suffix, mode) {
+  RATIO_MODE[suffix] = mode;
+  delete RATIO_PERIOD[suffix];  // el periodo elegido no aplica al otro modo — recalcular default
+  renderCountry(suffix);
+}
+function setRatioPeriod(suffix, val) {
+  RATIO_PERIOD[suffix] = getRatioMode(suffix) === 'month' ? val : +val;
+  renderCountry(suffix);
+}
+
+// Filas del JSON (decodificadas 1 sola vez), filtradas por pais/TOTAL via country_code.
+function ratioRows(country) {
+  if (!_ratioRowsCache) _ratioRowsCache = expand(RAW.ratio_acum);
+  return _ratioRowsCache.filter(function(r){ return matchCountryCode(r.country_code, country); });
+}
+
+// Anio fiscal (Abr->Mar) al que pertenece un mes 'YYYY-MM' — nombrado por su mes
+// de arranque (ej. FY 2026 = abr-2026 .. mar-2027), mismo criterio que fyYears()/
+// fiscalCalYear() usan para el resto del dashboard.
+function fyStartYear(ym) {
+  var y = +ym.slice(0, 4), mm = ym.slice(5, 7);
+  return mm >= '04' ? y : y - 1;
+}
+
+function ratioMonthsAvailable(rows) {
+  var s = {};
+  rows.forEach(function(r){ var ym = (r.processing_date || '').slice(0, 7); if (ym.length === 7) s[ym] = 1; });
+  return Object.keys(s).sort();
+}
+// Periodos disponibles para el selector, segun el modo (meses u anios fiscales).
+function ratioAvailablePeriods(rows, mode) {
+  var months = ratioMonthsAvailable(rows);
+  if (mode === 'month') return months;
+  var fys = {};
+  months.forEach(function(ym){ fys[fyStartYear(ym)] = 1; });
+  return Object.keys(fys).map(Number).sort(function(a, b){ return a - b; });
+}
+// Periodo inmediato anterior al elegido (mes anterior, o anio fiscal anterior).
+function ratioPrevPeriod(mode, period) {
+  if (mode === 'month') {
+    var y = +String(period).slice(0, 4), mo = +String(period).slice(5, 7) - 1;
+    if (mo < 1) { mo = 12; y -= 1; }
+    return y + '-' + (mo < 10 ? '0' + mo : '' + mo);
+  }
+  return +period - 1;
+}
+// { grupo_pnl: {points, gb} } sumado sobre el periodo pedido.
+function ratioAggByProduct(rows, mode, period) {
+  var out = {};
+  rows.forEach(function(r){
+    var ym = (r.processing_date || '').slice(0, 7);
+    if (ym.length !== 7) return;
+    var inPeriod = mode === 'month' ? (ym === period) : (fyStartYear(ym) === period);
+    if (!inPeriod) return;
+    var g = r.grupo_pnl || 'Sin clasificar';
+    if (!out[g]) out[g] = { points: 0, gb: 0 };
+    out[g].points += (+r.points || 0);
+    out[g].gb     += (+r.gb || 0);
+  });
+  return out;
+}
+// Ratio agregado ponderado de TODOS los grupos juntos (incl. "Sin clasificar") —
+// para la barra "Total" al borde del grafico.
+function ratioTotal(agg) {
+  var p = 0, g = 0;
+  Object.keys(agg).forEach(function(k){ p += agg[k].points; g += agg[k].gb; });
+  return g ? p / g : 0;
+}
+function ratioLabel(mode, period) { return mode === 'month' ? fmtMonthLbl(period) : ('FY ' + period); }
+
+// <option>s del selector de periodo — fija RATIO_PERIOD[suffix] a un default
+// valido (el ultimo periodo con datos) como efecto de borde, para que la 2da
+// pasada de renderMetrics (que arma los charts) lo encuentre ya resuelto.
+function ratioPeriodOptionsHtml(suffix, country) {
+  var mode = getRatioMode(suffix);
+  var periods = ratioAvailablePeriods(ratioRows(country), mode);
+  if (!periods.length) { delete RATIO_PERIOD[suffix]; return '<option value="">—</option>'; }
+  var sel = RATIO_PERIOD[suffix];
+  if (sel === undefined || periods.indexOf(mode === 'month' ? sel : +sel) === -1) sel = periods[periods.length - 1];
+  RATIO_PERIOD[suffix] = sel;
+  return periods.map(function(p){
+    return '<option value="' + p + '"' + (String(p) === String(sel) ? ' selected' : '') + '>' + ratioLabel(mode, p) + '</option>';
+  }).join('');
 }
 
 // ============================================================
@@ -1847,6 +2077,11 @@ function onLoaded(key, data) {
 // Avisa si los JSON de Drive están viejos (sync agendado caído) O si están
 // desparejos (un fallo parcial de subida deja unos frescos y otros stale).
 // Mira el generated_at MÁS VIEJO de todos los JSON cargados, no solo acum_cy.
+// Archivos opcionales: si faltan (null), NO deben disparar el banner global de
+// "carga incompleta" — hoy solo ratio_acum (loyalty_ratio_acumulacion.json aun
+// no se subio a Drive con una sync real; el resto del codigo ya degrada a "Sin
+// datos" sin romper nada, ver ratioRows/buildRatioBarChart).
+var RAW_OPTIONAL = { ratio_acum: 1 };
 function checkStale() {
   var el = document.getElementById('stale-banner');
   var txt = document.getElementById('stale-banner-text');
@@ -1855,7 +2090,7 @@ function checkStale() {
     var g = ((RAW[k] || {}).meta || {}).generated_at;
     if (g) { var t = Date.parse(String(g).replace(' ', 'T')); if (!isNaN(t)) tss.push(t); }
   });
-  if (Object.keys(RAW).some(function(k){ return RAW[k] === null; })) {
+  if (Object.keys(RAW).some(function(k){ return RAW[k] === null && !RAW_OPTIONAL[k]; })) {
     txt.innerHTML = '<strong>Carga incompleta.</strong> Uno o más archivos de datos no cargaron ' +
       '(ver consola). Algunos números pueden faltar o quedar en cero.';
     el.classList.remove('hidden');
@@ -1918,6 +2153,7 @@ document.getElementById('f-period').addEventListener('change', renderActive);
   google.script.run.withSuccessHandler(function(d){ onLoaded('forecast', d); }).withFailureHandler(function(e){ onError('forecast', e.message); }).getLoyForecast();
   google.script.run.withSuccessHandler(function(d){ onLoaded('dict',     d); }).withFailureHandler(function(e){ onError('dict',     e.message); }).getRawDict();
   google.script.run.withSuccessHandler(function(d){ onLoaded('ssp',      d); }).withFailureHandler(function(e){ onError('ssp',      e.message); }).getRawSsp();
+  google.script.run.withSuccessHandler(function(d){ onLoaded('ratio_acum', d); }).withFailureHandler(function(e){ onError('ratio_acum', e.message); }).getRawRatioAcum();
 })();
 </script>
 </body>

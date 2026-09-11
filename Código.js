@@ -20,7 +20,8 @@ var FILES = {
   club:     'loyalty_club_despegar.json',
   ifood:    'loyalty_ifood_enroll.json',
   dict:     'loyalty_dict.json',
-  ssp:      'loyalty_ssp.json'
+  ssp:      'loyalty_ssp.json',
+  ratio_acum: 'loyalty_ratio_acumulacion.json'
 };
 
 var CACHE_TTL   = 21600;  // 6 h
@@ -46,6 +47,7 @@ function getRawClub()     { return _load(LOYALTY_FOLDER_ID,  FILES.club,     'cl
 function getRawIfood()    { return _load(LOYALTY_FOLDER_ID,  FILES.ifood,    'ifood');    }
 function getRawDict()     { return _load(LOYALTY_FOLDER_ID,  FILES.dict, 'dict'); }
 function getRawSsp()      { return _load(LOYALTY_FOLDER_ID,  FILES.ssp,  'ssp');  }
+function getRawRatioAcum(){ return _load(LOYALTY_FOLDER_ID,  FILES.ratio_acum, 'ratio_acum'); }
 
 // P&L Contable: mismos JSON canónicos que consumen las landings B2B
 // (Inputs_Planning_PnL). Se filtran a las líneas de loyalty server-side para
