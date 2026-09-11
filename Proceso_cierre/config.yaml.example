@@ -1,0 +1,94 @@
+# Plantilla de config.yaml — copiá este archivo a "config.yaml" (mismo directorio) y
+# completá los valores marcados <...>. config.yaml es personal/mensual (tiene tu ruta
+# de SharePoint y el mes que estás cerrando) y por eso está gitignoreado — no se
+# commitea, se edita en tu copia local cada mes.
+
+cierre:
+  anio: <2026>
+  mes: <8>                    # numero de mes (8 = agosto)
+  # Desde/Hasta de las bajadas se calculan solos a partir de anio/mes (fechas_cierre(),
+  # pipeline/config.py): Desde = dia 1 de este mes, Hasta = dia 1 del mes SIGUIENTE
+  # (no el ultimo dia calendario del mes de cierre). Las queries filtran con
+  # processing_date <= {{Hasta}} sobre un timestamp - usar el ultimo dia del mes
+  # truncaba a medianoche y descartaba casi todo ese dia.
+  #
+  # hasta_override (opcional, "YYYY-MM-DD"): corte PARCIAL del mes en vez del mes
+  # completo. Sacar/vaciar esta linea para volver al comportamiento normal (mes completo).
+  # hasta_override: "2026-07-26"   # incluye TODO el 25/07 (Hasta es exclusive)
+
+rutas:
+  # Carpeta del mes que se esta cerrando, en SharePoint/OneDrive
+  # (".../Control de Gestión - Loyalty/<año>/Cierre/Cierre <mes>.<año>").
+  # Ajustar cada mes junto con cierre.anio/cierre.mes de arriba.
+  carpeta_cierre: "<C:/Users/tu.usuario/despegar365/Control de Gestión - Loyalty/2026/Cierre/Cierre 08.2026>"
+  asientos_cierre_loyalty: "Asientos Cierre Loyalty.xlsx"
+  carpeta_bajadas_auditoria: "Auditoria/Bajadas"
+  # Backup con timestamp de Asientos Cierre Loyalty.xlsx, creado por el pipeline
+  # antes de cada escritura (ver pipeline/escritura_asientos.py).
+  carpeta_backups_asientos: "Auditoria/Backups Asientos"
+  # Estado intermedio entre los 2 pasos del cierre: run_cierre_backup_manual.py
+  # pega el archivo de cierre y guarda ahi los DataFrames de Generacion/Redenciones/
+  # SUBS/Otros ya calculados; despues del refresco manual de Excel, escribir_asientos.py
+  # los recupera de aca (evita tener que volver a bajar/filtrar y correr riesgo de
+  # desalineacion de filas).
+  estado_intermedio: "Auditoria/estado_intermedio_asientos.pkl"
+
+# Archivo de cierre (backup manual) - vive DENTRO de rutas.carpeta_cierre, una copia
+# por mes (se duplica y renombra a mano cada mes junto con Asientos Cierre Loyalty.xlsx).
+backup_manual:
+  # El unico archivo que este modulo escribe con Python. Tiene las hojas de Etapa 1
+  # (Query Acumulaciones, Query Redenciones, Breakage, Acumulacion Non Tender,
+  # Redenciones, Redenciones SUBS, Redenciones Otros, Diccionario) Y las de Etapa 2
+  # (Control de Pasivo ML, SSP, SSP Facturación, Cobrand, Partners, Manual Accrual,
+  # Breakage Esperado, Accounting, Regla entidad Legal, TC, Santander Bank) en el
+  # mismo libro.
+  archivo_cierre: "<Cierre 2026 08.xlsx>"
+  # Backup con timestamp del archivo de cierre, creado antes de cada escritura -
+  # dentro de la carpeta del mes, junto a Auditoria/Backups Asientos.
+  carpeta_backups: "Auditoria/Backups Cierre Mensual"
+
+datalake:
+  dsn: "Datalake Treasure ODBC"
+  # usuario/contraseña viven en ~/.automatizacion_cierre/.env, no acá (ver INSTRUCCIONES.md)
+
+# Rutas de las queries SQL (relativas a queries/). "data" = las 3 bajadas que se guardan
+# en Auditoria/Bajadas. "control" = queries de "sum points" para chequear que la bajada
+# no perdio/duplico puntos (ver pipeline/validaciones.py). Estas rutas no cambian mes a
+# mes - las mantiene Rosario.
+queries:
+  data:
+    acumulaciones: "Queries Data/Acumulaciones cierre - con filtro de fecha general.sql"
+    redenciones: "Queries Data/Redencion trazabilidad - con filtro fecha general.sql"
+    puntos_expirados: "Queries Data/Puntos Expirados con point type.sql"
+    # Solo se usa en run_cierre_backup_manual.py, paso [0b]: refresca la solapa
+    # "Diccionario" del archivo de cierre (backup_manual.archivo_cierre).
+    diccionario_excl: "Queries Data/Diccionario Puntos Excl.sql"
+  control:
+    acumulaciones: "Queries Control/Acumulaciones cierre - Sum Points.sql"
+    redenciones: "Queries Control/Redencion trazabilidad - sum points.sql"
+    puntos_expirados: "Queries Control/Puntos expirados - SUM points.sql"
+  # Guardrail: se baja como primer paso y se compara contra referencia/diccionario_puntos.xlsx.
+  diccionario_puntos: "Queries Guardrail/diccionario_puntos.sql"
+
+# Archivos de referencia. Rara vez cambian, salvo TC_mensual.xlsx que se actualiza
+# TODOS los meses con el mail de Finanzas (ver INSTRUCCIONES.md).
+referencia:
+  regla_entidad_legal: "referencia/regla_entidad_legal.xlsx"
+  tc_mensual: "referencia/TC_mensual.xlsx"
+  # Baseline del diccionario de puntos (mes anterior). Lo actualiza el propio pipeline;
+  # no se edita a mano.
+  diccionario_puntos: "referencia/diccionario_puntos.xlsx"
+  # Baseline de columnas de las 3 queries de Data (mes anterior). Lo actualiza el propio
+  # pipeline (pipeline/validacion_queries.py); no se edita a mano.
+  columnas_queries: "referencia/columnas_queries.json"
+
+# Point types que van a cada solapa filtrada. Estos son los valores de la columna
+# point_type que ya sale MAPEADA de la query de Redenciones (su CASE traduce cada
+# `code` crudo a estos valores). Redenciones Otros = complemento (todo lo que no es
+# general ni subs) - no se hardcodea una lista, y el guardrail de diccionario_puntos
+# frena si aparece un code nuevo que el CASE todavia no mapea.
+point_types:
+  acumulacion_non_tender: ["general", "GENERAL INTER", "GENERAL LOCAL", "LOCAL"]
+  redenciones_general: ["general"]
+  redenciones_subs: ["SUBSCRIPTION", "SUBSCRIPTION_INT"]
+  # redenciones_otros: complemento de general + subs (ver pipeline/etapa1_redenciones.py)

@@ -10,3 +10,13 @@ __pycache__/
 envs/
 
 _out/
+
+# Proceso_cierre/ (cierre contable mensual) - config.yaml tiene rutas/paths personales
+# de quien lo corre (carpeta del mes en SharePoint, etc.) y cambia cada mes; se versiona
+# el .example en su lugar. La regla ".env*" de arriba tambien atrapaba .env.example por
+# error - excepcion puntual para poder commitear la plantilla (sin credenciales).
+Proceso_cierre/config.yaml
+!Proceso_cierre/.env.example
+# Backups/versiones de prueba de queries que no forman parte de la vigente.
+*.bak_*
+Proceso_cierre/queries/**/*_TRIAL.sql

@@ -10,6 +10,8 @@ Config Sheet    ─┼─► loyalty_sync.py ─► JSON en Drive ─► landing
 Inputs_Planning_PnL (otro repo) ─► baseline/budget/forecast.json ─► folder 1XqQPL…
 ```
 
+**`Proceso_cierre/` es un módulo aparte, sin relación con el flujo de arriba.** Automatiza el cierre mensual contable de Loyalty (baja las mismas 3 familias de datos del Datalake pero por su cuenta, calcula asientos, y completa `Asientos Cierre Loyalty.xlsx` que lee Contabilidad). No comparte código, JSONs ni credenciales con `loyalty_sync.py`/`dashboard.html` — es intencionalmente autocontenido (pensado para compartirse también por SharePoint). Ver `Proceso_cierre/INSTRUCCIONES.md` para el flujo completo. Lo mantiene Rosario Arancedo (queries y lógica de negocio); no tocar `Proceso_cierre/queries/*.sql` sin confirmar con ella.
+
 ## Al iniciar una sesión — identificar el perfil
 
 Si la persona no se presentó y va a tocar algo, preguntá **qué va a hacer**:
@@ -30,6 +32,7 @@ La mayoría es Analista. Para setup: skill **`/configurar-entorno`**.
 | **Precios de facturación Cobrand/Partners + FX** | Editar **`Input_Precios.xlsx`** en OneDrive (Control de Gestión). El sync lo lee en la próxima corrida y recalcula `acum_usd_precio`. Después actualizar la copia del repo (`cp` + commit) para mantener el fallback al día. |
 | **Dashboard / GAS** (`dashboard.html`, `Código.js`) | branch → editar → commit → push → PR. **El deploy es manual** (igual que B2B_Ecosystem): `clasp push -f` + `clasp deploy -i AKfycbzyHV8nz…` o el comando `/publicar`. La GitHub Action `deploy-gas.yml` quedó **solo `workflow_dispatch`** (no corre en cada push) porque el secret `CLASP_CREDENTIALS` nunca se cargó. |
 | **Pipeline** (`loyalty_sync.py`, queries SQL) | branch → editar → validar con **`python loyalty_sync.py --dry-run`** (corre las queries, arma los JSON en `_out/`, NO sube a Drive ni lee la planilla — solo hace falta datalake + DSN, **no** credenciales de Drive) → PR. El operador / scheduler hace la corrida real. |
+| **`Proceso_cierre/`** (cierre contable mensual) | Módulo aparte — ver `Proceso_cierre/INSTRUCCIONES.md`. Las queries las mantiene Rosario (confirmar con ella antes de tocar `.sql`); el resto del código sí se puede ajustar. Validar con `py run_cierre_backup_manual.py` (guardrails + bajada) contra datos reales, requiere VPN + credenciales propias en `~/.automatizacion_cierre/.env` (NO en el repo). |
 | **Manual** (`Manual_Loyalty_Ecosystem/manual.html`) | Editar → `clasp push -f` + `clasp deploy -i <id>` **desde `Manual_Loyalty_Ecosystem/`** (subcarpeta con su propio `.clasp.json`, scriptId `1SrytXvn5f44…`). Al cambiar el proceso/IDs/queries de arriba, actualizar también el manual. |
 
 ## Archivos
@@ -49,6 +52,7 @@ La mayoría es Analista. Para setup: skill **`/configurar-entorno`**.
 | `setup_check.py` · `configurar_datalake.py` | Diagnóstico y carga de credenciales para operadores |
 | `.github/workflows/deploy-gas.yml` | Deploy a Apps Script — **solo manual** (`workflow_dispatch`). Trigger `push` desactivado hasta que exista el secret `CLASP_CREDENTIALS`. |
 | `SETUP.md` | Runbook operativo completo |
+| `Proceso_cierre/INSTRUCCIONES.md` | Runbook del módulo de cierre contable (aparte, ver arriba) |
 
 ## Reglas que no romper
 
