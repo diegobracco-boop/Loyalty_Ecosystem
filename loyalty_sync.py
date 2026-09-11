@@ -1731,9 +1731,17 @@ def aggregate_acum(df: pd.DataFrame) -> pd.DataFrame:
 # "Producto" en el output = grupo del P&L (mismo criterio que usa Control de
 # Gestión para armar el P&L), NO el código crudo de Comarch — viene de la
 # pestaña 'regla producto' del Sheet Config (ver load_regla_producto()).
-# Nota: la key de nombre para el match es 'produto' (array_agg(product_type) de
-# _ACUM_SQL, normalizado a string en clean_acum), NO una columna 'produto_agrupado'
-# — esa solo existe en _REDEN_SQL, no en _ACUM_SQL.
+# Orden de match en _grupo() (fix 11-sep): primero 'produto_original'
+# (b.purchase_type, a nivel de RESERVA completa — la única señal real de
+# "esto es un paquete/combo", ej. 'Carrito'/'Bundles'/'Escapadas'); si no
+# matchea, 'produto' (array_agg(product_type) de _ACUM_SQL, normalizado a
+# string en clean_acum, a nivel de LINEA de producto — NO una columna
+# 'produto_agrupado', esa solo existe en _REDEN_SQL); por último el código
+# Comarch. Antes de este fix solo se miraba produto→código, y como "paquete"
+# nunca es un product_type de línea, todo el volumen de Carrito/Bundles/
+# Escapadas se colaba silenciosamente bajo el código del componente ancla
+# (typ. FLIGHT), inflando esa categoría y dejando Packages General/Vacation
+# Rentals en cero.
 _PASAPORTE_GENERAL_POINT_TYPE = "general"
 
 
@@ -1786,6 +1794,21 @@ def aggregate_ratio_acum(df: pd.DataFrame, by_name: dict, by_code: dict) -> pd.D
     d["gb_basebi_2"] = pd.to_numeric(d.get("gb_basebi_2", 0), errors="coerce").fillna(0)
 
     def _grupo(row):
+        # FIX 11-sep: 'produto_original' (= b.purchase_type, a nivel de RESERVA
+        # completa) se chequea primero. Es la unica senial que distingue un
+        # combo/paquete (ej. "Carrito", "Bundles", "Escapadas") — estos valores
+        # NUNCA aparecen en 'produto' (array_agg de product_type, a nivel de
+        # LINEA de producto), porque "paquete" no es un product_type de linea,
+        # es una propiedad de la reserva completa. Sin este chequeo, un combo
+        # vuelo+hotel+seguro se clasificaba con el codigo Comarch del componente
+        # ancla (casi siempre FLIGHT), inflando Flights con puntos de paquetes
+        # completos sin su GB correspondiente (GB solo cuenta el JOIN del
+        # componente que matchea ese codigo) y dejando Packages General/Vacation
+        # Rentals siempre en cero pese a tener volumen real (confirmado con
+        # Rosario contra el datalake real, 11-sep).
+        original = str(row.get("produto_original", "")).strip()
+        if original in by_name:
+            return by_name[original]
         # 'produto' viene de array_agg(product_type) en Presto SIN ORDER BY interno
         # -> el orden de los elementos no esta garantizado entre corridas cuando una
         # fila agrupa varios product_type distintos. sorted() hace que "el primero
@@ -1801,7 +1824,7 @@ def aggregate_ratio_acum(df: pd.DataFrame, by_name: dict, by_code: dict) -> pd.D
     d["grupo_pnl"] = d.apply(_grupo, axis=1)
     sin_map = d[d["grupo_pnl"].isna()]
     if len(sin_map):
-        combos = sorted(set(zip(sin_map["produto"], sin_map["product"])))
+        combos = sorted(set(zip(sin_map["produto_original"], sin_map["produto"], sin_map["product"])))
         pts = sin_map["points"].sum()
         print(f"  [WARN] ratio acum: {len(combos)} combinaciones producto/código sin grupo P&L "
               f"en 'regla producto' ({pts:,.0f} pts → 'Sin clasificar'): {combos}")
@@ -2318,7 +2341,9 @@ META_RATIO = {
     "generated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
     "fuente": "comarch_accumulation_report point_type='general' (Pasaporte D! genuino, partner=DP); "
               "gb = gb_basebi_2 (gross_booking, neteado por combo con net_pts_combo>0 desde 09-sep); "
-              "grupo_pnl = pestaña 'regla producto' del Sheet Config (nombre de producto, si no matchea cae a codigo); "
+              "grupo_pnl = pestaña 'regla producto' del Sheet Config, match en orden: purchase_type "
+              "de la reserva (detecta paquetes/combos, ej. Carrito/Bundles) -> product_type de linea -> "
+              "codigo Comarch (fix 11-sep); "
               "ratio de acumulación = points / gb",
 }
 ratio_bytes = json.dumps({"meta": META_RATIO, "data": to_compact(df_ratio)}, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
