@@ -193,7 +193,7 @@ a.ext-link:hover { text-decoration: underline; }
       <table class="doc-table"><tbody>
         <tr><td><strong>Para dirección</strong></td><td>Panorama + "Cómo se conecta todo". Qué es, qué resuelve, sin comandos.</td></tr>
         <tr><td><strong>Guía del equipo</strong></td><td>Onboarding: empezá por acá, glosario, qué vista uso, recetas por tarea, quién hace qué.</td></tr>
-        <tr><td><strong>Referencia operativa</strong></td><td>El detalle: el pipeline `loyalty_sync.py`, los 10 JSON, el P&amp;L que viene de otro repo, deploy, archivos.</td></tr>
+        <tr><td><strong>Referencia operativa</strong></td><td>El detalle: el pipeline `loyalty_sync.py`, los 11 JSON, el P&amp;L que viene de otro repo, deploy, archivos.</td></tr>
       </tbody></table>
     </div>
 
@@ -201,7 +201,7 @@ a.ext-link:hover { text-decoration: underline; }
       <div class="proj-card" onclick="showSection('pipeline')">
         <div class="proj-card-icon">🐍</div>
         <div class="proj-card-name">loyalty_sync.py</div>
-        <div class="proj-card-desc">El pipeline. ~10 queries al Datalake + la planilla de config, agrega por mes+país+programa, sube 10 JSON a Drive. Corre agendado.</div>
+        <div class="proj-card-desc">El pipeline. ~10 queries al Datalake + la planilla de config, agrega por mes+país+programa, sube 11 JSON a Drive. Corre agendado.</div>
         <div style="margin-top:12px"><span class="badge badge-manual">🐍 Python</span></div>
       </div>
       <div class="proj-card" onclick="showSection('datos')">
@@ -236,7 +236,7 @@ a.ext-link:hover { text-decoration: underline; }
     <div class="card">
       <div class="card-title">📊 Mapa</div>
       <figure class="arch-fig">
-        <svg viewBox="0 0 1120 560" role="img" aria-label="Diagrama: el Datalake (ODBC) y la planilla de configuración pasan por loyalty_sync.py, que agrega y publica ~10 JSON en Google Drive; el P&amp;L Contable entra aparte, desde los JSON canónicos que genera Inputs_Planning_PnL en el repo B2B_Ecosystem; el dashboard GAS lee todo de Drive y muestra P&amp;L, métricas de negocio, miembros y los programas Club Despegar e iFood.">
+        <svg viewBox="0 0 1120 560" role="img" aria-label="Diagrama: el Datalake (ODBC) y la planilla de configuración pasan por loyalty_sync.py, que agrega y publica ~11 JSON en Google Drive; el P&amp;L Contable entra aparte, desde los JSON canónicos que genera Inputs_Planning_PnL en el repo B2B_Ecosystem; el dashboard GAS lee todo de Drive y muestra P&amp;L, métricas de negocio, miembros y los programas Club Despegar e iFood.">
           <text class="svg-band" x="20"  y="34">De dónde salen los datos</text>
           <text class="svg-band" x="506" y="34" text-anchor="middle">El motor y los datos en Drive</text>
           <text class="svg-band" x="770" y="34">El dashboard</text>
@@ -269,7 +269,7 @@ a.ext-link:hover { text-decoration: underline; }
           <text class="svg-title-key" x="506" y="112" text-anchor="middle">loyalty_sync.py</text>
           <text class="svg-sub-key"   x="506" y="134" text-anchor="middle">Agrega por mes + país + programa</text>
           <line x1="388" y1="158" x2="624" y2="158" stroke="var(--accent)" stroke-width="1" stroke-dasharray="3 3" opacity="0.45"></line>
-          <text class="svg-title-key" x="506" y="190" text-anchor="middle">~10 JSON en Google Drive</text>
+          <text class="svg-title-key" x="506" y="190" text-anchor="middle">~11 JSON en Google Drive</text>
           <text class="svg-sub-key"   x="506" y="212" text-anchor="middle">Acum / reden / breakage / SSP /</text>
           <text class="svg-sub-key"   x="506" y="229" text-anchor="middle">miembros / club / ifood / dict</text>
           <text class="svg-sub-key"   x="506" y="255" text-anchor="middle">Agregado por mes: el límite de</text>
@@ -407,6 +407,7 @@ a.ext-link:hover { text-decoration: underline; }
           <tr><td>Cuántos miembros activos, por tier</td><td><strong>Miembros del programa</strong></td><td>Foto actual (no serie histórica). KPIs por tier + altas por mes + stock acumulado.</td></tr>
           <tr><td>Suscriptos a Club Despegar (AR)</td><td>Sección de programa <strong>"Club Despegar"</strong></td><td>Solo pestaña Argentina + TOTAL. Stock por plan + altas/bajas.</td></tr>
           <tr><td>Enrolados en iFood (BR)</td><td>Sección de programa <strong>"IFOOD"</strong></td><td>Solo pestaña Brasil + TOTAL.</td></tr>
+          <tr><td>Cuántos puntos se dan por cada $ de venta, por producto</td><td>Dentro de <strong>"Pasaporte D!"</strong> → Ratio de acumulación</td><td>Selector Mes/Año. Barra clara = período anterior, de color = el elegido. Solo <code>point_type='general'</code> (no cobrand/partners).</td></tr>
           <tr><td>Todo sumado (los 8 países)</td><td>Pestaña <strong>TOTAL</strong></td><td>Primera pestaña, es el default.</td></tr>
         </tbody>
       </table>
@@ -426,7 +427,7 @@ a.ext-link:hover { text-decoration: underline; }
       <div class="card-title">📅 Hay datos nuevos (cerró un mes)</div>
       <div class="step-desc">La corrida real la hace el <strong>scheduler</strong> (o Diego de backup). Manual, con VPN, desde la carpeta del repo:</div>
       <div class="code-block">python loyalty_sync.py</div>
-      <div class="step-desc" style="margin-top:8px">Al final tiene que decir <code>OK Drive: actualizado (...)</code> para los <strong>10 archivos</strong> y NO terminar con <code>[WARN] La planilla ... no estuvo accesible</code>. El dashboard toma los datos nuevos solo (cache auto-invalidante por <code>lastUpdated</code>). Si un JSON pasa 45 MB, el script avisa <code>[WARN]</code> — el límite de Apps Script son 50.</div>
+      <div class="step-desc" style="margin-top:8px">Al final tiene que decir <code>OK Drive: actualizado (...)</code> para los <strong>11 archivos</strong> y NO terminar con <code>[WARN] La planilla ... no estuvo accesible</code>. El dashboard toma los datos nuevos solo (cache auto-invalidante por <code>lastUpdated</code>). Si un JSON pasa 45 MB, el script avisa <code>[WARN]</code> — el límite de Apps Script son 50.</div>
     </div>
 
     <div class="card">
@@ -437,7 +438,7 @@ a.ext-link:hover { text-decoration: underline; }
     <div class="card">
       <div class="card-title">🔬 Validar un cambio de query antes del PR</div>
       <div class="code-block">python loyalty_sync.py --dry-run</div>
-      <div class="step-desc" style="margin-top:8px">Corre las queries, arma los 10 JSON en <code>_out/</code>, NO sube a Drive ni lee la planilla. Imprime redenciones por point_type + SSP por país + miembros por tier para chequear a ojo. Necesita solo Datalake + DSN (no credenciales de Drive).</div>
+      <div class="step-desc" style="margin-top:8px">Corre las queries, arma los 11 JSON en <code>_out/</code>, NO sube a Drive ni lee la planilla. Imprime redenciones por point_type + SSP por país + miembros por tier para chequear a ojo. Necesita solo Datalake + DSN (no credenciales de Drive).</div>
     </div>
 
     <div class="card">
@@ -496,7 +497,7 @@ a.ext-link:hover { text-decoration: underline; }
     <div class="page-header">
       <div class="page-tag">Referencia operativa</div>
       <div class="page-title">El <span>pipeline</span></div>
-      <div class="page-sub"><code>loyalty_sync.py</code> — ~10 queries al Datalake + la planilla Config, agrega, sube 10 JSON a Drive.</div>
+      <div class="page-sub"><code>loyalty_sync.py</code> — ~10 queries al Datalake + la planilla Config, agrega, sube 11 JSON a Drive.</div>
     </div>
 
     <div class="two-col">
@@ -538,11 +539,11 @@ a.ext-link:hover { text-decoration: underline; }
     <div class="page-header">
       <div class="page-tag">Referencia operativa</div>
       <div class="page-title">Los datos <span>(JSON)</span></div>
-      <div class="page-sub">Los 10 JSON que sube el pipeline, más los del P&amp;L que vienen de otro repo. Esquema común: <code>{meta, data}</code>.</div>
+      <div class="page-sub">Los 11 JSON que sube el pipeline, más los del P&amp;L que vienen de otro repo. Esquema común: <code>{meta, data}</code>.</div>
     </div>
 
     <div class="card">
-      <div class="card-title">📦 Los 10 JSON de <code>loyalty_sync.py</code></div>
+      <div class="card-title">📦 Los 11 JSON de <code>loyalty_sync.py</code></div>
       <table class="doc-table">
         <thead><tr><th>Archivo</th><th>Query / fuente</th><th>Sección del dashboard</th></tr></thead>
         <tbody>
@@ -554,6 +555,7 @@ a.ext-link:hover { text-decoration: underline; }
           <tr><td>loyalty_miembros.json</td><td><code>_MIEMBROS_SQL</code> — <code>clm_customers</code> status='A' × mes de enrolment × tier. Foto actual.</td><td>Miembros del programa (por tier)</td></tr>
           <tr><td>loyalty_club_despegar.json</td><td><code>_CLUB_DESPEGAR_SQL</code> — <code>membertrip_subscription</code>. Series stock / alta / baja × plan.</td><td>Programa "Club Despegar" (AR + TOTAL)</td></tr>
           <tr><td>loyalty_ifood_enroll.json</td><td><code>_IFOOD_ENROLL_SQL</code> — <code>ifood_dim_users</code>. Altas por mes por tipo.</td><td>Programa "IFOOD" (BR + TOTAL)</td></tr>
+          <tr><td>loyalty_ratio_acumulacion.json</td><td>Mismo <code>_ACUM_SQL</code> que acumulaciones (cero SQL nuevo) — <code>SUM(points)/SUM(gb)</code>, solo <code>point_type='general'</code>, por mes × país × <code>grupo_pnl</code> (7 productos + Total). "Producto" viene de la pestaña <code>regla producto</code> del Sheet Config, matcheada por <code>purchase_type</code> → <code>product_type</code> → código Comarch, en ese orden.</td><td>Dentro de "Pasaporte D!": gráfico de barras con selector Mes/Año (período elegido vs. el inmediato anterior)</td></tr>
         </tbody>
       </table>
     </div>
@@ -611,7 +613,7 @@ a.ext-link:hover { text-decoration: underline; }
     <div class="card">
       <div class="card-title">📂 Repo Loyalty_Ecosystem</div>
       <div class="code-block">Loyalty_Ecosystem/
-  ├── loyalty_sync.py              ← Pipeline: 10 queries → agrega → 10 JSON a Drive
+  ├── loyalty_sync.py              ← Pipeline: ~10 queries → agrega → 11 JSON a Drive
   ├── Código.js                    ← Backend GAS: sirve los JSON crudos + filtra el P&L loyalty
   ├── dashboard.html               ← SPA frontend (Chart.js)
   ├── auth_drive.py                ← OAuth de Drive (1 vez por persona)
