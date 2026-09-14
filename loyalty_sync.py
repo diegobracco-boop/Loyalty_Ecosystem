@@ -1,1 +1,1 @@
-{{loyalty_sync_patched.py}}
+# placeholder — se reemplaza por file_key
