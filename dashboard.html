@@ -482,6 +482,7 @@ function getAcumUsd(row, dataKey) {
   return (PV / denom) * R;
 }
 
+
 // Bank Revenue (solo Cobrand/Partners): el precio de venta al banco/partner
 // (acum_usd_precio, ya en USD — puntos × precio_facturacion de Input_Precios.xlsx)
 // se descompone en 2 partes: el costo real de esos puntos cuando se redimen (SSP,
@@ -526,9 +527,10 @@ function programsForCountry(countryKey) {
 // ============================================================
 var RAW = { acum_cy: null, acum_ly: null, reden_cy: null, reden_ly: null, breakage: null,
             miembros: null, club: null, ifood: null,
-            baseline: null, budget: null, forecast: null, dict: null, ssp: null, ratio_acum: null };
+            baseline: null, budget: null, forecast: null, dict: null, ssp: null, ratio_acum: null,
+            acum_tier: null };
 var LOADED = 0;
-var TOTAL  = 14;
+var TOTAL  = 15;
 var ACTIVE_COUNTRY = 'total';
 var CHARTS = {};
 
@@ -1169,7 +1171,21 @@ function renderMetrics(country, m) {
 
     // Charts (evolutivo, anio fiscal completo, CY vs LY + YoY%)
     // Apilados (uno debajo del otro, full width) para que 12 meses no queden apretados.
-    html += '<div class="cc" style="margin-bottom:14px"><div class="ct">' + acTitle + '</div><div class="cw"><canvas id="' + canvasId + '"></canvas></div>'
+    // Pasaporte D!: toggle "Total / Por Tier" junto al título (ver getAcumView/setAcumView).
+    // "Por Tier" solo soporta puntos por ahora (loyalty_acum_tier.json no trae USD,
+    // ver gotcha en loyalty_sync.py) — el título lo aclara cuando la sección está en $.
+    var acTitleHtml = '<div class="ct">' + acTitle + '</div>';
+    if (prog === 'Pasaporte D!') {
+      var aView = getAcumView(suffix);
+      var acTitleTier = 'Acumulaciones — Puntos por mes y tier' + (mode === 'USD' ? ' (solo puntos, sin $)' : '');
+      acTitleHtml = '<div class="sub-title-row" style="margin-bottom:6px">'
+        + '<div class="ct" style="margin-bottom:0">' + (aView === 'tier' ? acTitleTier : acTitle) + '</div>'
+        + '<div class="seg seg-sm">'
+        +   '<button class="seg-btn' + (aView === 'total' ? ' active' : '') + '" type="button" onclick="setAcumView(\'' + suffix + '\',\'total\')">Total</button>'
+        +   '<button class="seg-btn' + (aView === 'tier'  ? ' active' : '') + '" type="button" onclick="setAcumView(\'' + suffix + '\',\'tier\')">Por Tier</button>'
+        + '</div></div>';
+    }
+    html += '<div class="cc" style="margin-bottom:14px">' + acTitleHtml + '<div class="cw"><canvas id="' + canvasId + '"></canvas></div>'
       + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-' + canvasId + '"></div></div>'
       + '</div>';
     html += '<div class="cc" style="margin-bottom:14px"><div class="ct">' + rdTitle + '</div><div class="cw"><canvas id="' + canvasRdId + '"></canvas></div>'
@@ -1319,7 +1335,34 @@ function renderMetrics(country, m) {
     var pricePrev = rdPtsPrev.map(function(p, i){ return p ? rdUsdPrev[i] / p : 0; });
     var priceCurr = rdPtsCurr.map(function(p, i){ return p ? rdUsdCurr[i] / p : 0; });
 
-    buildBarChart(canvasId,   acPrev, acCurr, fy.ly, fy.cy, 'rgba(85,15,237,.75)', fmtFn);
+    // Pasaporte D! + toggle "Por Tier": apilado CY por tier + línea de Total LY.
+    // Solo puntos (loyalty_acum_tier.json no trae USD, ver gotcha en loyalty_sync.py)
+    // — por eso la línea de Total LY se recalcula siempre en puntos (acPtsPrev/Curr),
+    // independiente del modo Q/$ de la sección, en vez de reusar acPrev/acCurr.
+    if (prog === 'Pasaporte D!' && getAcumView(suffix) === 'tier') {
+      var acPtsCY_map = monthlyMap(RAW.acum_cy, country, prog, getProgramFromAcum, getPts);
+      var acPtsLY_map = monthlyMap(RAW.acum_ly, country, prog, getProgramFromAcum, getPts);
+      var acPtsPrev = fiscalSeries(acPtsCY_map, acPtsLY_map, fy.cy, fy.ly, fy.ly);
+      var acPtsCurr = fiscalSeries(acPtsCY_map, acPtsLY_map, fy.cy, fy.ly, fy.cy);
+      var tierMonthMap = {};  // tier -> { ym: puntos }
+      MB_TIERS.forEach(function(t){ tierMonthMap[t] = {}; });
+      acumTierRows(country).forEach(function(row){
+        var t = MB_TIERS.indexOf(row.tier) !== -1 ? row.tier : 'Sin tier';
+        var ym = (row.processing_date || '').substring(0, 7);
+        tierMonthMap[t][ym] = (tierMonthMap[t][ym] || 0) + getPts(row);
+      });
+      var acTierDatasets = MB_TIERS.filter(function(t){ return Object.keys(tierMonthMap[t]).length; })
+        .map(function(t){
+          return { label: t,
+                   data: fiscalSeries(tierMonthMap[t], tierMonthMap[t], fy.cy, fy.ly, fy.cy),
+                   backgroundColor: MB_TIER_COLOR[t] };
+        });
+      buildStackedBarChart(canvasId, acTierDatasets, fmtPtsChart, true, { label: 'Total ' + fy.ly, data: acPtsPrev });
+      var acYoyEl = document.getElementById('yoy-' + canvasId);
+      if (acYoyEl) acYoyEl.innerHTML = yoyRowHtml(acPtsPrev, acPtsCurr);
+    } else {
+      buildBarChart(canvasId,   acPrev, acCurr, fy.ly, fy.cy, 'rgba(85,15,237,.75)', fmtFn);
+    }
     buildBarChart(canvasRdId, rdPrev, rdCurr, fy.ly, fy.cy, 'rgba(250,80,63,.78)', fmtFn, { prev: pricePrev, curr: priceCurr });
 
     // Ratio de acumulacion (pts/GB por producto) — periodo elegido (mes o anio
@@ -1902,6 +1945,27 @@ function ratioRows(country) {
   return _ratioRowsCache.filter(function(r){ return matchCountryCode(r.country_code, country); });
 }
 
+// ============================================================
+// Toggle "Total / Por Tier" del gráfico de Acumulaciones (solo Pasaporte D!)
+// Fuente: loyalty_acum_tier.json (point_type='general', ambos años juntos en
+// 1 archivo, mismo patrón que ratio_acum). tier = vigente al momento de la
+// transacción (tier_at_trx en _ACUM_SQL), no el tier actual del cliente.
+// ============================================================
+var ACUM_VIEW = {};  // suffix -> 'total' | 'tier'
+var _acumTierRowsCache = null;
+
+function getAcumView(suffix) { return ACUM_VIEW[suffix] || 'total'; }
+function setAcumView(suffix, v) {
+  ACUM_VIEW[suffix] = v;
+  renderCountry(suffix);
+}
+
+// Filas del JSON (decodificadas 1 sola vez), filtradas por pais/TOTAL via country_code.
+function acumTierRows(country) {
+  if (!_acumTierRowsCache) _acumTierRowsCache = expand(RAW.acum_tier);
+  return _acumTierRowsCache.filter(function(r){ return matchCountryCode(r.country_code, country); });
+}
+
 // Anio fiscal (Abr->Mar) al que pertenece un mes 'YYYY-MM' — nombrado por su mes
 // de arranque (ej. FY 2026 = abr-2026 .. mar-2027), mismo criterio que fyYears()/
 // fiscalCalYear() usan para el resto del dashboard.
@@ -2076,7 +2140,7 @@ function onLoaded(key, data) {
 // "carga incompleta" — hoy solo ratio_acum (loyalty_ratio_acumulacion.json aun
 // no se subio a Drive con una sync real; el resto del codigo ya degrada a "Sin
 // datos" sin romper nada, ver ratioRows/buildRatioBarChart).
-var RAW_OPTIONAL = { ratio_acum: 1 };
+var RAW_OPTIONAL = { ratio_acum: 1, acum_tier: 1 };
 function checkStale() {
   var el = document.getElementById('stale-banner');
   var txt = document.getElementById('stale-banner-text');
@@ -2149,6 +2213,7 @@ document.getElementById('f-period').addEventListener('change', renderActive);
   google.script.run.withSuccessHandler(function(d){ onLoaded('dict',     d); }).withFailureHandler(function(e){ onError('dict',     e.message); }).getRawDict();
   google.script.run.withSuccessHandler(function(d){ onLoaded('ssp',      d); }).withFailureHandler(function(e){ onError('ssp',      e.message); }).getRawSsp();
   google.script.run.withSuccessHandler(function(d){ onLoaded('ratio_acum', d); }).withFailureHandler(function(e){ onError('ratio_acum', e.message); }).getRawRatioAcum();
+  google.script.run.withSuccessHandler(function(d){ onLoaded('acum_tier', d); }).withFailureHandler(function(e){ onError('acum_tier', e.message); }).getRawAcumTier();
 })();
 </script>
 </body>

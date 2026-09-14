@@ -38,6 +38,7 @@ MIEMBROS_FILE       = "loyalty_miembros.json"
 CLUB_DESPEGAR_FILE  = "loyalty_club_despegar.json"
 IFOOD_ENROLL_FILE   = "loyalty_ifood_enroll.json"
 RATIO_ACUM_FILE     = "loyalty_ratio_acumulacion.json"
+ACUM_TIER_FILE      = "loyalty_acum_tier.json"
 # Fallbacks locales de la planilla de config: viven al lado de este script en todo
 # clon (ambos trackeados en git), asi que se resuelven relativos a el — antes eran la
 # ruta absoluta de una maquina y rompian el --dry-run del resto (no lee la planilla).
@@ -1839,6 +1840,107 @@ def aggregate_ratio_acum(df: pd.DataFrame, by_name: dict, by_code: dict) -> pd.D
 
 
 # ------------------------------------------------------------------------------
+# Acumulación por tier (Viajero/Explorador/Global) — Pasaporte D! genuino (11-sep)
+# ------------------------------------------------------------------------------
+# Mismo alcance que aggregate_ratio_acum: solo point_type='general' (Pasaporte D!
+# genuino). tier = vigente al momento de la transacción (clm_account_recognition_levels
+# por rango de fecha del customer, no el tier ACTUAL del cliente — evita el sesgo de
+# supervivencia que tiene la pestaña Miembros).
+#
+# Query APARTE a propósito (mismo patrón que _ACUM_ER_COUNTRY_SQL para el fix de país
+# de FORTUNE/MISSIONS): un JOIN de tier_at_trx DENTRO de _ACUM_SQL tira en Presto
+# "Number of stages (63) exceeds the allowed maximum (60)" — esa query ya está en el
+# límite (confirmado con --dry-run el 11-sep). Esta query es mucho más liviana porque
+# NO necesita nada de lo que hace pesada a _ACUM_SQL: sin tipopunto/tp_agg/ratio_map
+# (esos solo existen para calcular descuento_consumo_puntos_usd), sin el JOIN de
+# clasificación de producto (bi_transactional_fact_products/transactions/charges) — acá
+# no hace falta reconstruir GB/comisión/fee/descuentos, solo puntos netos por tier.
+# Por eso tampoco necesita el rn_gb/net_pts_combo de _ACUM_SQL: ese blindaje existe
+# porque Comarch a veces reemite el mismo accrual (mismo dsp_transaction_id+product+
+# business) en más de una fecha, pero SOLO duplica gb_basebi/comision/fee/descuentos
+# — "points" nunca se blinda (ver comentario en _ACUM_SQL), así que sumar directo
+# desde comarch_accumulation_report/comarch_cancellation_report es correcto.
+#
+# LIMITACIÓN CONOCIDA (11-sep, decisión de Rosario): solo trae puntos (modo Q). El
+# toggle "Por Tier" del dashboard NO soporta modo $ todavía — habría que duplicar acá
+# el mismo cálculo de descuento_consumo_puntos_usd/pct_pagado_con_puntos que usa
+# aggregate_acum(), con riesgo de volver a pisar el límite de 60 stages. Queda
+# pendiente para una sesión aparte si se necesita el DRO por tier.
+_ACUM_TIER_SQL = """
+WITH tier_at_trx AS (
+    SELECT CAST(t.ext_despegar_trn_id AS VARCHAR) AS dsp_transaction_id
+         , CASE MAX(arl.recognition_tier_id)
+               WHEN 2354 THEN 'Global'
+               WHEN 2353 THEN 'Explorador'
+               WHEN 2352 THEN 'Viajero'
+           END                                   AS tier
+    FROM data.lake.clm_transactions t
+    LEFT JOIN data.lake.clm_account_recognition_levels arl
+           ON arl.customer_id    = t.customer_id
+          AND t.processing_date >= arl.start_date
+          AND (arl.end_date IS NULL OR t.processing_date < arl.end_date)
+    WHERE t.processing_date >= {{Desde}}
+      AND t.processing_date <  {{Hasta}}
+    GROUP BY t.ext_despegar_trn_id
+)
+SELECT processing_date, country_code, tier, SUM(points) AS points
+FROM (
+
+    -- Accrual (point_type='general')
+    SELECT CAST(ar1.processing_date AS DATE) AS processing_date
+         , ar1.country                       AS country_code
+         , ar1.points                        AS points
+         , tat.tier
+    FROM data.lake.comarch_accumulation_report ar1
+    LEFT JOIN tier_at_trx tat
+           ON CAST(ar1.dsp_transaction_id AS VARCHAR) = tat.dsp_transaction_id
+    WHERE ar1.processing_date >= {{Desde}}
+      AND ar1.processing_date <  {{Hasta}}
+      AND COALESCE(ar1.dsp_transaction_type,'Nulo') <> 'REFUND'
+      AND LOWER(ar1.point_type) = 'general'
+
+    UNION ALL
+
+    -- Cancelaciones (negadas, netean contra el accrual)
+    SELECT CAST(cr1.generation_date AS DATE) AS processing_date
+         , cr1.country                       AS country_code
+         , (cr1.points * -1)                 AS points
+         , tat.tier
+    FROM data.lake.comarch_cancellation_report cr1
+    LEFT JOIN tier_at_trx tat
+           ON CAST(cr1.dsp_transaction_id AS VARCHAR) = tat.dsp_transaction_id
+    WHERE cr1.generation_date >= {{Desde}}
+      AND cr1.generation_date <  {{Hasta}}
+      AND LOWER(cr1.point_type) = 'general'
+
+) u
+GROUP BY processing_date, country_code, tier
+"""
+
+
+def build_acum_tier_query(desde: str, hasta: str) -> str:
+    return _sub(_ACUM_TIER_SQL, desde, hasta)
+
+
+def fetch_acum_tier(desde: str, hasta: str) -> pd.DataFrame:
+    cols = ["processing_date", "country_code", "tier", "points"]
+    df = fetch(build_acum_tier_query(desde, hasta), "Acumulación por tier (Pasaporte D!)")
+    if df.empty:
+        return pd.DataFrame(columns=cols)
+    df["processing_date"] = df["processing_date"].apply(_fix_date)
+    df = df.dropna(subset=["processing_date"])
+    df["processing_date"] = df["processing_date"].str.slice(0, 7) + "-01"
+    df["country_code"] = df["country_code"].fillna("N/D").astype(str)
+    df["points"] = pd.to_numeric(df["points"], errors="coerce").fillna(0)
+    df["tier"] = df["tier"].fillna("Sin tier").astype(str).str.strip()
+    df.loc[~df["tier"].isin(["Viajero", "Explorador", "Global"]), "tier"] = "Sin tier"
+    out = (df.groupby(["processing_date", "country_code", "tier"], as_index=False, dropna=False)
+             .agg(points=("points", "sum")))
+    out["points"] = out["points"].round(2)
+    return out[cols]
+
+
+# ------------------------------------------------------------------------------
 # Valuación USD de Cobrand / Partners por PRECIO DE FACTURACIÓN (Input_Precios.xlsx)
 # ------------------------------------------------------------------------------
 # Cobrand y Partners no generan `acum_usd_base` (no hay comisión/GB de viaje detrás),
@@ -2286,6 +2388,12 @@ df_ratio = pd.concat([
     aggregate_ratio_acum(_acum_ly_pre, _regla_by_name, _regla_by_code),
 ], ignore_index=True)
 
+print("\n--- Acumulación por tier Pasaporte D! (Viajero/Explorador/Global) ---")
+df_acum_tier = pd.concat([
+    fetch_acum_tier(ACTUALS_DESDE, ACTUALS_HASTA),
+    fetch_acum_tier(LY_DESDE, LY_HASTA),
+], ignore_index=True)
+
 print("\n--- Construyendo diccionario de puntos ---")
 dict_bytes = build_dict_json()
 print(f"  Dict: {len(dict_bytes)} bytes")
@@ -2348,6 +2456,17 @@ META_RATIO = {
 }
 ratio_bytes = json.dumps({"meta": META_RATIO, "data": to_compact(df_ratio)}, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
 
+META_ACUM_TIER = {
+    "generated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+    "fuente": "comarch_accumulation_report + comarch_cancellation_report, point_type='general' "
+              "(Pasaporte D! genuino); tier = clm_account_recognition_levels vigente al momento de "
+              "la transacción (no el tier actual del cliente); 'Sin tier' = sin nivel de "
+              "reconocimiento vigente en esa fecha. Solo puntos (modo Q) — el modo $ por tier "
+              "queda pendiente (requeriría duplicar el cálculo de descuento_consumo_puntos_usd de "
+              "_ACUM_SQL, con riesgo de repetir el límite de 60 stages de Presto).",
+}
+acum_tier_bytes = json.dumps({"meta": META_ACUM_TIER, "data": to_compact(df_acum_tier)}, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+
 _stk = df_club[df_club["serie"] == "stock"]
 _club_act = int(_stk[_stk["ym"] == _stk["ym"].max()]["n"].sum()) if len(_stk) else 0
 print(f"  Acum {CY_YEAR}:  {len(acum_cy_bytes)//1024:.0f} KB  ({len(df_acum_cy):,} filas)")
@@ -2359,6 +2478,7 @@ print(f"  Miembros:       {len(miembros_bytes)//1024:.0f} KB  ({len(df_miembros)
 print(f"  Club Despegar:  {len(club_bytes)//1024:.0f} KB  ({len(df_club):,} filas · {_club_act:,} activos)")
 print(f"  iFood enrol:    {len(ifood_bytes)//1024:.0f} KB  ({len(df_ifood):,} filas · {int(df_ifood['n'].sum()):,} altas)")
 print(f"  Ratio acum.:    {len(ratio_bytes)//1024:.0f} KB  ({len(df_ratio):,} filas)")
+print(f"  Acum x tier:    {len(acum_tier_bytes)//1024:.0f} KB  ({len(df_acum_tier):,} filas)")
 
 _OUT = [
     (acum_cy_bytes,  ACUM_CY_FILE), (acum_ly_bytes,  ACUM_LY_FILE),
@@ -2366,7 +2486,7 @@ _OUT = [
     (breakage_bytes, BREAKAGE_FILE), (dict_bytes, DICT_FILE), (ssp_bytes, SSP_FILE),
     (miembros_bytes, MIEMBROS_FILE),
     (club_bytes, CLUB_DESPEGAR_FILE), (ifood_bytes, IFOOD_ENROLL_FILE),
-    (ratio_bytes, RATIO_ACUM_FILE),
+    (ratio_bytes, RATIO_ACUM_FILE), (acum_tier_bytes, ACUM_TIER_FILE),
 ]
 
 if DRY_RUN:
