@@ -1332,6 +1332,16 @@ function renderMetrics(country, m) {
               + '<div class="yoy-row" id="yoy-' + chCanId + '"></div></div>'
               + '</div>';
       }
+
+      // ── Gráfico: Stock de puntos iFood en la calle (rollforward mensual)
+      if (RAW.stock_ifood) {
+        var stkCanId = 'ch-stock-if-' + suffix;
+        html += '<div class="cc" style="margin-top:14px">'
+              + '<div class="ct">Stock de puntos iFood en la calle — ' + (mode === 'USD' ? 'USD' : 'puntos') + ' a fin de mes</div>'
+              + '<div class="cw"><canvas id="' + stkCanId + '"></canvas></div>'
+              + '</div>'
+              + '<div style="margin:2px 0 0;font-size:11px;color:var(--muted)">Excluye IFOOD_WELCOME_CLUBE / IFO_WE_CLU</div>';
+      }
     }
 
     // ---- Bank/Partner Revenue: va DENTRO de Cobrand y Partners (margen precio de venta vs SSP) ----
@@ -1589,6 +1599,26 @@ function renderMetrics(country, m) {
                            { label: 'Total ' + fy.ly, data: chTotalLY });
       var chYoyEl = document.getElementById('yoy-' + chCanId2);
       if (chYoyEl) chYoyEl.innerHTML = yoyRowHtml(chTotalLY, chTotalCY);
+    }
+
+    // Stock de puntos iFood en la calle — rollforward mensual (no es flujo, es
+    // saldo a fin de mes: no tiene sentido "sumar" filas, cada (país, mes) ya
+    // viene como 1 sola fila de loyalty_stock_ifood.json).
+    if (prog === 'IFOOD' && RAW.stock_ifood) {
+      var stkCanId2 = 'ch-stock-if-' + suffix;
+      var stkMapCY = {}, stkMapLY = {};
+      stockIfoodRows(country).forEach(function(row) {
+        var ym = (row.processing_date || '').substring(0, 7);
+        var yr = parseInt(ym.substring(0, 4));
+        var dk = rowCountryKey(row, country);
+        var val = +row.stock_cierre || 0;
+        if (mode === 'USD') { val = val * (sspFactor(dk, ym) || 0); }
+        if (yr === fy.cy)      { stkMapCY[ym] = val; }
+        else if (yr === fy.ly) { stkMapLY[ym] = val; }
+      });
+      var stkPrev = fiscalSeries(stkMapCY, stkMapLY, fy.cy, fy.ly, fy.ly);
+      var stkCurr = fiscalSeries(stkMapCY, stkMapLY, fy.cy, fy.ly, fy.cy);
+      buildBarChart(stkCanId2, stkPrev, stkCurr, fy.ly, fy.cy, 'rgba(85,15,237,.7)', fmtFn);
     }
 
     // Bank/Partner Revenue — apilado (costo SSP + margen) por mes, con línea de total LY.
@@ -2264,6 +2294,13 @@ function acumChannelRows(country) {
     return matchCountryCode(r.country_code, country);
   });
 }
+var _stockIfoodRowsCache = null;
+function stockIfoodRows(country) {
+  if (!_stockIfoodRowsCache) _stockIfoodRowsCache = expand(RAW.stock_ifood);
+  return _stockIfoodRowsCache.filter(function(r){
+    return matchCountryCode(r.country_code, country);
+  });
+}
 
 function getAcumView(suffix) { return ACUM_VIEW[suffix] || 'total'; }
 function setAcumView(suffix, v) {
@@ -2451,7 +2488,7 @@ function onLoaded(key, data) {
 // "carga incompleta" — hoy solo ratio_acum (loyalty_ratio_acumulacion.json aun
 // no se subio a Drive con una sync real; el resto del codigo ya degrada a "Sin
 // datos" sin romper nada, ver ratioRows/buildRatioBarChart).
-var RAW_OPTIONAL = { ratio_acum: 1, acum_tier: 1, penet: 1, acum_channel: 1 };
+var RAW_OPTIONAL = { ratio_acum: 1, acum_tier: 1, penet: 1, acum_channel: 1, stock_ifood: 1 };
 function checkStale() {
   var el = document.getElementById('stale-banner');
   var txt = document.getElementById('stale-banner-text');
@@ -2527,6 +2564,7 @@ document.getElementById('f-period').addEventListener('change', renderActive);
   google.script.run.withSuccessHandler(function(d){ onLoaded('acum_tier', d); }).withFailureHandler(function(e){ onError('acum_tier', e.message); }).getRawAcumTier();
 google.script.run.withSuccessHandler(function(d){ onLoaded('penet', d); }).withFailureHandler(function(e){ onError('penet', e.message); }).getRawPenetracionGb();
 google.script.run.withSuccessHandler(function(d){ onLoaded('acum_channel', d); }).withFailureHandler(function(e){ onError('acum_channel', e.message); }).getRawAcumChannel();
+google.script.run.withSuccessHandler(function(d){ onLoaded('stock_ifood', d); }).withFailureHandler(function(e){ onError('stock_ifood', e.message); }).getRawStockIfood();
 })();
 </script>
 </body>

@@ -40,6 +40,7 @@ IFOOD_ENROLL_FILE   = "loyalty_ifood_enroll.json"
 RATIO_ACUM_FILE     = "loyalty_ratio_acumulacion.json"
 ACUM_TIER_FILE      = "loyalty_acum_tier.json"
 ACUM_CHANNEL_FILE   = "loyalty_acum_channel.json"
+STOCK_IFOOD_FILE    = "loyalty_stock_ifood.json"
 PENET_FILE          = "loyalty_penetracion_gb.json"
 # Fallbacks locales de la planilla de config: viven al lado de este script en todo
 # clon (ambos trackeados en git), asi que se resuelven relativos a el — antes eran la
@@ -1960,8 +1961,8 @@ LEFT  JOIN clm_ga ga
 WHERE  tr.reservation_year_month >= DATE('2023-01-01')
   AND  pr.reservation_year_month >= DATE('2023-01-01')
   AND  cg.reservation_year_month >= DATE('2023-01-01')
-  AND  CAST(tr.reservation_date AS DATE) >= DATE('{{Desde}}')
-  AND  CAST(tr.reservation_date AS DATE) <  DATE('{{Hasta}}')
+  AND  CAST(tr.reservation_date AS DATE) >= {{Desde}}
+  AND  CAST(tr.reservation_date AS DATE) <  {{Hasta}}
   AND  pr.status      = 'Confirmado'
   AND  tr.country_code IN ('AR','BR','CL','CO','EC','MX','PE','UY')
   AND  tr.channel IN (
@@ -2070,8 +2071,8 @@ FROM (
     FROM data.lake.comarch_accumulation_report ar1
     LEFT JOIN channel_at_trx cat
            ON CAST(ar1.dsp_transaction_id AS VARCHAR) = cat.dsp_transaction_id
-    WHERE ar1.processing_date >= DATE('{{Desde}}')
-      AND ar1.processing_date <  DATE('{{Hasta}}')
+    WHERE ar1.processing_date >= {{Desde}}
+      AND ar1.processing_date <  {{Hasta}}
       AND COALESCE(ar1.dsp_transaction_type, 'Nulo') <> 'REFUND'
       AND LOWER(ar1.point_type) = 'general'
 
@@ -2084,8 +2085,8 @@ FROM (
     FROM data.lake.comarch_cancellation_report cr1
     LEFT JOIN channel_at_trx cat
            ON CAST(cr1.dsp_transaction_id AS VARCHAR) = cat.dsp_transaction_id
-    WHERE cr1.generation_date >= DATE('{{Desde}}')
-      AND cr1.generation_date <  DATE('{{Hasta}}')
+    WHERE cr1.generation_date >= {{Desde}}
+      AND cr1.generation_date <  {{Hasta}}
       AND LOWER(cr1.point_type) = 'general'
 ) u
 GROUP BY processing_date, country_code, channel_group
@@ -2181,6 +2182,219 @@ def enrich_acum_channel_usd(
     ).round(4)
 
     return df_out.drop(columns=["pts_num", "total_usd", "total_pts_ch"])
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Stock de puntos iFood "en la calle" — adaptado del análisis FCA (bitácora
+# FCA Loyalty, 18-ago), que era global sin país. Acá se resuelve country_code
+# por fila (vía clm_customers.ext_country_program, mismo campo que breakage/
+# miembros) — en la práctica el 100% del volumen real es Brasil, así que solo
+# aparece en la pestaña BR + TOTAL, pero no queda hardcodeado.
+#
+# Bucket "resto" = todo point_type/point_code IF% EXCEPTO IFOOD_WELCOME_CLUBE
+# / IFO_WE_CLU (bug de duplicación del welcome bonus Clube, corregido — no es
+# un stock real comparable, ver bitácora FCA 18-ago). Rollforward:
+#   Stock(mes) = Stock(mes-1) + Acum_neto(mes) − Redimido(mes) − Vencido(mes)
+# calculado en pandas (cumsum) sobre la ventana LY_DESDE→ACTUALS_HASTA, que
+# ya es contigua sin gap (LY_HASTA == ACTUALS_DESDE) — alcanza para stock de
+# apertura ≈0 porque iFood no tiene actividad real antes de esa ventana
+# (dato más viejo: IFOOD_BR jun-2025, dentro de LY).
+#   - Acum_neto: comarch_accumulation_report (dsp_transaction_type<>'REFUND')
+#     menos comarch_cancellation_report, point_type IF% excl. WELCOME_CLUBE.
+#     País vía JOIN clm_transaction_id→clm_transactions→clm_customers (NO
+#     ar1.country/cr1.country directo — confirmado con datos reales que para
+#     iFood ese campo viene NULL, mismo problema ya resuelto para FORTUNE/
+#     MISSIONS en _ACUM_ER_COUNTRY_SQL/apply_acum_er_country más abajo, que
+#     usa exactamente el mismo join).
+#   - Redimido: CTE tipopunto (GR + GA/REFUND, con la rama de corrección de
+#     no-reembolsables), point_code IF% excl. IFO_WE_CLU — mismo patrón que
+#     tipopunto_raw de _REDEN_SQL, pero simplificado (sin el join a fact
+#     products/transactions, no hace falta producto acá) y con país agregado.
+#   - Vencido: SUM(points) WHERE points_status='E', agrupado por
+#     expiration_date (fecha REAL de vencimiento, NO processing_date — la
+#     fila de origen no se reinserta cuando cambia el status, ver bitácora
+#     FCA 18-ago Hallazgo 4), point_code IF% excl. IFO_WE_CLU.
+# ──────────────────────────────────────────────────────────────────────────
+_STOCK_IFOOD_SQL = """
+WITH tipopunto_raw AS (
+    SELECT
+        CAST(t.ext_despegar_trn_id AS VARCHAR) AS transaction_id,
+        pt.code                                AS point_code,
+        cm.ext_country_program                 AS country_code,
+        date_trunc('month', t.processing_date) AS mes,
+        SUM(-tp.points)                        AS puntosv2
+    FROM data.lake.clm_transactions t
+    JOIN data.lake.clm_transaction_points tp ON t.id = tp.source_transaction_id
+    JOIN data.lake.clm_point_types pt        ON tp.points_type_id = pt.id
+    JOIN data.lake.clm_customers cm          ON t.account_id = cm.account_id
+    WHERE t.processing_date >= {{Desde}}
+      AND t.processing_date <  {{Hasta}}
+      AND t.status = 'B'
+      AND (
+            t.transaction_type = 'GR'
+         OR (t.transaction_type = 'GA' AND t.ext_despegar_trn_type = 'REFUND')
+          )
+      AND UPPER(pt.code) LIKE 'IF%' AND pt.code <> 'IFO_WE_CLU'
+    GROUP BY 1, 2, 3, 4
+
+    UNION ALL
+
+    SELECT
+        tp_orig.transaction_id,
+        tp_orig.point_code,
+        tp_orig.country_code,
+        tp_orig.mes,
+        -SUM(tp_orig.puntosv2) AS puntosv2
+    FROM (
+        SELECT
+            CAST(t.ext_despegar_trn_id AS VARCHAR) AS transaction_id,
+            pt.code                                AS point_code,
+            cm.ext_country_program                 AS country_code,
+            date_trunc('month', t.processing_date) AS mes,
+            SUM(-tp.points)                        AS puntosv2
+        FROM data.lake.clm_transactions t
+        JOIN data.lake.clm_transaction_points tp ON t.id = tp.source_transaction_id
+        JOIN data.lake.clm_point_types pt        ON tp.points_type_id = pt.id
+        JOIN data.lake.clm_customers cm          ON t.account_id = cm.account_id
+        WHERE t.processing_date >= {{Desde}}
+          AND t.processing_date <  {{Hasta}}
+          AND t.status = 'B'
+          AND t.transaction_type = 'GR'
+          AND UPPER(pt.code) LIKE 'IF%' AND pt.code <> 'IFO_WE_CLU'
+        GROUP BY 1, 2, 3, 4
+    ) tp_orig
+    INNER JOIN (
+        SELECT DISTINCT CAST(ar.dsp_transaction_id AS VARCHAR) AS dsp_transaction_id
+        FROM data.lake.comarch_accumulation_report ar
+        WHERE ar.processing_date >= {{Desde}}
+          AND ar.processing_date <  {{Hasta}}
+          AND COALESCE(ar.dsp_transaction_type, 'Nulo') = 'REFUND'
+          AND NOT EXISTS (
+              SELECT 1 FROM data.lake.comarch_accumulation_report ar2
+              WHERE ar2.dsp_transaction_id = ar.dsp_transaction_id
+                AND ar2.processing_date >= {{Desde}}
+                AND ar2.processing_date <  {{Hasta}}
+                AND COALESCE(ar2.dsp_transaction_type, 'Nulo') = 'REFUND'
+                AND UPPER(COALESCE(ar2.point_type, '')) LIKE 'IF%'
+                AND COALESCE(ar2.points, 0) > 0
+          )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM data.lake.clm_transactions t_ga
+              JOIN data.lake.clm_transaction_points tp_ga ON t_ga.id = tp_ga.source_transaction_id
+              JOIN data.lake.clm_point_types pt_ga        ON tp_ga.points_type_id = pt_ga.id
+              WHERE CAST(t_ga.ext_despegar_trn_id AS VARCHAR) = CAST(ar.dsp_transaction_id AS VARCHAR)
+                AND t_ga.transaction_type      = 'GA'
+                AND t_ga.ext_despegar_trn_type = 'REFUND'
+                AND t_ga.status                = 'B'
+                AND t_ga.processing_date >= {{Desde}}
+                AND t_ga.processing_date <  {{Hasta}}
+                AND UPPER(pt_ga.code) LIKE 'IF%'
+          )
+    ) ar_ref ON tp_orig.transaction_id = ar_ref.dsp_transaction_id
+    GROUP BY tp_orig.transaction_id, tp_orig.point_code, tp_orig.country_code, tp_orig.mes
+)
+SELECT date_trunc('month', ar1.processing_date) AS mes, cm.ext_country_program AS country_code,
+       'accum_neto' AS leg, SUM(ar1.points) AS puntos
+FROM data.lake.comarch_accumulation_report ar1
+JOIN data.lake.clm_transactions t ON t.id = ar1.clm_transaction_id
+JOIN data.lake.clm_customers cm  ON cm.account_id = t.account_id
+WHERE UPPER(ar1.point_type) LIKE 'IF%' AND ar1.point_type <> 'IFOOD_WELCOME_CLUBE'
+  AND COALESCE(ar1.dsp_transaction_type, 'Nulo') <> 'REFUND'
+  AND ar1.processing_date >= {{Desde}}
+  AND ar1.processing_date <  {{Hasta}}
+GROUP BY 1, 2
+
+UNION ALL
+
+SELECT date_trunc('month', cr1.generation_date) AS mes, cm.ext_country_program AS country_code,
+       'accum_neto' AS leg, SUM(cr1.points) * -1 AS puntos
+FROM data.lake.comarch_cancellation_report cr1
+JOIN data.lake.clm_transactions t ON t.id = cr1.clm_transaction_id
+JOIN data.lake.clm_customers cm  ON cm.account_id = t.account_id
+WHERE UPPER(cr1.point_type) LIKE 'IF%' AND cr1.point_type <> 'IFOOD_WELCOME_CLUBE'
+  AND cr1.generation_date >= {{Desde}}
+  AND cr1.generation_date <  {{Hasta}}
+GROUP BY 1, 2
+
+UNION ALL
+
+SELECT mes, country_code, 'redimido' AS leg, SUM(puntosv2) AS puntos
+FROM tipopunto_raw
+GROUP BY mes, country_code
+
+UNION ALL
+
+SELECT date_trunc('month', tp.expiration_date) AS mes, cm.ext_country_program AS country_code,
+       'vencido' AS leg, SUM(tp.points) AS puntos
+FROM data.lake.clm_transactions t
+JOIN data.lake.clm_transaction_points tp ON t.id = tp.source_transaction_id
+JOIN data.lake.clm_point_types pt        ON tp.points_type_id = pt.id
+JOIN data.lake.clm_customers cm          ON t.account_id = cm.account_id
+WHERE tp.points_status = 'E'
+  AND UPPER(pt.code) LIKE 'IF%' AND pt.code <> 'IFO_WE_CLU'
+  AND tp.expiration_date >= {{Desde}}
+  AND tp.expiration_date <  {{Hasta}}
+GROUP BY 1, 2
+"""
+
+
+def build_stock_ifood_query(desde: str, hasta: str) -> str:
+    return _sub(_STOCK_IFOOD_SQL, desde, hasta)
+
+
+def fetch_stock_ifood(desde: str, hasta: str) -> pd.DataFrame:
+    """Stock de puntos iFood 'en la calle' (bucket 'resto') por mes x país,
+    vía rollforward: stock_cierre = stock_cierre(mes-1) + acum_neto - redimido
+    - vencido. El cumsum arranca en `desde` con stock_apertura=0 (seguro:
+    iFood no tiene actividad real antes de LY_DESDE, ver comentario arriba).
+    """
+    cols = ["processing_date", "country_code", "acum_neto", "redimido",
+            "vencido", "stock_cierre"]
+    df = fetch(build_stock_ifood_query(desde, hasta),
+               "Stock de puntos iFood en la calle")
+    if df.empty:
+        return pd.DataFrame(columns=cols)
+
+    df["mes"] = df["mes"].apply(_fix_date)
+    df = df.dropna(subset=["mes"])
+    df["mes"] = df["mes"].str.slice(0, 7) + "-01"
+    df["country_code"] = df["country_code"].fillna("N/D").astype(str)
+    df["puntos"] = pd.to_numeric(df["puntos"], errors="coerce").fillna(0)
+
+    piv = (df.groupby(["mes", "country_code", "leg"], as_index=False)
+             .agg(puntos=("puntos", "sum"))
+             .pivot_table(index=["mes", "country_code"], columns="leg",
+                          values="puntos", fill_value=0)
+             .reset_index())
+    for leg in ("accum_neto", "redimido", "vencido"):
+        if leg not in piv.columns:
+            piv[leg] = 0.0
+
+    # Rango completo de meses (todos los países): un mes sin movimiento en
+    # NINGUNA pata para un país no debe faltar en la serie — el stock es un
+    # SALDO, no un flujo, y el dashboard (fiscalSeries) defaultea a 0 los ym
+    # ausentes de un mapa. Sin este reindex, un mes sin fila se vería como
+    # "stock cae a 0" en vez de mantener el saldo acumulado real.
+    todos_los_meses = pd.date_range(
+        piv["mes"].min(), piv["mes"].max(), freq="MS"
+    ).strftime("%Y-%m-%d")
+
+    out_rows = []
+    for country, g in piv.groupby("country_code"):
+        g = g.set_index("mes").reindex(todos_los_meses, fill_value=0.0)
+        g.index.name = "mes"
+        g["country_code"] = country
+        g = g.reset_index().sort_values("mes")
+        g["movimiento"] = g["accum_neto"] - g["redimido"] - g["vencido"]
+        g["stock_cierre"] = g["movimiento"].cumsum()
+        out_rows.append(g)
+    out = pd.concat(out_rows, ignore_index=True) if out_rows else piv.assign(stock_cierre=0.0)
+
+    out = out.rename(columns={"mes": "processing_date"})
+    for c in ("accum_neto", "redimido", "vencido", "stock_cierre"):
+        out[c] = out[c].round(2)
+    return out[cols]
 
 
 def build_acum_tier_query(desde: str, hasta: str) -> str:
@@ -2728,6 +2942,9 @@ df_acum_channel = enrich_acum_channel_usd(
     _acum_ly_pre,
 )
 
+print("\n--- Stock de puntos iFood en la calle ---")
+df_stock_ifood = fetch_stock_ifood(LY_DESDE, ACTUALS_HASTA)
+
 print("\n--- Penetración de GB (% reservas con puntos, por producto) ---")
 df_penet = pd.concat([
     fetch_penet(ACTUALS_DESDE, ACTUALS_HASTA),
@@ -2857,6 +3074,27 @@ acum_channel_bytes = json.dumps(
 ).encode("utf-8")
 print(f"  Acum x channel: {len(acum_channel_bytes)//1024:.0f} KB  ({len(df_acum_channel):,} filas)")
 
+META_STOCK_IFOOD = {
+    "generated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+    "snapshot_date": str(TODAY),
+    "fuente": (
+        "Rollforward mensual (Stock = Stock(mes-1) + Acum_neto - Redimido - "
+        "Vencido) sobre comarch_accumulation_report/cancellation_report "
+        "(accrual) + clm_transactions/clm_transaction_points (redención vía "
+        "tipopunto GR+GA/REFUND, vencimiento vía points_status='E' agrupado "
+        "por expiration_date). Bucket 'resto': point_type/point_code IF% "
+        "excluyendo IFOOD_WELCOME_CLUBE/IFO_WE_CLU. País vía "
+        "clm_customers.ext_country_program. Adaptado del análisis FCA "
+        "(bitácora FCA Loyalty, 18-ago), que era global sin país. Stock de "
+        f"apertura en {LY_DESDE[:7]} asumido 0 (sin actividad real anterior)."
+    ),
+}
+stock_ifood_bytes = json.dumps(
+    {"meta": META_STOCK_IFOOD, "data": to_compact(df_stock_ifood)},
+    ensure_ascii=False, separators=(",", ":"), allow_nan=False,
+).encode("utf-8")
+print(f"  Stock iFood:    {len(stock_ifood_bytes)//1024:.0f} KB  ({len(df_stock_ifood):,} filas)")
+
 _OUT = [
     (acum_cy_bytes,  ACUM_CY_FILE), (acum_ly_bytes,  ACUM_LY_FILE),
     (reden_cy_bytes, REDEN_CY_FILE), (reden_ly_bytes, REDEN_LY_FILE),
@@ -2866,6 +3104,7 @@ _OUT = [
     (ratio_bytes, RATIO_ACUM_FILE), (acum_tier_bytes, ACUM_TIER_FILE),
     (penet_bytes, PENET_FILE),
     (acum_channel_bytes, ACUM_CHANNEL_FILE),
+    (stock_ifood_bytes, STOCK_IFOOD_FILE),
 ]
 
 if DRY_RUN:
