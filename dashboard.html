@@ -1188,7 +1188,7 @@ function renderMetrics(country, m) {
     html += '<div class="cc" style="margin-bottom:14px">' + acTitleHtml + '<div class="cw"><canvas id="' + canvasId + '"></canvas></div>'
       + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-' + canvasId + '"></div></div>'
       + '</div>'
-      + (prog === 'Pasaporte D!' ? '<div class="cc" id="mix-wrap-' + suffix + '" style="margin-bottom:14px;display:none"><div class="ct" style="font-size:12px;color:#64748b;margin-bottom:4px">Mix por tier (%)</div><div class="cw" style="height:160px"><canvas id="ch-mix-' + suffix + '"></canvas></div></div>' : '');
+      + (prog === 'Pasaporte D!' && aView === 'tier' ? '<div class="cc" style="margin-bottom:14px"><div class="ct" style="font-size:12px;color:#64748b;margin-bottom:4px">Mix por tier (%)</div><div class="cw" style="height:160px"><canvas id="ch-mix-' + suffix + '"></canvas></div></div>' : '');
     html += '<div class="cc" style="margin-bottom:14px"><div class="ct">' + rdTitle + '</div><div class="cw"><canvas id="' + canvasRdId + '"></canvas></div>'
       + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-' + canvasRdId + '"></div></div>'
       + '<div class="dtable-row"><div class="dtable-label">Precio LY / YoY</div><div class="ppr-row" id="ppr-' + canvasRdId + '"></div></div>'
@@ -1381,21 +1381,19 @@ function renderMetrics(country, m) {
       buildStackedBarChart(canvasId, acTierDatasets, fmtFn, true, { label: 'Total ' + fy.ly, data: tierTotalPrev });
       var acYoyEl = document.getElementById('yoy-' + canvasId);
       if (acYoyEl) acYoyEl.innerHTML = yoyRowHtml(tierTotalPrev, tierTotalCurr);
-      // Gráfico de mix (100% apilado) — siempre en puntos, independiente del toggle Q/$
-      var mixWrap = document.getElementById('mix-wrap-' + suffix);
-      if (mixWrap) mixWrap.style.display = '';
-      var mixDatasets = MB_TIERS.filter(function(t){ return Object.keys(tierPtsMap[t]).length; })
-        .map(function(t){
-          return { label: t,
-                   data: fiscalSeries(tierPtsMap[t], tierPtsMap[t], fy.cy, fy.ly, fy.cy),
-                   backgroundColor: MB_TIER_COLOR[t] };
-        });
-      buildMixChart('ch-mix-' + suffix, mixDatasets);
+      // Gráfico de mix (100% apilado) — siempre en puntos, independiente del toggle Q/$.
+      // El canvas solo existe en el HTML cuando aView==='tier' (ver acTitleHtml arriba).
+      if (document.getElementById('ch-mix-' + suffix)) {
+        var mixDatasets = MB_TIERS.filter(function(t){ return Object.keys(tierPtsMap[t]).length; })
+          .map(function(t){
+            return { label: t,
+                     data: fiscalSeries(tierPtsMap[t], tierPtsMap[t], fy.cy, fy.ly, fy.cy),
+                     backgroundColor: MB_TIER_COLOR[t] };
+          });
+        buildMixChart('ch-mix-' + suffix, mixDatasets);
+      }
     } else {
       buildBarChart(canvasId,   acPrev, acCurr, fy.ly, fy.cy, 'rgba(85,15,237,.75)', fmtFn);
-      // Ocultar el canvas de mix cuando no está en modo Por Tier
-      var mixWrap = document.getElementById('mix-wrap-' + suffix);
-      if (mixWrap) mixWrap.style.display = 'none';
     }
     buildBarChart(canvasRdId, rdPrev, rdCurr, fy.ly, fy.cy, 'rgba(250,80,63,.78)', fmtFn, { prev: pricePrev, curr: priceCurr });
 
