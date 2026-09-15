@@ -22,7 +22,8 @@ var FILES = {
   dict:     'loyalty_dict.json',
   ssp:      'loyalty_ssp.json',
   ratio_acum: 'loyalty_ratio_acumulacion.json',
-  acum_tier: 'loyalty_acum_tier.json'
+  acum_tier:  'loyalty_acum_tier.json',
+  penet:      'loyalty_penetracion_gb.json'
 };
 
 var CACHE_TTL   = 21600;  // 6 h
@@ -38,18 +39,19 @@ function doGet() {
 
 // ---- Public API ----
 
-function getRawAcumCY()   { return _load(LOYALTY_FOLDER_ID,  FILES.acum_cy,  'acum_cy');  }
-function getRawAcumLY()   { return _load(LOYALTY_FOLDER_ID,  FILES.acum_ly,  'acum_ly');  }
-function getRawRedenCY()  { return _load(LOYALTY_FOLDER_ID,  FILES.reden_cy, 'reden_cy'); }
-function getRawRedenLY()  { return _load(LOYALTY_FOLDER_ID,  FILES.reden_ly, 'reden_ly'); }
-function getRawBreakage() { return _load(LOYALTY_FOLDER_ID,  FILES.breakage, 'breakage'); }
-function getRawMiembros() { return _load(LOYALTY_FOLDER_ID,  FILES.miembros, 'miembros'); }
-function getRawClub()     { return _load(LOYALTY_FOLDER_ID,  FILES.club,     'club');     }
-function getRawIfood()    { return _load(LOYALTY_FOLDER_ID,  FILES.ifood,    'ifood');    }
-function getRawDict()     { return _load(LOYALTY_FOLDER_ID,  FILES.dict, 'dict'); }
-function getRawSsp()      { return _load(LOYALTY_FOLDER_ID,  FILES.ssp,  'ssp');  }
-function getRawRatioAcum(){ return _load(LOYALTY_FOLDER_ID,  FILES.ratio_acum, 'ratio_acum'); }
-function getRawAcumTier(){ return _load(LOYALTY_FOLDER_ID,  FILES.acum_tier, 'acum_tier'); }
+function getRawAcumCY()         { return _load(LOYALTY_FOLDER_ID,  FILES.acum_cy,    'acum_cy');    }
+function getRawAcumLY()         { return _load(LOYALTY_FOLDER_ID,  FILES.acum_ly,    'acum_ly');    }
+function getRawRedenCY()        { return _load(LOYALTY_FOLDER_ID,  FILES.reden_cy,   'reden_cy');   }
+function getRawRedenLY()        { return _load(LOYALTY_FOLDER_ID,  FILES.reden_ly,   'reden_ly');   }
+function getRawBreakage()       { return _load(LOYALTY_FOLDER_ID,  FILES.breakage,   'breakage');   }
+function getRawMiembros()       { return _load(LOYALTY_FOLDER_ID,  FILES.miembros,   'miembros');   }
+function getRawClub()           { return _load(LOYALTY_FOLDER_ID,  FILES.club,       'club');       }
+function getRawIfood()          { return _load(LOYALTY_FOLDER_ID,  FILES.ifood,      'ifood');      }
+function getRawDict()           { return _load(LOYALTY_FOLDER_ID,  FILES.dict,       'dict');       }
+function getRawSsp()            { return _load(LOYALTY_FOLDER_ID,  FILES.ssp,        'ssp');        }
+function getRawRatioAcum()      { return _load(LOYALTY_FOLDER_ID,  FILES.ratio_acum, 'ratio_acum'); }
+function getRawAcumTier()       { return _load(LOYALTY_FOLDER_ID,  FILES.acum_tier,  'acum_tier');  }
+function getRawPenetracionGb()  { return _load(LOYALTY_FOLDER_ID,  FILES.penet,      'penet');      }
 
 // P&L Contable: mismos JSON canónicos que consumen las landings B2B
 // (Inputs_Planning_PnL). Se filtran a las líneas de loyalty server-side para
