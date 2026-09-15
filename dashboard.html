@@ -1321,6 +1321,17 @@ function renderMetrics(country, m) {
           + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-ch-ifd-altas-' + suffix + '"></div></div></div>';
       }
       html += '</div>';
+
+      // ── Gráfico: Pasaporte D! vía canal iFood (stacked bar: iFood + Resto + LY total)
+      if (RAW.acum_channel) {
+        var chCanId = 'ch-acum-ch-' + suffix;
+        html += '<div class="cc" style="margin-top:14px">'
+              + '<div class="ct">Pasaporte D! vía canal iFood — ' + (mode === 'USD' ? 'USD (DRO)' : 'puntos') + ' por mes</div>'
+              + '<div class="cw"><canvas id="' + chCanId + '"></canvas></div>'
+              + '<div class="dtable-row"><div class="dtable-label">YoY %</div>'
+              + '<div class="yoy-row" id="yoy-' + chCanId + '"></div></div>'
+              + '</div>';
+      }
     }
 
     // ---- Bank/Partner Revenue: va DENTRO de Cobrand y Partners (margen precio de venta vs SSP) ----
@@ -1525,6 +1536,61 @@ function renderMetrics(country, m) {
       if (yEl2) yEl2.innerHTML = yoyRowHtml(ifdAltasLY, ifdAltasCY);
     }
 
+    // Pasaporte D! vía canal iFood — stacked bar (iFood + Resto) con línea de total LY.
+    if (prog === 'IFOOD' && RAW.acum_channel) {
+      var chCanId2 = 'ch-acum-ch-' + suffix;
+      var chIfoodMapCY = {}, chRestoMapCY = {};
+      var chIfoodMapLY = {}, chRestoMapLY = {};
+      acumChannelRows(country).forEach(function(row) {
+        var ym  = (row.processing_date || '').substring(0, 7);
+        var yr  = parseInt(ym.substring(0, 4));
+        var grp = row.channel_group || 'resto';
+        var dk  = rowCountryKey(row, country);
+        var val;
+        if (mode === 'USD') {
+          var factor = sspFactor(dk, ym);
+          var PV = -((+row.points || 0) * (factor || 0));
+          var R  = +row.acum_usd_base || 0;
+          var denom = Math.abs(PV) + R;
+          val = denom ? (PV / denom) * R : 0;
+        } else {
+          val = +row.points || 0;
+        }
+        if (yr === fy.cy) {
+          if (grp === 'ifood') { chIfoodMapCY[ym] = (chIfoodMapCY[ym] || 0) + val; }
+          else                 { chRestoMapCY[ym] = (chRestoMapCY[ym] || 0) + val; }
+        } else if (yr === fy.ly) {
+          if (grp === 'ifood') { chIfoodMapLY[ym] = (chIfoodMapLY[ym] || 0) + val; }
+          else                 { chRestoMapLY[ym] = (chRestoMapLY[ym] || 0) + val; }
+        }
+      });
+
+      var chTotalLY = fiscalSeries(
+        mergeAdd_(chIfoodMapLY, chRestoMapLY),
+        mergeAdd_(chIfoodMapLY, chRestoMapLY),
+        fy.cy, fy.ly, fy.ly
+      );
+      var chTotalCY = fiscalSeries(
+        mergeAdd_(chIfoodMapCY, chRestoMapCY),
+        mergeAdd_(chIfoodMapCY, chRestoMapCY),
+        fy.cy, fy.ly, fy.cy
+      );
+
+      var chDatasets = [
+        { label: 'Resto',
+          data: fiscalSeries(chRestoMapCY, chRestoMapCY, fy.cy, fy.ly, fy.cy),
+          backgroundColor: 'rgba(85,15,237,.18)' },
+        { label: 'iFood',
+          data: fiscalSeries(chIfoodMapCY, chIfoodMapCY, fy.cy, fy.ly, fy.cy),
+          backgroundColor: 'rgba(255,90,0,.82)' },
+      ];
+
+      buildStackedBarChart(chCanId2, chDatasets, fmtFn, true,
+                           { label: 'Total ' + fy.ly, data: chTotalLY });
+      var chYoyEl = document.getElementById('yoy-' + chCanId2);
+      if (chYoyEl) chYoyEl.innerHTML = yoyRowHtml(chTotalLY, chTotalCY);
+    }
+
     // Bank/Partner Revenue — apilado (costo SSP + margen) por mes, con línea de total LY.
     if (prog === 'Cobrand' || prog === 'Partners') {
       var brCanvasId2 = 'ch-br-' + prog.replace(/[^a-z0-9]/gi, '') + '-' + suffix;
@@ -1568,6 +1634,13 @@ var FISCAL_LABELS = ['Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic','Ene'
 
 // Mapa mensual real (claves "YYYY-MM") de un dataset, filtrado por pais+programa.
 // country puede ser un pais concreto o la vista TOTAL (suma de todos).
+function mergeAdd_(a, b) {
+  var out = {};
+  Object.keys(a).forEach(function(k){ out[k] = (out[k] || 0) + a[k]; });
+  Object.keys(b).forEach(function(k){ out[k] = (out[k] || 0) + b[k]; });
+  return out;
+}
+
 function monthlyMap(raw, country, prog, getProgFn, valueFn) {
   var agg = {};
   expand(raw).forEach(function(row){
@@ -2184,6 +2257,13 @@ function ratioRows(country) {
 // ============================================================
 var ACUM_VIEW = {};  // suffix -> 'total' | 'tier'
 var _acumTierRowsCache = null;
+var _acumChannelRowsCache = null;
+function acumChannelRows(country) {
+  if (!_acumChannelRowsCache) _acumChannelRowsCache = expand(RAW.acum_channel);
+  return _acumChannelRowsCache.filter(function(r){
+    return matchCountryCode(r.country_code, country);
+  });
+}
 
 function getAcumView(suffix) { return ACUM_VIEW[suffix] || 'total'; }
 function setAcumView(suffix, v) {
@@ -2371,7 +2451,7 @@ function onLoaded(key, data) {
 // "carga incompleta" — hoy solo ratio_acum (loyalty_ratio_acumulacion.json aun
 // no se subio a Drive con una sync real; el resto del codigo ya degrada a "Sin
 // datos" sin romper nada, ver ratioRows/buildRatioBarChart).
-var RAW_OPTIONAL = { ratio_acum: 1, acum_tier: 1, penet: 1 };
+var RAW_OPTIONAL = { ratio_acum: 1, acum_tier: 1, penet: 1, acum_channel: 1 };
 function checkStale() {
   var el = document.getElementById('stale-banner');
   var txt = document.getElementById('stale-banner-text');
@@ -2446,6 +2526,7 @@ document.getElementById('f-period').addEventListener('change', renderActive);
   google.script.run.withSuccessHandler(function(d){ onLoaded('ratio_acum', d); }).withFailureHandler(function(e){ onError('ratio_acum', e.message); }).getRawRatioAcum();
   google.script.run.withSuccessHandler(function(d){ onLoaded('acum_tier', d); }).withFailureHandler(function(e){ onError('acum_tier', e.message); }).getRawAcumTier();
 google.script.run.withSuccessHandler(function(d){ onLoaded('penet', d); }).withFailureHandler(function(e){ onError('penet', e.message); }).getRawPenetracionGb();
+google.script.run.withSuccessHandler(function(d){ onLoaded('acum_channel', d); }).withFailureHandler(function(e){ onError('acum_channel', e.message); }).getRawAcumChannel();
 })();
 </script>
 </body>

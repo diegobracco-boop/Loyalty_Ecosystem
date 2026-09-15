@@ -23,7 +23,8 @@ var FILES = {
   ssp:      'loyalty_ssp.json',
   ratio_acum: 'loyalty_ratio_acumulacion.json',
   acum_tier:  'loyalty_acum_tier.json',
-  penet:      'loyalty_penetracion_gb.json'
+  penet:      'loyalty_penetracion_gb.json',
+  acum_channel: 'loyalty_acum_channel.json'
 };
 
 var CACHE_TTL   = 21600;  // 6 h
@@ -52,6 +53,7 @@ function getRawSsp()            { return _load(LOYALTY_FOLDER_ID,  FILES.ssp,   
 function getRawRatioAcum()      { return _load(LOYALTY_FOLDER_ID,  FILES.ratio_acum, 'ratio_acum'); }
 function getRawAcumTier()       { return _load(LOYALTY_FOLDER_ID,  FILES.acum_tier,  'acum_tier');  }
 function getRawPenetracionGb()  { return _load(LOYALTY_FOLDER_ID,  FILES.penet,      'penet');      }
+function getRawAcumChannel()    { return _load(LOYALTY_FOLDER_ID,  FILES.acum_channel, 'acum_channel'); }
 
 // P&L Contable: mismos JSON canónicos que consumen las landings B2B
 // (Inputs_Planning_PnL). Se filtran a las líneas de loyalty server-side para

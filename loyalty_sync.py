@@ -39,6 +39,7 @@ CLUB_DESPEGAR_FILE  = "loyalty_club_despegar.json"
 IFOOD_ENROLL_FILE   = "loyalty_ifood_enroll.json"
 RATIO_ACUM_FILE     = "loyalty_ratio_acumulacion.json"
 ACUM_TIER_FILE      = "loyalty_acum_tier.json"
+ACUM_CHANNEL_FILE   = "loyalty_acum_channel.json"
 PENET_FILE          = "loyalty_penetracion_gb.json"
 # Fallbacks locales de la planilla de config: viven al lado de este script en todo
 # clon (ambos trackeados en git), asi que se resuelven relativos a el — antes eran la
@@ -2046,6 +2047,142 @@ def fetch_penet(desde: str, hasta: str) -> pd.DataFrame:
     return out[cols]
 
 
+# ──────────────────────────────────────────────────────────────────────────
+# Acumulación Pasaporte D! por channel (ifood vs resto)
+# Misma estructura que _ACUM_TIER_SQL pero JOIN a bi_transactional_fact_transactions
+# para obtener el channel en vez de clm_account_recognition_levels para el tier.
+# ──────────────────────────────────────────────────────────────────────────
+_ACUM_CHANNEL_SQL = """
+WITH channel_at_trx AS (
+    SELECT
+        CAST(transaction_code AS VARCHAR)                             AS dsp_transaction_id,
+        CASE WHEN LOWER(channel) LIKE '%ifood%' THEN 'ifood'
+             ELSE 'resto' END                                         AS channel_group
+    FROM data.analytics.bi_transactional_fact_transactions
+    WHERE reservation_year_month >= DATE('2023-01-01')
+)
+SELECT processing_date, country_code, channel_group, SUM(points) AS points
+FROM (
+    SELECT CAST(ar1.processing_date AS DATE)            AS processing_date,
+           ar1.country                                   AS country_code,
+           ar1.points,
+           COALESCE(cat.channel_group, 'resto')          AS channel_group
+    FROM data.lake.comarch_accumulation_report ar1
+    LEFT JOIN channel_at_trx cat
+           ON CAST(ar1.dsp_transaction_id AS VARCHAR) = cat.dsp_transaction_id
+    WHERE ar1.processing_date >= DATE('{{Desde}}')
+      AND ar1.processing_date <  DATE('{{Hasta}}')
+      AND COALESCE(ar1.dsp_transaction_type, 'Nulo') <> 'REFUND'
+      AND LOWER(ar1.point_type) = 'general'
+
+    UNION ALL
+
+    SELECT CAST(cr1.generation_date AS DATE)            AS processing_date,
+           cr1.country                                   AS country_code,
+           (cr1.points * -1)                             AS points,
+           COALESCE(cat.channel_group, 'resto')          AS channel_group
+    FROM data.lake.comarch_cancellation_report cr1
+    LEFT JOIN channel_at_trx cat
+           ON CAST(cr1.dsp_transaction_id AS VARCHAR) = cat.dsp_transaction_id
+    WHERE cr1.generation_date >= DATE('{{Desde}}')
+      AND cr1.generation_date <  DATE('{{Hasta}}')
+      AND LOWER(cr1.point_type) = 'general'
+) u
+GROUP BY processing_date, country_code, channel_group
+ORDER BY processing_date, country_code, channel_group
+"""
+
+
+def build_acum_channel_query(desde: str, hasta: str) -> str:
+    return _sub(_ACUM_CHANNEL_SQL, desde, hasta)
+
+
+def fetch_acum_channel(desde: str, hasta: str) -> pd.DataFrame:
+    """Puntos Pasaporte D! por mes x pais x channel_group ('ifood'/'resto').
+    Incluye cancelaciones neteadas (UNION ALL negado), igual que aggregate_acum.
+    """
+    cols = ["processing_date", "country_code", "channel_group", "points"]
+    df = fetch(build_acum_channel_query(desde, hasta),
+               "Acumulación por channel iFood (Pasaporte D!)")
+    if df.empty:
+        return pd.DataFrame(columns=cols)
+    df["processing_date"] = df["processing_date"].apply(_fix_date)
+    df = df.dropna(subset=["processing_date"])
+    df["processing_date"] = df["processing_date"].str.slice(0, 7) + "-01"
+    df["country_code"]   = df["country_code"].fillna("N/D").astype(str)
+    df["points"]         = pd.to_numeric(df["points"], errors="coerce").fillna(0)
+    df["channel_group"]  = df["channel_group"].fillna("resto").astype(str).str.strip()
+    df.loc[~df["channel_group"].isin(["ifood", "resto"]), "channel_group"] = "resto"
+    out = (df.groupby(["processing_date", "country_code", "channel_group"],
+                      as_index=False, dropna=False)
+             .agg(points=("points", "sum")))
+    out["points"] = out["points"].round(2)
+    return out[cols]
+
+
+def enrich_acum_channel_usd(
+    df_channel: pd.DataFrame,
+    acum_cy_pre: pd.DataFrame,
+    acum_ly_pre: pd.DataFrame,
+) -> pd.DataFrame:
+    """Agrega acum_usd_base a df_channel prorratéandola desde los pre-DataFrames
+    de acumulación, igual que enrich_acum_tier_usd.
+    Filtra a point_type='general', partner='DP'; prorrateo por puntos por
+    (processing_date, country_code, channel_group).
+
+    Misma asunción que enrich_acum_tier_usd: el numerador (acum_usd_base
+    total) sale de point_type='general' + partner='DP', pero el denominador
+    (total de puntos por mes×país usado para repartir) sale de df_channel,
+    que viene de _ACUM_CHANNEL_SQL filtrando solo point_type='general' (sin
+    filtro de partner). Si alguna vez apareciera accrual 'general' de un
+    partner distinto de DP ruteado por canal iFood, diluiría el prorrateo
+    de todas las filas de ese mes/país — riesgo aceptado, igual que en tier.
+    """
+    cols = list(df_channel.columns) + ["acum_usd_base"]
+    if df_channel.empty:
+        return df_channel.assign(acum_usd_base=pd.Series(dtype=float))[cols]
+
+    frames = [d for d in [acum_cy_pre, acum_ly_pre] if d is not None and len(d)]
+    if not frames:
+        return df_channel.assign(acum_usd_base=0.0)[cols]
+
+    d = pd.concat(frames, ignore_index=True)
+    d = d[(d["point_type"].astype(str).str.lower() == _PASAPORTE_GENERAL_POINT_TYPE)
+          & (d["partner"].astype(str) == "DP")].copy()
+    if d.empty:
+        return df_channel.assign(acum_usd_base=0.0)[cols]
+
+    for c in ("comision", "fee", "descuentos", "pct_pagado_con_puntos"):
+        if c not in d.columns:
+            d[c] = 0.0
+    d["acum_usd_base"] = (
+        (d["comision"].astype(float)
+         + d["fee"].astype(float)
+         + d["descuentos"].astype(float))
+        * (1.0 - d["pct_pagado_con_puntos"].astype(float))
+    ).abs()
+    d["points_num"] = pd.to_numeric(d["points"], errors="coerce").fillna(0)
+    d["processing_date"] = d["processing_date"].str.slice(0, 7) + "-01"
+
+    grp = (d.groupby(["processing_date", "country_code"], as_index=False, dropna=False)
+            .agg(total_usd=("acum_usd_base", "sum")))
+
+    df_out = df_channel.copy()
+    df_out["pts_num"] = pd.to_numeric(df_out["points"], errors="coerce").fillna(0)
+    pts_by_month = (df_out.groupby(["processing_date", "country_code"], as_index=False)
+                          .agg(total_pts_ch=("pts_num", "sum")))
+
+    df_out = df_out.merge(grp,          on=["processing_date", "country_code"], how="left")
+    df_out = df_out.merge(pts_by_month, on=["processing_date", "country_code"], how="left")
+
+    total_pts = df_out["total_pts_ch"].replace(0, float("nan"))
+    df_out["acum_usd_base"] = (
+        df_out["total_usd"].fillna(0) * (df_out["pts_num"] / total_pts).fillna(0)
+    ).round(4)
+
+    return df_out.drop(columns=["pts_num", "total_usd", "total_pts_ch"])
+
+
 def build_acum_tier_query(desde: str, hasta: str) -> str:
     return _sub(_ACUM_TIER_SQL, desde, hasta)
 
@@ -2581,6 +2718,16 @@ df_acum_tier = pd.concat([
 ], ignore_index=True)
 df_acum_tier = enrich_acum_tier_usd(df_acum_tier, _acum_cy_pre, _acum_ly_pre)
 
+print("\n--- Acumulación por channel iFood (Pasaporte D!) ---")
+df_acum_channel = enrich_acum_channel_usd(
+    pd.concat([
+        fetch_acum_channel(ACTUALS_DESDE, ACTUALS_HASTA),
+        fetch_acum_channel(LY_DESDE, LY_HASTA),
+    ], ignore_index=True),
+    _acum_cy_pre,
+    _acum_ly_pre,
+)
+
 print("\n--- Penetración de GB (% reservas con puntos, por producto) ---")
 df_penet = pd.concat([
     fetch_penet(ACTUALS_DESDE, ACTUALS_HASTA),
@@ -2693,6 +2840,23 @@ penet_bytes = json.dumps(
 ).encode("utf-8")
 print(f"  Penetración GB: {len(penet_bytes)//1024:.0f} KB  ({len(df_penet):,} filas)")
 
+META_ACUM_CHANNEL = {
+    "generated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+    "snapshot_date": str(TODAY),
+    "fuente": (
+        "comarch_accumulation_report + comarch_cancellation_report, "
+        "point_type='general' (Pasaporte D! genuino). "
+        "LEFT JOIN bi_transactional_fact_transactions para channel. "
+        "channel_group: 'ifood' = LOWER(channel) LIKE '%ifood%', 'resto' = resto. "
+        "acum_usd_base: prorrateado desde _acum_cy_pre/_acum_ly_pre igual que acum_tier."
+    ),
+}
+acum_channel_bytes = json.dumps(
+    {"meta": META_ACUM_CHANNEL, "data": to_compact(df_acum_channel)},
+    ensure_ascii=False, separators=(",", ":"), allow_nan=False,
+).encode("utf-8")
+print(f"  Acum x channel: {len(acum_channel_bytes)//1024:.0f} KB  ({len(df_acum_channel):,} filas)")
+
 _OUT = [
     (acum_cy_bytes,  ACUM_CY_FILE), (acum_ly_bytes,  ACUM_LY_FILE),
     (reden_cy_bytes, REDEN_CY_FILE), (reden_ly_bytes, REDEN_LY_FILE),
@@ -2701,6 +2865,7 @@ _OUT = [
     (club_bytes, CLUB_DESPEGAR_FILE), (ifood_bytes, IFOOD_ENROLL_FILE),
     (ratio_bytes, RATIO_ACUM_FILE), (acum_tier_bytes, ACUM_TIER_FILE),
     (penet_bytes, PENET_FILE),
+    (acum_channel_bytes, ACUM_CHANNEL_FILE),
 ]
 
 if DRY_RUN:
