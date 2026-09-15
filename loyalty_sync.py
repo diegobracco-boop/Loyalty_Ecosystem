@@ -39,6 +39,7 @@ CLUB_DESPEGAR_FILE  = "loyalty_club_despegar.json"
 IFOOD_ENROLL_FILE   = "loyalty_ifood_enroll.json"
 RATIO_ACUM_FILE     = "loyalty_ratio_acumulacion.json"
 ACUM_TIER_FILE      = "loyalty_acum_tier.json"
+PENET_FILE          = "loyalty_penetracion_gb.json"
 # Fallbacks locales de la planilla de config: viven al lado de este script en todo
 # clon (ambos trackeados en git), asi que se resuelven relativos a el — antes eran la
 # ruta absoluta de una maquina y rompian el --dry-run del resto (no lee la planilla).
@@ -1918,6 +1919,133 @@ GROUP BY processing_date, country_code, tier
 """
 
 
+# ──────────────────────────────────────────────────────────────────────────
+# Penetración de GB: % de GB con puntos vs GB total, por mes × país × producto
+# ──────────────────────────────────────────────────────────────────────────
+_PENET_SQL = """
+WITH clm_ga AS (
+    SELECT DISTINCT CAST(ext_despegar_trn_id AS VARCHAR) AS transaction_code
+    FROM   data.lake.clm_transactions
+    WHERE  transaction_type = 'GA'
+      AND  status           = 'B'
+      AND  processing_date >= DATE('2023-01-01')
+)
+SELECT
+    DATE_FORMAT(CAST(tr.reservation_date AS DATE), '%Y-%m-01') AS ym,
+    tr.country_code,
+    tr.purchase_type                                             AS producto_original,
+    array_agg(DISTINCT CAST(pr.product_type AS VARCHAR))         AS producto,
+    COUNT(DISTINCT tr.transaction_code)                          AS trx_total,
+    COUNT(DISTINCT CASE WHEN ga.transaction_code IS NOT NULL
+                        THEN tr.transaction_code END)            AS trx_con_puntos,
+    ROUND(SUM(
+        CAST(cg.gross_booking     AS DECIMAL(18,2))
+      - COALESCE(CAST(cg.tax_pais        AS DECIMAL(18,2)), 0)
+      - COALESCE(CAST(cg.tax_afip_rg4815 AS DECIMAL(18,2)), 0)
+    ), 2)                                                        AS gb_total,
+    ROUND(SUM(CASE WHEN ga.transaction_code IS NOT NULL THEN
+        CAST(cg.gross_booking     AS DECIMAL(18,2))
+      - COALESCE(CAST(cg.tax_pais        AS DECIMAL(18,2)), 0)
+      - COALESCE(CAST(cg.tax_afip_rg4815 AS DECIMAL(18,2)), 0)
+    ELSE 0 END), 2)                                              AS gb_con_puntos
+FROM data.analytics.bi_transactional_fact_transactions tr
+INNER JOIN data.analytics.bi_transactional_fact_products pr
+        ON tr.transaction_code = pr.transaction_code
+INNER JOIN data.analytics.bi_transactional_fact_charges cg
+        ON tr.transaction_code = cg.transaction_code
+       AND pr.product_id       = cg.product_id
+LEFT  JOIN clm_ga ga
+        ON CAST(tr.transaction_code AS VARCHAR) = ga.transaction_code
+WHERE  tr.reservation_year_month >= DATE('2023-01-01')
+  AND  pr.reservation_year_month >= DATE('2023-01-01')
+  AND  cg.reservation_year_month >= DATE('2023-01-01')
+  AND  CAST(tr.reservation_date AS DATE) >= DATE('{{Desde}}')
+  AND  CAST(tr.reservation_date AS DATE) <  DATE('{{Hasta}}')
+  AND  pr.status      = 'Confirmado'
+  AND  tr.country_code IN ('AR','BR','CL','CO','EC','MX','PE','UY')
+  AND  tr.channel IN (
+    'android-app','banco-icbc-ar','bbva-wl','beneficios-despegar',
+    'call-sales-b2c','expedia','fravegaviajes','grupopetersen','icbcstore',
+    'iphone-app','itau-br-benefits','macro','partner_benefits','santander',
+    'site','site-smartphone','site-tablet','tcb_benefits',
+    'travel-agency-bo','travel-agency-whitelabel'
+  )
+GROUP BY 1, 2, 3
+ORDER BY 1, 2, 3
+"""
+
+
+def build_penet_query(desde: str, hasta: str) -> str:
+    return _sub(_PENET_SQL, desde, hasta)
+
+
+def fetch_penet(desde: str, hasta: str) -> pd.DataFrame:
+    """GB total y GB con puntos por mes x pais x grupo_pnl.
+
+    Grano: transaction_code x product_line (charges level).
+    GB = gross_booking - tax_pais - tax_afip_rg4815.
+    Ancillaries quedan 'Sin clasificar' en regla_producto y se excluyen.
+    El mapeo produto→grupo_pnl usa load_regla_producto() (misma fuente que
+    ratio_acum y acum_tier) con el mismo orden de fallback que _grupo() en
+    aggregate_ratio_acum: primero 'producto_original' (tr.purchase_type, a
+    nivel de RESERVA — la única señal real de paquete/combo), después
+    'producto' (array_agg(DISTINCT pr.product_type), a nivel de LÍNEA de
+    producto). Sin el 2do nivel, casi toda reserva de producto único
+    (Flights/Hotels/Cars/...) queda 'Sin clasificar' y se descarta, porque
+    esos nombres nunca aparecen en purchase_type (gotcha del 11-sep,
+    ver aggregate_ratio_acum).
+    """
+    cols = ["ym", "country_code", "grupo_pnl",
+            "trx_total", "trx_con_puntos", "gb_total", "gb_con_puntos"]
+    df = fetch(build_penet_query(desde, hasta),
+               f"Penetración GB ({desde[:7]}→{hasta[:7]})")
+    if df.empty:
+        return pd.DataFrame(columns=cols)
+
+    df["ym"] = df["ym"].apply(_fix_date)
+    df = df.dropna(subset=["ym"])
+    df["ym"] = df["ym"].str.slice(0, 7) + "-01"
+    df["country_code"] = df["country_code"].fillna("N/D").astype(str)
+    for c in ("trx_total", "trx_con_puntos", "gb_total", "gb_con_puntos"):
+        df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
+    df["producto_original"] = df["producto_original"].fillna("N/D").astype(str)
+    df["producto"] = df["producto"].apply(
+        lambda v: ", ".join(v) if isinstance(v, (list, tuple))
+        else ("" if pd.isna(v) else str(v))
+    )
+
+    regla_by_name, _ = load_regla_producto()
+
+    def _grupo_penet(row):
+        original = str(row.get("producto_original", "")).strip()
+        if original in regla_by_name:
+            return regla_by_name[original]
+        nombres = sorted(n.strip() for n in str(row.get("producto", "")).split(",") if n.strip())
+        for n in nombres:
+            if n in regla_by_name:
+                return regla_by_name[n]
+        return "Sin clasificar"
+
+    df["grupo_pnl"] = df.apply(_grupo_penet, axis=1)
+    sin_map = df[df["grupo_pnl"] == "Sin clasificar"]
+    if len(sin_map):
+        combos = sorted(set(zip(sin_map["producto_original"], sin_map["producto"])))
+        print(f"  [WARN] penet: {len(sin_map)} filas 'Sin clasificar' "
+              f"({sin_map['gb_total'].sum():,.0f} GB descartado) — combos sin match: "
+              f"{combos[:10]}{'…' if len(combos) > 10 else ''}")
+    df = df[df["grupo_pnl"] != "Sin clasificar"]
+
+    out = (df.groupby(["ym", "country_code", "grupo_pnl"],
+                      as_index=False, dropna=False)
+             .agg(trx_total      =("trx_total",     "sum"),
+                  trx_con_puntos =("trx_con_puntos", "sum"),
+                  gb_total       =("gb_total",       "sum"),
+                  gb_con_puntos  =("gb_con_puntos",  "sum")))
+    out["gb_total"]      = out["gb_total"].round(2)
+    out["gb_con_puntos"] = out["gb_con_puntos"].round(2)
+    return out[cols]
+
+
 def build_acum_tier_query(desde: str, hasta: str) -> str:
     return _sub(_ACUM_TIER_SQL, desde, hasta)
 
@@ -2453,6 +2581,12 @@ df_acum_tier = pd.concat([
 ], ignore_index=True)
 df_acum_tier = enrich_acum_tier_usd(df_acum_tier, _acum_cy_pre, _acum_ly_pre)
 
+print("\n--- Penetración de GB (% reservas con puntos, por producto) ---")
+df_penet = pd.concat([
+    fetch_penet(ACTUALS_DESDE, ACTUALS_HASTA),
+    fetch_penet(LY_DESDE, LY_HASTA),
+], ignore_index=True)
+
 print("\n--- Construyendo diccionario de puntos ---")
 dict_bytes = build_dict_json()
 print(f"  Dict: {len(dict_bytes)} bytes")
@@ -2539,6 +2673,26 @@ print(f"  iFood enrol:    {len(ifood_bytes)//1024:.0f} KB  ({len(df_ifood):,} fi
 print(f"  Ratio acum.:    {len(ratio_bytes)//1024:.0f} KB  ({len(df_ratio):,} filas)")
 print(f"  Acum x tier:    {len(acum_tier_bytes)//1024:.0f} KB  ({len(df_acum_tier):,} filas)")
 
+META_PENET = {
+    "generated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+    "snapshot_date": str(TODAY),
+    "fuente": (
+        "bi_transactional_fact_transactions x products x charges, "
+        "LEFT JOIN clm_transactions (GA/B, desde 2023-01-01). "
+        "Grano: transaction_code x product_line. "
+        "Ancillaries excluidas (Sin clasificar en regla_producto). "
+        "GB = gross_booking - tax_pais - tax_afip_rg4815 (charges level, "
+        "NO comparable con gb_basebi_2 de _ACUM_SQL / ratio_acum). "
+        "Canales: lista propia de _PENET_SQL (WHERE tr.channel IN (...)), "
+        "distinta del filtro de _ACUM_SQL."
+    ),
+}
+penet_bytes = json.dumps(
+    {"meta": META_PENET, "data": to_compact(df_penet)},
+    ensure_ascii=False, separators=(",", ":"), allow_nan=False,
+).encode("utf-8")
+print(f"  Penetración GB: {len(penet_bytes)//1024:.0f} KB  ({len(df_penet):,} filas)")
+
 _OUT = [
     (acum_cy_bytes,  ACUM_CY_FILE), (acum_ly_bytes,  ACUM_LY_FILE),
     (reden_cy_bytes, REDEN_CY_FILE), (reden_ly_bytes, REDEN_LY_FILE),
@@ -2546,6 +2700,7 @@ _OUT = [
     (miembros_bytes, MIEMBROS_FILE),
     (club_bytes, CLUB_DESPEGAR_FILE), (ifood_bytes, IFOOD_ENROLL_FILE),
     (ratio_bytes, RATIO_ACUM_FILE), (acum_tier_bytes, ACUM_TIER_FILE),
+    (penet_bytes, PENET_FILE),
 ]
 
 if DRY_RUN:

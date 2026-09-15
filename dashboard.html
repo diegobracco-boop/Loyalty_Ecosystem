@@ -1133,6 +1133,76 @@ function renderMetrics(country, m) {
   }
   html += '</div></div>';
 
+  var penetId  = 'sec-penet-' + suffix;
+  var penetCanId = 'ch-penet-' + suffix;
+  var penetOpen = progOpen(penetId, false);
+  var selProd = getPenetProd(suffix);
+  var penetBtns = PENET_PRODUCTS.map(function(p){
+    return '<button class="seg-btn' + (selProd === p ? ' active' : '') + '" type="button"'
+         + ' onclick="setPenetProd(\'' + suffix + '\',\'' + p + '\')">'
+         + p + '</button>';
+  }).join('');
+  html += '<div class="prog-section' + (penetOpen ? '' : ' is-collapsed') + '" id="' + penetId + '">';
+  html += '<div class="prog-title" ' + progTitleAttrs(penetId, suffix, penetOpen) + '>'
+        + '<span>Penetración de GB</span>'
+        + '<span class="prog-caret" aria-hidden="true">&#9662;</span></div>';
+  html += '<div class="prog-body" id="' + penetId + '-body">';
+  if (!RAW.penet) {
+    html += '<div class="empty">loyalty_penetracion_gb.json no disponible</div>';
+  } else {
+    var fy = fyYears();
+    function _penetSeries(yearKey, prod) {
+      var byYm = {};
+      penetRows(country).forEach(function(r) {
+        var rYm = (r.ym || '').substring(0, 7);
+        var rYr = parseInt(rYm.substring(0, 4));
+        if (rYr !== yearKey) return;
+        if (prod !== 'Total' && r.grupo_pnl !== prod) return;
+        byYm[rYm] = byYm[rYm] || { gt: 0, gp: 0 };
+        byYm[rYm].gt += (+r.gb_total      || 0);
+        byYm[rYm].gp += (+r.gb_con_puntos || 0);
+      });
+      return FISCAL_MONTHS.map(function(mm) {
+        var yr = fiscalCalYear(mm, yearKey);
+        var ym = yr + '-' + mm;
+        var d = byYm[ym];
+        return (d && d.gt) ? Math.round(d.gp / d.gt * 1000) / 10 : null;
+      });
+    }
+    var cyrPenet  = _penetSeries(fy.cy, selProd);
+    var lyrPenet  = _penetSeries(fy.ly, selProd);
+    var totalRef  = selProd !== 'Total' ? _penetSeries(fy.cy, 'Total') : null;
+    var lastCy = cyrPenet.filter(function(v){ return v != null; });
+    var lastLy = lyrPenet.filter(function(v){ return v != null; });
+    var lastCyV = lastCy.length ? lastCy[lastCy.length - 1] : null;
+    var lastLyV = lastLy.length ? lastLy[lastLy.length - 1] : null;
+    var kpiSub  = lastCyV != null && lastLyV != null
+                  ? (lastCyV - lastLyV > 0 ? '+' : '') + (lastCyV - lastLyV).toFixed(1) + ' pp YoY · ' + selProd
+                  : selProd;
+    html += '<div class="kpi-row">';
+    html += kpiHtml('% GB con puntos', lastCyV != null ? lastCyV.toFixed(1) + '%' : '—', kpiSub, 'var(--accent)');
+    html += '</div>';
+    html += '<div style="margin-bottom:10px"><div class="seg seg-sm" style="flex-wrap:wrap;gap:4px">'
+          + penetBtns + '</div></div>';
+    html += '<div class="cc"><div class="ct">% de GB con puntos — por mes</div>'
+          + '<div class="cw" style="height:220px"><canvas id="' + penetCanId + '"></canvas></div>'
+          + '<div class="dtable-row"><div class="dtable-label">YoY (pp)</div>'
+          + '<div class="yoy-row" id="yoy-' + penetCanId + '"></div></div></div>';
+    (function(cid, cy, ly, tr) {
+      requestAnimationFrame(function() {
+        buildPenetracionChart(cid, cy, ly, tr);
+        var yoyEl = document.getElementById('yoy-' + cid);
+        if (yoyEl) {
+          var ppArr = cy.map(function(v, i){
+            return (v != null && ly[i] != null) ? +(v - ly[i]).toFixed(1) : null;
+          });
+          yoyEl.innerHTML = ppRowHtml(ppArr);
+        }
+      });
+    })(penetCanId, cyrPenet, lyrPenet, totalRef);
+  }
+  html += '</div></div>';
+
   var cdd = m.cdd || { activos: 0, byPlan: {}, stockByPlanYm: {}, altasByYm: {}, bajasByYm: {} };
   var ifd = m.ifd || { total: 0, byTipo: {}, altasByTipoYm: {}, altasByYm: {} };
 
@@ -1546,6 +1616,17 @@ function yoyRowHtml(prevValues, currValues) {
   }).join('');
 }
 
+// Fila de diferencia YA calculada en puntos porcentuales (no % de variación
+// relativa) — para métricas que ya son un %, como Penetración de GB.
+function ppRowHtml(ppValues) {
+  return FISCAL_LABELS.map(function(lbl, i){
+    var p = ppValues[i];
+    var cell = p == null ? '<span class="neu">—</span>'
+      : '<span class="' + (p >= 0 ? 'pos' : 'neg') + '">' + (p >= 0 ? '+' : '') + p.toFixed(1) + 'pp</span>';
+    return '<div class="yoy-cell"><div class="yoy-m">' + lbl + '</div>' + cell + '</div>';
+  }).join('');
+}
+
 // ============================================================
 // Pasivo — roll-forward mensual de puntos
 // ============================================================
@@ -1790,6 +1871,52 @@ function lightenColor(color) {
 // Meses posteriores al último con datos CY (suma de todos los datasets) atenúan la
 // línea — ahí el año actual todavía no llegó, la línea LY no tiene con qué compararse
 // (mismo criterio "sin dato todavía"/noDataYet que ya usa buildBarChart con priceSeries).
+function buildPenetracionChart(canvasId, cyrSeries, lyrSeries, totalRef) {
+  var ctx = document.getElementById(canvasId);
+  if (!ctx) return;
+  if (CHARTS[canvasId]) { CHARTS[canvasId].destroy(); }
+  var any = (cyrSeries || []).some(function(v){ return v != null; });
+  if (!any) { ctx.parentElement.innerHTML = '<div class="empty" style="padding:20px">Sin datos</div>'; return; }
+  var fy = fyYears();
+  var ds = [];
+  if (totalRef && totalRef.some(function(v){ return v != null; })) {
+    ds.push({ label: 'Total', data: totalRef,
+      borderColor: 'rgba(100,116,139,.4)', borderWidth: 1.5, borderDash: [3,4],
+      pointRadius: 0, tension: .3, fill: false, datalabels: { display: false } });
+  }
+  if (lyrSeries && lyrSeries.some(function(v){ return v != null; })) {
+    ds.push({ label: String(fy.ly), data: lyrSeries,
+      borderColor: 'rgba(85,15,237,.35)', borderWidth: 1.5, borderDash: [5,4],
+      pointRadius: 2, pointBackgroundColor: 'rgba(85,15,237,.35)',
+      tension: .3, fill: false, datalabels: { display: false } });
+  }
+  ds.push({ label: String(fy.cy), data: cyrSeries,
+    borderColor: 'rgba(85,15,237,.85)', borderWidth: 2.5,
+    pointRadius: 3, pointBackgroundColor: 'rgba(85,15,237,.85)',
+    tension: .3, fill: false, datalabels: { display: false } });
+  CHARTS[canvasId] = new Chart(ctx, {
+    type: 'line',
+    data: { labels: FISCAL_LABELS, datasets: ds },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { font: { size: 12 }, boxWidth: 10 } },
+        datalabels: { display: false },
+        tooltip: { callbacks: { label: function(c) {
+          var v = c.parsed.y;
+          return ' ' + c.dataset.label + ': ' + (v != null ? v.toFixed(1) + '%' : '—');
+        }}}
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { size: 12 } } },
+        y: { suggestedMin: 0,
+             grid: { color: '#f1f5f9' },
+             ticks: { font: { size: 12 }, callback: function(v){ return v + '%'; } } }
+      }
+    }
+  });
+}
+
 function buildMixChart(canvasId, datasets) {
   // 100% stacked bar: muestra composición porcentual por mes.
   // datasets: misma forma que buildStackedBarChart [{label, data, backgroundColor}]
@@ -2015,6 +2142,18 @@ function fmtMonthLbl(ym) {
 // del Sheet Config (ver load_regla_producto() en loyalty_sync.py). Si se agrega
 // un grupo P&L nuevo ahi, agregarlo tambien aca — sino cae en el bucket implicito
 // (no aparece como barra propia, pero SI se suma al ratio "Total").
+var PENET_PRODUCTS = [
+  'Total','Flights','Hotels','Packages General',
+  'Cars','Dest. Serv.','Insurance','Vacation Rentals'
+];
+var _penetRowsCache = null;
+var PENET_PROD = {};
+function getPenetProd(suffix) { return PENET_PROD[suffix] || 'Total'; }
+function setPenetProd(suffix, v) { PENET_PROD[suffix] = v; renderCountry(suffix); }
+function penetRows(country) {
+  if (!_penetRowsCache) _penetRowsCache = expand(RAW.penet);
+  return _penetRowsCache.filter(function(r){ return matchCountryCode(r.country_code, country); });
+}
 var RATIO_PRODUCTS = ['Hotels', 'Flights', 'Cars', 'Insurance', 'Dest. Serv.', 'Vacation Rentals', 'Packages General'];
 var RATIO_MODE = {};    // suffix -> 'month' | 'year'
 var RATIO_PERIOD = {};  // suffix -> 'YYYY-MM' (mode month) o anio fiscal, numero (mode year)
@@ -2232,7 +2371,7 @@ function onLoaded(key, data) {
 // "carga incompleta" — hoy solo ratio_acum (loyalty_ratio_acumulacion.json aun
 // no se subio a Drive con una sync real; el resto del codigo ya degrada a "Sin
 // datos" sin romper nada, ver ratioRows/buildRatioBarChart).
-var RAW_OPTIONAL = { ratio_acum: 1, acum_tier: 1 };
+var RAW_OPTIONAL = { ratio_acum: 1, acum_tier: 1, penet: 1 };
 function checkStale() {
   var el = document.getElementById('stale-banner');
   var txt = document.getElementById('stale-banner-text');
@@ -2306,6 +2445,7 @@ document.getElementById('f-period').addEventListener('change', renderActive);
   google.script.run.withSuccessHandler(function(d){ onLoaded('ssp',      d); }).withFailureHandler(function(e){ onError('ssp',      e.message); }).getRawSsp();
   google.script.run.withSuccessHandler(function(d){ onLoaded('ratio_acum', d); }).withFailureHandler(function(e){ onError('ratio_acum', e.message); }).getRawRatioAcum();
   google.script.run.withSuccessHandler(function(d){ onLoaded('acum_tier', d); }).withFailureHandler(function(e){ onError('acum_tier', e.message); }).getRawAcumTier();
+google.script.run.withSuccessHandler(function(d){ onLoaded('penet', d); }).withFailureHandler(function(e){ onError('penet', e.message); }).getRawPenetracionGb();
 })();
 </script>
 </body>
