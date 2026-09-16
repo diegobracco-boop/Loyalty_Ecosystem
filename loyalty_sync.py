@@ -2206,10 +2206,17 @@ def enrich_acum_channel_usd(
 #     concentrados en jul-2026, sin alinear con el accrual real de may-jul) —
 #     si se sumaran acá contra un accrual que en realidad viene de otra
 #     tabla, el rollforward mostraría caídas de stock artificiales. Por eso
-#     se excluyen y en cambio se suma una pata aparte con el accrual REAL
-#     (transaction_type='CA', point_code=IFO_WE_CLU, en clm_transactions —
-#     mismo query que _WCLUBE_CA_SQL/apply_wclube, país fijo BR porque el CA
-#     no trae país). Decisión de fondo: BITACORA 2026-08-31.
+#     se excluyen y en cambio se suma una pata aparte con el accrual REAL,
+#     NETEADO contra su cancelación real (transaction_type IN ('CA','PC'),
+#     point_code=IFO_WE_CLU, en clm_transaction_points — país fijo BR porque
+#     ni CA ni PC traen país). PC es la cancelación real de casi todo el
+#     bono acumulado en may-jul 2026 (confirmado 16-sep: el total de PC en
+#     jul-2026 coincide EXACTO con el reverso de comarch de ese mes — mismo
+#     evento, dos tablas). A diferencia de Acumulaciones (que ignora la
+#     cancelación a propósito para no mostrar barras negativas por el
+#     desalineamiento mensual, ver BITACORA 2026-08-31), acá SÍ hay que
+#     netearla: el stock es un saldo acumulado, no netear la infla para
+#     siempre, no solo en el mes en que ocurre.
 #     País (para el resto de point_type) vía JOIN
 #     clm_transaction_id→clm_transactions→clm_customers (NO ar1.country/
 #     cr1.country directo — confirmado con datos reales que para iFood ese
@@ -2332,16 +2339,27 @@ GROUP BY 1, 2
 
 UNION ALL
 
--- Accrual REAL de Welcome Clube (transaction_type='CA', no está en comarch —
--- ahí solo están los reversos, excluidos arriba). País fijo BR: el CA no
--- trae país (mismo criterio que _WCLUBE_CA_SQL/apply_wclube).
+-- Accrual REAL de Welcome Clube, NETEADO contra su cancelación real
+-- (transaction_type='CA' menos 'PC', ambos en clm_transaction_points, mismo
+-- point_code IFO_WE_CLU — no está en comarch, ahí solo está el reverso con
+-- otro nombre (IFOOD_WELCOME_CLUBE), excluido arriba). PC es la cancelación
+-- real de casi todo el bono acumulado en may-jul 2026 (confirmado: el total
+-- de PC en jul-2026, -9.657.898.919, coincide EXACTO con el reverso de
+-- comarch de ese mes — mismo evento, dos tablas) — sin netearla el stock
+-- queda inflado ~9,66B. País fijo BR: el CA/PC no trae país (mismo criterio
+-- que _WCLUBE_CA_SQL/apply_wclube). Decisión (16-sep, Rosario): acá SÍ
+-- hay que netear la cancelación (a diferencia del gráfico de Acumulaciones,
+-- que la ignora a propósito para no mostrar barras negativas por el
+-- desalineamiento mensual) porque el stock es un saldo acumulado, no un
+-- flujo mensual — no netear la infla para siempre, no solo en el mes en
+-- que ocurre.
 SELECT date_trunc('month', t.processing_date) AS mes, 'BR' AS country_code,
        'accum_neto' AS leg, SUM(tp.points) AS puntos
 FROM data.lake.clm_transactions t
 JOIN data.lake.clm_transaction_points tp ON t.id = tp.source_transaction_id
 JOIN data.lake.clm_point_types pt        ON tp.points_type_id = pt.id
 WHERE t.status = 'B'
-  AND t.transaction_type = 'CA'
+  AND t.transaction_type IN ('CA', 'PC')
   AND pt.code = 'IFO_WE_CLU'
   AND t.processing_date >= {{Desde}}
   AND t.processing_date <  {{Hasta}}
@@ -3113,10 +3131,10 @@ META_STOCK_IFOOD = {
         "(accrual) + clm_transactions/clm_transaction_points (redención vía "
         "tipopunto GR+GA/REFUND, vencimiento vía points_status='E' agrupado "
         "por expiration_date). Incluye Welcome Clube (IFO_WE_CLU): accrual "
-        "real vía transaction_type='CA' (no comarch, que solo trae los "
-        "reversos con nombre IFOOD_WELCOME_CLUBE, excluidos por no alinear "
-        "en el tiempo con el accrual real — mismo criterio que apply_wclube "
-        "en acumulaciones). País vía "
+        "real vía transaction_type IN ('CA','PC'), neteando la cancelación "
+        "real (PC) — a diferencia de Acumulaciones (apply_wclube), que la "
+        "ignora a propósito para el gráfico mensual; acá es un saldo y no "
+        "netearla lo infla para siempre. País vía "
         "clm_customers.ext_country_program. Adaptado del análisis FCA "
         "(bitácora FCA Loyalty, 18-ago), que era global sin país. Stock de "
         f"apertura en {LY_DESDE[:7]} asumido 0 (sin actividad real anterior)."
