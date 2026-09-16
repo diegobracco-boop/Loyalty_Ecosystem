@@ -1612,7 +1612,10 @@ function renderMetrics(country, m) {
         var yr = parseInt(ym.substring(0, 4));
         var dk = rowCountryKey(row, country);
         var val = +row.stock_cierre || 0;
-        if (mode === 'USD') { val = val * (sspFactor(dk, ym) || 0); }
+        // sspFactor() es negativo por convención (costo/descuento por punto) — hay
+        // que invertir el signo, igual que getAcumUsd/getBankRevenueCost, si no un
+        // stock (siempre ≥0) sale negativo en $ (ver getAcumUsd más arriba).
+        if (mode === 'USD') { val = val * Math.abs(sspFactor(dk, ym) || 0); }
         if (yr === fy.cy)      { stkMapCY[ym] = val; }
         else if (yr === fy.ly) { stkMapLY[ym] = val; }
       });
