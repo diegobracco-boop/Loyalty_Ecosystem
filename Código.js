@@ -66,15 +66,34 @@ function getLoyForecast() { return _loyPnl('forecast.json', 'loy_forecast'); }
 
 // ---- Internal helpers ----
 
+// El dashboard dispara ~18 llamadas google.script.run simultáneas al cargar,
+// cada una con su propio DriveApp.getFolderById/getFilesByName — bajo carga
+// concurrente eso puede pasar la cuota de Drive por usuario/100s y tira
+// "Error de servicio: Drive" (transitorio, no un problema de datos). Retry
+// con backoff exponencial absorbe eso.
+function _withDriveRetry_(fn) {
+  var lastErr;
+  for (var attempt = 0; attempt < 5; attempt++) {
+    try {
+      return fn();
+    } catch (e) {
+      lastErr = e;
+      if (String(e).indexOf('Drive') === -1) throw e;
+      Utilities.sleep(300 * Math.pow(2, attempt) + Math.floor(Math.random() * 200));
+    }
+  }
+  throw lastErr;
+}
+
 function _loyPnl(filename, baseKey) {
-  var folder = DriveApp.getFolderById(BASELINE_FOLDER_ID);
-  var files  = folder.getFilesByName(filename);
+  var folder = _withDriveRetry_(function() { return DriveApp.getFolderById(BASELINE_FOLDER_ID); });
+  var files  = _withDriveRetry_(function() { return folder.getFilesByName(filename); });
   if (!files.hasNext()) throw new Error('No encontrado en Drive: ' + filename);
   var file   = files.next();
-  var key    = baseKey + '_' + file.getLastUpdated().getTime();
+  var key    = baseKey + '_' + _withDriveRetry_(function() { return file.getLastUpdated().getTime(); });
   var cached = cacheGet_(key);
   if (cached) return JSON.parse(cached);
-  var raw = JSON.parse(file.getBlob().getDataAsString());
+  var raw = JSON.parse(_withDriveRetry_(function() { return file.getBlob().getDataAsString(); }));
   // Acople cross-repo: estas columnas las define Inputs_Planning_PnL (repo B2B).
   // Si renombran alguna, sin este guard el P&L Contable quedaría vacío sin error.
   ['P&L N1', 'Pais', 'Fecha', 'Monto USD'].forEach(function(c) {
@@ -97,14 +116,14 @@ function _loyPnl(filename, baseKey) {
 }
 
 function _load(folderId, filename, baseKey) {
-  var folder = DriveApp.getFolderById(folderId);
-  var files  = folder.getFilesByName(filename);
+  var folder = _withDriveRetry_(function() { return DriveApp.getFolderById(folderId); });
+  var files  = _withDriveRetry_(function() { return folder.getFilesByName(filename); });
   if (!files.hasNext()) throw new Error('No encontrado en Drive: ' + filename);
   var file   = files.next();
-  var key    = baseKey + '_' + file.getLastUpdated().getTime();
+  var key    = baseKey + '_' + _withDriveRetry_(function() { return file.getLastUpdated().getTime(); });
   var cached = cacheGet_(key);
   if (cached) return JSON.parse(cached);
-  var raw = file.getBlob().getDataAsString();
+  var raw = _withDriveRetry_(function() { return file.getBlob().getDataAsString(); });
   cachePut_(key, raw);
   return JSON.parse(raw);
 }
