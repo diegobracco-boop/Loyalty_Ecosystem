@@ -2191,29 +2191,42 @@ def enrich_acum_channel_usd(
 # miembros) — en la práctica el 100% del volumen real es Brasil, así que solo
 # aparece en la pestaña BR + TOTAL, pero no queda hardcodeado.
 #
-# Bucket "resto" = todo point_type/point_code IF% EXCEPTO IFOOD_WELCOME_CLUBE
-# / IFO_WE_CLU (bug de duplicación del welcome bonus Clube, corregido — no es
-# un stock real comparable, ver bitácora FCA 18-ago). Rollforward:
+# Bucket "resto" + Welcome Clube (IFO_WE_CLU/IFOOD_WELCOME_CLUBE) incluidos
+# (16-sep, a pedido de Rosario, mismo criterio que ya usa apply_wclube() para
+# acumulaciones — ver más abajo _WCLUBE_CA_SQL/apply_wclube). Rollforward:
 #   Stock(mes) = Stock(mes-1) + Acum_neto(mes) − Redimido(mes) − Vencido(mes)
 # calculado en pandas (cumsum) sobre la ventana LY_DESDE→ACTUALS_HASTA, que
 # ya es contigua sin gap (LY_HASTA == ACTUALS_DESDE) — alcanza para stock de
 # apertura ≈0 porque iFood no tiene actividad real antes de esa ventana
 # (dato más viejo: IFOOD_BR jun-2025, dentro de LY).
 #   - Acum_neto: comarch_accumulation_report (dsp_transaction_type<>'REFUND')
-#     menos comarch_cancellation_report, point_type IF% excl. WELCOME_CLUBE.
-#     País vía JOIN clm_transaction_id→clm_transactions→clm_customers (NO
-#     ar1.country/cr1.country directo — confirmado con datos reales que para
-#     iFood ese campo viene NULL, mismo problema ya resuelto para FORTUNE/
-#     MISSIONS en _ACUM_ER_COUNTRY_SQL/apply_acum_er_country más abajo, que
-#     usa exactamente el mismo join).
+#     menos comarch_cancellation_report, point_type IF% EXCEPTO
+#     IFOOD_WELCOME_CLUBE — ese point_type en comarch NO es un accrual real,
+#     son los REVERSOS de Welcome Clube (puntos negativos, casi todos
+#     concentrados en jul-2026, sin alinear con el accrual real de may-jul) —
+#     si se sumaran acá contra un accrual que en realidad viene de otra
+#     tabla, el rollforward mostraría caídas de stock artificiales. Por eso
+#     se excluyen y en cambio se suma una pata aparte con el accrual REAL
+#     (transaction_type='CA', point_code=IFO_WE_CLU, en clm_transactions —
+#     mismo query que _WCLUBE_CA_SQL/apply_wclube, país fijo BR porque el CA
+#     no trae país). Decisión de fondo: BITACORA 2026-08-31.
+#     País (para el resto de point_type) vía JOIN
+#     clm_transaction_id→clm_transactions→clm_customers (NO ar1.country/
+#     cr1.country directo — confirmado con datos reales que para iFood ese
+#     campo viene NULL, mismo problema ya resuelto para FORTUNE/MISSIONS en
+#     _ACUM_ER_COUNTRY_SQL/apply_acum_er_country más abajo, que usa
+#     exactamente el mismo join).
 #   - Redimido: CTE tipopunto (GR + GA/REFUND, con la rama de corrección de
-#     no-reembolsables), point_code IF% excl. IFO_WE_CLU — mismo patrón que
-#     tipopunto_raw de _REDEN_SQL, pero simplificado (sin el join a fact
-#     products/transactions, no hace falta producto acá) y con país agregado.
+#     no-reembolsables), point_code IF% INCLUIDO IFO_WE_CLU — a diferencia
+#     del accrual, las redenciones de Welcome Clube sí están bien
+#     representadas en clm_transaction_points (mismo patrón que usa
+#     _REDEN_SQL para el resto de point_type iFood, ver final_base más
+#     arriba), no hace falta excluirlas.
 #   - Vencido: SUM(points) WHERE points_status='E', agrupado por
 #     expiration_date (fecha REAL de vencimiento, NO processing_date — la
 #     fila de origen no se reinserta cuando cambia el status, ver bitácora
-#     FCA 18-ago Hallazgo 4), point_code IF% excl. IFO_WE_CLU.
+#     FCA 18-ago Hallazgo 4), point_code IF% INCLUIDO IFO_WE_CLU (mismo
+#     motivo que Redimido — vencimientos sí están bien representados acá).
 # ──────────────────────────────────────────────────────────────────────────
 _STOCK_IFOOD_SQL = """
 WITH tipopunto_raw AS (
@@ -2234,7 +2247,7 @@ WITH tipopunto_raw AS (
             t.transaction_type = 'GR'
          OR (t.transaction_type = 'GA' AND t.ext_despegar_trn_type = 'REFUND')
           )
-      AND UPPER(pt.code) LIKE 'IF%' AND pt.code <> 'IFO_WE_CLU'
+      AND UPPER(pt.code) LIKE 'IF%'
     GROUP BY 1, 2, 3, 4
 
     UNION ALL
@@ -2260,7 +2273,7 @@ WITH tipopunto_raw AS (
           AND t.processing_date <  {{Hasta}}
           AND t.status = 'B'
           AND t.transaction_type = 'GR'
-          AND UPPER(pt.code) LIKE 'IF%' AND pt.code <> 'IFO_WE_CLU'
+          AND UPPER(pt.code) LIKE 'IF%'
         GROUP BY 1, 2, 3, 4
     ) tp_orig
     INNER JOIN (
@@ -2319,6 +2332,23 @@ GROUP BY 1, 2
 
 UNION ALL
 
+-- Accrual REAL de Welcome Clube (transaction_type='CA', no está en comarch —
+-- ahí solo están los reversos, excluidos arriba). País fijo BR: el CA no
+-- trae país (mismo criterio que _WCLUBE_CA_SQL/apply_wclube).
+SELECT date_trunc('month', t.processing_date) AS mes, 'BR' AS country_code,
+       'accum_neto' AS leg, SUM(tp.points) AS puntos
+FROM data.lake.clm_transactions t
+JOIN data.lake.clm_transaction_points tp ON t.id = tp.source_transaction_id
+JOIN data.lake.clm_point_types pt        ON tp.points_type_id = pt.id
+WHERE t.status = 'B'
+  AND t.transaction_type = 'CA'
+  AND pt.code = 'IFO_WE_CLU'
+  AND t.processing_date >= {{Desde}}
+  AND t.processing_date <  {{Hasta}}
+GROUP BY 1
+
+UNION ALL
+
 SELECT mes, country_code, 'redimido' AS leg, SUM(puntosv2) AS puntos
 FROM tipopunto_raw
 GROUP BY mes, country_code
@@ -2332,7 +2362,7 @@ JOIN data.lake.clm_transaction_points tp ON t.id = tp.source_transaction_id
 JOIN data.lake.clm_point_types pt        ON tp.points_type_id = pt.id
 JOIN data.lake.clm_customers cm          ON t.account_id = cm.account_id
 WHERE tp.points_status = 'E'
-  AND UPPER(pt.code) LIKE 'IF%' AND pt.code <> 'IFO_WE_CLU'
+  AND UPPER(pt.code) LIKE 'IF%'
   AND tp.expiration_date >= {{Desde}}
   AND tp.expiration_date <  {{Hasta}}
 GROUP BY 1, 2
@@ -3082,8 +3112,11 @@ META_STOCK_IFOOD = {
         "Vencido) sobre comarch_accumulation_report/cancellation_report "
         "(accrual) + clm_transactions/clm_transaction_points (redención vía "
         "tipopunto GR+GA/REFUND, vencimiento vía points_status='E' agrupado "
-        "por expiration_date). Bucket 'resto': point_type/point_code IF% "
-        "excluyendo IFOOD_WELCOME_CLUBE/IFO_WE_CLU. País vía "
+        "por expiration_date). Incluye Welcome Clube (IFO_WE_CLU): accrual "
+        "real vía transaction_type='CA' (no comarch, que solo trae los "
+        "reversos con nombre IFOOD_WELCOME_CLUBE, excluidos por no alinear "
+        "en el tiempo con el accrual real — mismo criterio que apply_wclube "
+        "en acumulaciones). País vía "
         "clm_customers.ext_country_program. Adaptado del análisis FCA "
         "(bitácora FCA Loyalty, 18-ago), que era global sin país. Stock de "
         f"apertura en {LY_DESDE[:7]} asumido 0 (sin actividad real anterior)."
