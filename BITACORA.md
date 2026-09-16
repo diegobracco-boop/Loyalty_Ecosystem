@@ -5,6 +5,101 @@ Formato: fecha · tipo · descripción · archivos afectados.
 
 ---
 
+## 2026-09-16
+
+### fix — Cuota de Drive agotada por carga concurrente (dashboard caído)
+**Commits:** `7e6279e`, `02a09fc`
+**Archivos:** `Código.js`, `dashboard.html`
+
+Al agregar los 3 JSON nuevos del 15-sep (penetración GB, acum por canal, stock
+iFood) el dashboard pasó de 15 a 18 llamadas `google.script.run` en paralelo al
+cargar, cada una con sus propias llamadas a `DriveApp` — eso agotaba la cuota de
+ráfaga de Drive por usuario/100s y tiraba `Error de servicio: Drive` en un
+subconjunto aleatorio de archivos cada vez (reproducido en consola real del
+navegador). Un primer intento con retry+backoff individual (`7e6279e`) no
+alcanzó porque las 18 ejecuciones concurrentes competían todas por la misma
+ventana de cuota a la vez.
+
+Fix real (`02a09fc`): `getAllRaw()` en `Código.js` corre las 18 cargas
+SECUENCIALMENTE dentro de UNA sola ejecución de Apps Script (aislando el error
+de cada archivo con try/catch individual, no todo-o-nada); `dashboard.html`
+ahora hace una sola llamada `google.script.run` en vez de 18 en paralelo. De
+paso se corrigió `TOTAL=15` en `dashboard.html`, que había quedado
+desactualizado desde que se agregaron los 3 JSON nuevos (la pantalla de carga
+podía ocultarse antes de que terminaran de llegar todos los datos).
+
+**Moraleja:** cada JSON nuevo que se agregue al dashboard debe pasar SIEMPRE
+por `getAllRaw()` (Código.js) — nunca agregar una llamada `google.script.run`
+suelta en el init de `dashboard.html`, por chica que sea la carga: la cuota de
+Drive es por ráfaga de ejecuciones concurrentes, no por tamaño de archivo.
+
+### fix — KeyError acum_neto→accum_neto en fetch_stock_ifood (sync real caída)
+**Commits:** `d0a40e3`
+**Archivos:** `loyalty_sync.py`
+
+`cols` pedía la columna `acum_neto` pero el resto de la función (`fetch_stock_ifood`,
+commit `9193e28` del 15-sep) usaba `accum_neto` — `KeyError` al armar el
+DataFrame final, la sync real fallaba completa al llegar a "Stock de puntos
+iFood en la calle" (nunca llegaba a subir nada a Drive). Detectado corriendo
+`--dry-run` antes de la sync real, a pedido de Rosario.
+
+### fix — Vista $ del stock iFood daba negativa (signo de sspFactor)
+**Commits:** `d9fb159`
+**Archivos:** `dashboard.html`
+
+`sspFactor()` es negativo por convención en todo el dashboard (representa un
+costo/descuento por punto — ver `getAcumUsd`/`getBankRevenueCost`, que invierten
+el signo con `-()` o `Math.abs()`). El gráfico nuevo de "Stock de puntos iFood en
+la calle" (15-sep) multiplicaba el stock directo por `sspFactor()` sin invertir:
+stock (siempre ≥0) × factor negativo = $ negativo en TODOS los meses en modo
+Vista $, aunque el stock en puntos (Q) y los datos del pipeline siempre
+estuvieron bien. Detectado por Rosario ("el stock de puntos en la calle da
+negativo todos los meses, no tiene sentido").
+
+### feat/fix — Stock iFood: incluir Welcome Clube neteando su cancelación real
+**Commits:** `47493eb`, `4f64b08`
+**Archivos:** `loyalty_sync.py`
+
+A pedido de Rosario, `loyalty_stock_ifood.json` pasó a incluir Welcome Clube
+(`IFO_WE_CLU`/`IFOOD_WELCOME_CLUBE`), antes excluido por completo del rollforward.
+
+Primer intento (`47493eb`): sumar el accrual real (`transaction_type='CA'`,
+`clm_transactions`, no está en `comarch_accumulation_report` — ahí solo están
+los reversos bajo el nombre `IFOOD_WELCOME_CLUBE`, ya excluidos por ser el
+mismo criterio de `apply_wclube()` en Acumulaciones). Insuficiente: infló el
+stock ~9,66B puntos porque no neteaba la cancelación real.
+
+Investigado a pedido de Rosario ("el stock no deja de crecer aunque hubo una
+acumulación masiva en junio que ya debería haber vencido — ¿estás tomando bien
+las cancelaciones?"). Hallazgo, confirmado contra el datalake real: el accrual
+`CA` de Welcome Clube se cancela casi por completo poco después vía
+`transaction_type='PC'` — misma tabla (`clm_transaction_points`), mismo
+`point_code IFO_WE_CLU`. El total de `PC` en jul-2026 (-9.657.898.919) coincide
+EXACTO con el reverso `IFOOD_WELCOME_CLUBE` de comarch de ese mes: es el mismo
+evento real, registrado en dos tablas con dos nombres distintos.
+
+Fix (`4f64b08`): la pata de accrual real ahora suma `CA` **y** `PC` juntos
+(`PC` ya viene negativo). A diferencia del gráfico de Acumulaciones
+(`apply_wclube`), que ignora esta cancelación a propósito para no mostrar
+barras negativas en un chart mensual (decisión de Rosario, BITACORA
+2026-08-31), en el stock **sí** hay que netearla: es un saldo acumulado, no
+netear la cancelación lo infla para siempre, no solo en el mes en que ocurre.
+
+Validado con `--dry-run`: jul-2026 pasa a mostrar `accum_neto` negativo
+(refleja la cancelación real) y el stock total a sep-2026 baja de ~22,15B a
+~12,50B (–9,66B, la magnitud exacta de PC). Sync real corrida y subida a Drive
+después de cada uno de los 4 fixes de este día.
+
+**Moraleja:** Welcome Clube tiene una fuente de datos rota/inconsistente entre
+tablas (accrual real solo en `clm_transactions` vía `CA`, cancelación real solo
+vía `PC` en la misma tabla, y comarch solo ve un reverso con nombre distinto
+que no es comparable 1:1 en el tiempo). Cualquier métrica nueva sobre Welcome
+Clube tiene que decidir explícitamente cómo tratar `CA`/`PC`/el reverso de
+comarch — no asumir que el criterio de Acumulaciones (`apply_wclube`, gross
+sin netear) sirve para un saldo/stock.
+
+---
+
 ## 2026-09-15
 
 ### feat — Gráfico de mix por tier (% composición mensual)
