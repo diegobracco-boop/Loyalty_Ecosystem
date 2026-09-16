@@ -2349,7 +2349,7 @@ def fetch_stock_ifood(desde: str, hasta: str) -> pd.DataFrame:
     - vencido. El cumsum arranca en `desde` con stock_apertura=0 (seguro:
     iFood no tiene actividad real antes de LY_DESDE, ver comentario arriba).
     """
-    cols = ["processing_date", "country_code", "acum_neto", "redimido",
+    cols = ["processing_date", "country_code", "accum_neto", "redimido",
             "vencido", "stock_cierre"]
     df = fetch(build_stock_ifood_query(desde, hasta),
                "Stock de puntos iFood en la calle")
