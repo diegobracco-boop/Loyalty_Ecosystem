@@ -530,7 +530,7 @@ var RAW = { acum_cy: null, acum_ly: null, reden_cy: null, reden_ly: null, breaka
             baseline: null, budget: null, forecast: null, dict: null, ssp: null, ratio_acum: null,
             acum_tier: null };
 var LOADED = 0;
-var TOTAL  = 15;
+var TOTAL  = 18;
 var ACTIVE_COUNTRY = 'total';
 var CHARTS = {};
 
@@ -2545,26 +2545,27 @@ document.getElementById('f-fmt').addEventListener('change', renderActive);
 document.getElementById('f-scenario').addEventListener('change', renderActive);
 document.getElementById('f-period').addEventListener('change', renderActive);
 
-// Init
+// Init — UNA sola llamada server-side (getAllRaw) en vez de ~18 en paralelo:
+// 18 ejecuciones concurrentes, cada una con sus propias llamadas a DriveApp,
+// agotaban la cuota de ráfaga de Drive ("Error de servicio: Drive") sin que
+// el retry individual alcanzara a absorberlo. getAllRaw() las corre todas
+// secuencialmente dentro de una sola ejecución, aislando el error de cada
+// archivo por separado (ver Código.js).
 (function() {
-  google.script.run.withSuccessHandler(function(d){ onLoaded('acum_cy',  d); }).withFailureHandler(function(e){ onError('acum_cy',  e.message); }).getRawAcumCY();
-  google.script.run.withSuccessHandler(function(d){ onLoaded('acum_ly',  d); }).withFailureHandler(function(e){ onError('acum_ly',  e.message); }).getRawAcumLY();
-  google.script.run.withSuccessHandler(function(d){ onLoaded('reden_cy', d); }).withFailureHandler(function(e){ onError('reden_cy', e.message); }).getRawRedenCY();
-  google.script.run.withSuccessHandler(function(d){ onLoaded('reden_ly', d); }).withFailureHandler(function(e){ onError('reden_ly', e.message); }).getRawRedenLY();
-  google.script.run.withSuccessHandler(function(d){ onLoaded('breakage', d); }).withFailureHandler(function(e){ onError('breakage', e.message); }).getRawBreakage();
-  google.script.run.withSuccessHandler(function(d){ onLoaded('miembros', d); }).withFailureHandler(function(e){ onError('miembros', e.message); }).getRawMiembros();
-  google.script.run.withSuccessHandler(function(d){ onLoaded('club',  d); }).withFailureHandler(function(e){ onError('club',  e.message); }).getRawClub();
-  google.script.run.withSuccessHandler(function(d){ onLoaded('ifood', d); }).withFailureHandler(function(e){ onError('ifood', e.message); }).getRawIfood();
-  google.script.run.withSuccessHandler(function(d){ onLoaded('baseline', d); }).withFailureHandler(function(e){ onError('baseline', e.message); }).getLoyBaseline();
-  google.script.run.withSuccessHandler(function(d){ onLoaded('budget',   d); }).withFailureHandler(function(e){ onError('budget',   e.message); }).getLoyBudget();
-  google.script.run.withSuccessHandler(function(d){ onLoaded('forecast', d); }).withFailureHandler(function(e){ onError('forecast', e.message); }).getLoyForecast();
-  google.script.run.withSuccessHandler(function(d){ onLoaded('dict',     d); }).withFailureHandler(function(e){ onError('dict',     e.message); }).getRawDict();
-  google.script.run.withSuccessHandler(function(d){ onLoaded('ssp',      d); }).withFailureHandler(function(e){ onError('ssp',      e.message); }).getRawSsp();
-  google.script.run.withSuccessHandler(function(d){ onLoaded('ratio_acum', d); }).withFailureHandler(function(e){ onError('ratio_acum', e.message); }).getRawRatioAcum();
-  google.script.run.withSuccessHandler(function(d){ onLoaded('acum_tier', d); }).withFailureHandler(function(e){ onError('acum_tier', e.message); }).getRawAcumTier();
-google.script.run.withSuccessHandler(function(d){ onLoaded('penet', d); }).withFailureHandler(function(e){ onError('penet', e.message); }).getRawPenetracionGb();
-google.script.run.withSuccessHandler(function(d){ onLoaded('acum_channel', d); }).withFailureHandler(function(e){ onError('acum_channel', e.message); }).getRawAcumChannel();
-google.script.run.withSuccessHandler(function(d){ onLoaded('stock_ifood', d); }).withFailureHandler(function(e){ onError('stock_ifood', e.message); }).getRawStockIfood();
+  google.script.run.withSuccessHandler(function(all) {
+    Object.keys(all).forEach(function(k) {
+      var r = all[k];
+      if (r.ok) onLoaded(k, r.data); else onError(k, r.error);
+    });
+  }).withFailureHandler(function(e) {
+    // Falla total e inesperada de getAllRaw (no debería pasar: cada key ya
+    // se aisla adentro) — marcar todo como error para no dejar la pantalla
+    // de carga colgada.
+    Object.keys(RAW_OPTIONAL).concat(
+      ['acum_cy','acum_ly','reden_cy','reden_ly','breakage','miembros',
+       'club','ifood','baseline','budget','forecast','dict','ssp']
+    ).forEach(function(k) { if (!(k in RAW)) onError(k, e.message); });
+  }).getAllRaw();
 })();
 </script>
 </body>

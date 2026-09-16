@@ -57,6 +57,33 @@ function getRawPenetracionGb()  { return _load(LOYALTY_FOLDER_ID,  FILES.penet, 
 function getRawAcumChannel()    { return _load(LOYALTY_FOLDER_ID,  FILES.acum_channel, 'acum_channel'); }
 function getRawStockIfood()     { return _load(LOYALTY_FOLDER_ID,  FILES.stock_ifood, 'stock_ifood'); }
 
+// Carga TODO en una sola ejecución server-side (secuencial), en vez de que el
+// cliente dispare ~18 google.script.run en paralelo — eso es lo que agotaba
+// la cuota de ráfaga de Drive (18 ejecuciones concurrentes, cada una con sus
+// propias llamadas a DriveApp, ya no era cuestión de reintentar: todas
+// competían por la misma ventana de cuota a la vez). Con una sola ejecución
+// las llamadas a Drive son secuenciales, no concurrentes, y _withDriveRetry_
+// alcanza para absorber cualquier hiccup transitorio real.
+function getAllRaw() {
+  var out = {};
+  var getters = {
+    acum_cy: getRawAcumCY, acum_ly: getRawAcumLY,
+    reden_cy: getRawRedenCY, reden_ly: getRawRedenLY,
+    breakage: getRawBreakage, miembros: getRawMiembros,
+    club: getRawClub, ifood: getRawIfood,
+    dict: getRawDict, ssp: getRawSsp,
+    ratio_acum: getRawRatioAcum, acum_tier: getRawAcumTier,
+    penet: getRawPenetracionGb, acum_channel: getRawAcumChannel,
+    stock_ifood: getRawStockIfood,
+    baseline: getLoyBaseline, budget: getLoyBudget, forecast: getLoyForecast
+  };
+  Object.keys(getters).forEach(function(k) {
+    try { out[k] = { ok: true, data: getters[k]() }; }
+    catch (e) { out[k] = { ok: false, error: String(e && e.message || e) }; }
+  });
+  return out;
+}
+
 // P&L Contable: mismos JSON canónicos que consumen las landings B2B
 // (Inputs_Planning_PnL). Se filtran a las líneas de loyalty server-side para
 // mandar ~4k filas al cliente en vez de ~70k.
