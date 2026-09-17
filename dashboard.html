@@ -285,6 +285,20 @@ table.bk tr:hover td { background: #f8fafc; }
 <script>
 if (window.ChartDataLabels) Chart.register(ChartDataLabels);
 
+// Agranda el alto reservado de la leyenda para separarla del área del gráfico
+// (legend.labels.padding solo separa los ITEMS entre sí, no la leyenda del chart).
+Chart.register({
+  id: 'legendBottomGap',
+  beforeInit: function(chart) {
+    if (!chart.legend) return;
+    var originalFit = chart.legend.fit;
+    chart.legend.fit = function() {
+      originalFit.bind(this)();
+      this.height += 20;
+    };
+  }
+});
+
 // ============================================================
 // Country & program config
 // ============================================================
@@ -2003,7 +2017,7 @@ function buildBarChart(canvasId, prevValues, currValues, prevLabel, currLabel, c
     options: {
       responsive: true, maintainAspectRatio: false,
       layout: { padding: { top: 4 } },
-      plugins: { legend: { labels: { font: { size: 12 }, boxWidth: 10, padding: 34 } } },
+      plugins: { legend: { labels: { font: { size: 12 }, boxWidth: 10, padding: 10 } } },
       scales: scales
     }
   });
@@ -2059,7 +2073,7 @@ function buildPenetracionChart(canvasId, cyrSeries, lyrSeries, totalRef) {
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: {
-        legend: { labels: { font: { size: 12 }, boxWidth: 10, padding: 34 } },
+        legend: { labels: { font: { size: 12 }, boxWidth: 10, padding: 10 } },
         datalabels: { display: false },
         tooltip: { callbacks: { label: function(c) {
           var v = c.parsed.y;
@@ -2120,7 +2134,7 @@ function buildMixChart(canvasId, datasets, opts) {
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: {
-        legend: { display: !!opts.legend, labels: { font: { size: 12 }, boxWidth: 10, padding: 34 } },
+        legend: { display: !!opts.legend, labels: { font: { size: 12 }, boxWidth: 10, padding: 10 } },
         datalabels: { display: true },
         tooltip: {
           callbacks: {
@@ -2181,7 +2195,7 @@ function buildStackedBarChart(canvasId, datasets, fmtFn, stacked, lineOverlay) {
     data: { labels: FISCAL_LABELS, datasets: ds },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { labels: { font: { size: 12 }, boxWidth: 10, padding: 34 } }, datalabels: { display: false } },
+      plugins: { legend: { labels: { font: { size: 12 }, boxWidth: 10, padding: 10 } }, datalabels: { display: false } },
       scales: {
         x: { stacked: stacked, grid: { display: false }, ticks: { font: { size: 12 } } },
         y: { stacked: stacked, grid: { color: '#f1f5f9' }, ticks: { font: { size: 12 }, callback: function(v){ return fmtFn(v); } } }
@@ -2233,7 +2247,7 @@ function buildRatioBarChart(canvasId, categories, shadowValues, currValues, shad
     options: {
       responsive: true, maintainAspectRatio: false,
       layout: { padding: { top: 4 } },
-      plugins: { legend: { labels: { font: { size: 12 }, boxWidth: 10, padding: 34 } } },
+      plugins: { legend: { labels: { font: { size: 12 }, boxWidth: 10, padding: 10 } } },
       scales: {
         x: { grid: { display: false },
              ticks: { font: { size: 11 },
