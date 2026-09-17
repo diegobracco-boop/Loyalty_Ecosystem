@@ -170,13 +170,13 @@ table.pnl tr.grand-total td.tc { background: #0f172a !important; }
 .ratio-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .ratio-controls-lbl { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .3px; }
 .ratio-sel { font-size: 12px; font-weight: 600; color: var(--text); background: #eef1f5; border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; min-width: 90px; }
-.ratio-hint { font-size: 11px; color: var(--muted); margin: -6px 0 10px; }
+.ratio-hint { font-size: 11px; color: var(--muted); margin: 0 0 10px; }
 
 /* ---- Charts ---- */
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
 @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
 .cc { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
-.ct { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 10px; }
+.ct { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 4px; }
 .cw { position: relative; height: 220px; }
 
 /* ---- Filas de datos bajo cada grafico evolutivo (YoY, precio/pt) ---- */
@@ -1133,76 +1133,6 @@ function renderMetrics(country, m) {
   }
   html += '</div></div>';
 
-  var penetId  = 'sec-penet-' + suffix;
-  var penetCanId = 'ch-penet-' + suffix;
-  var penetOpen = progOpen(penetId, false);
-  var selProd = getPenetProd(suffix);
-  var penetBtns = PENET_PRODUCTS.map(function(p){
-    return '<button class="seg-btn' + (selProd === p ? ' active' : '') + '" type="button"'
-         + ' onclick="setPenetProd(\'' + suffix + '\',\'' + p + '\')">'
-         + p + '</button>';
-  }).join('');
-  html += '<div class="prog-section' + (penetOpen ? '' : ' is-collapsed') + '" id="' + penetId + '">';
-  html += '<div class="prog-title" ' + progTitleAttrs(penetId, suffix, penetOpen) + '>'
-        + '<span>Penetración de GB</span>'
-        + '<span class="prog-caret" aria-hidden="true">&#9662;</span></div>';
-  html += '<div class="prog-body" id="' + penetId + '-body">';
-  if (!RAW.penet) {
-    html += '<div class="empty">loyalty_penetracion_gb.json no disponible</div>';
-  } else {
-    var fy = fyYears();
-    function _penetSeries(yearKey, prod) {
-      var byYm = {};
-      penetRows(country).forEach(function(r) {
-        var rYm = (r.ym || '').substring(0, 7);
-        var rYr = parseInt(rYm.substring(0, 4));
-        if (rYr !== yearKey) return;
-        if (prod !== 'Total' && r.grupo_pnl !== prod) return;
-        byYm[rYm] = byYm[rYm] || { gt: 0, gp: 0 };
-        byYm[rYm].gt += (+r.gb_total      || 0);
-        byYm[rYm].gp += (+r.gb_con_puntos || 0);
-      });
-      return FISCAL_MONTHS.map(function(mm) {
-        var yr = fiscalCalYear(mm, yearKey);
-        var ym = yr + '-' + mm;
-        var d = byYm[ym];
-        return (d && d.gt) ? Math.round(d.gp / d.gt * 1000) / 10 : null;
-      });
-    }
-    var cyrPenet  = _penetSeries(fy.cy, selProd);
-    var lyrPenet  = _penetSeries(fy.ly, selProd);
-    var totalRef  = selProd !== 'Total' ? _penetSeries(fy.cy, 'Total') : null;
-    var lastCy = cyrPenet.filter(function(v){ return v != null; });
-    var lastLy = lyrPenet.filter(function(v){ return v != null; });
-    var lastCyV = lastCy.length ? lastCy[lastCy.length - 1] : null;
-    var lastLyV = lastLy.length ? lastLy[lastLy.length - 1] : null;
-    var kpiSub  = lastCyV != null && lastLyV != null
-                  ? (lastCyV - lastLyV > 0 ? '+' : '') + (lastCyV - lastLyV).toFixed(1) + ' pp YoY · ' + selProd
-                  : selProd;
-    html += '<div class="kpi-row">';
-    html += kpiHtml('% GB con puntos', lastCyV != null ? lastCyV.toFixed(1) + '%' : '—', kpiSub, 'var(--accent)');
-    html += '</div>';
-    html += '<div style="margin-bottom:10px"><div class="seg seg-sm" style="flex-wrap:wrap;gap:4px">'
-          + penetBtns + '</div></div>';
-    html += '<div class="cc"><div class="ct">% de GB con puntos — por mes</div>'
-          + '<div class="cw" style="height:220px"><canvas id="' + penetCanId + '"></canvas></div>'
-          + '<div class="dtable-row"><div class="dtable-label">YoY (pp)</div>'
-          + '<div class="yoy-row" id="yoy-' + penetCanId + '"></div></div></div>';
-    (function(cid, cy, ly, tr) {
-      requestAnimationFrame(function() {
-        buildPenetracionChart(cid, cy, ly, tr);
-        var yoyEl = document.getElementById('yoy-' + cid);
-        if (yoyEl) {
-          var ppArr = cy.map(function(v, i){
-            return (v != null && ly[i] != null) ? +(v - ly[i]).toFixed(1) : null;
-          });
-          yoyEl.innerHTML = ppRowHtml(ppArr);
-        }
-      });
-    })(penetCanId, cyrPenet, lyrPenet, totalRef);
-  }
-  html += '</div></div>';
-
   var cdd = m.cdd || { activos: 0, byPlan: {}, stockByPlanYm: {}, altasByYm: {}, bajasByYm: {} };
   var ifd = m.ifd || { total: 0, byTipo: {}, altasByTipoYm: {}, altasByYm: {} };
 
@@ -1283,6 +1213,75 @@ function renderMetrics(country, m) {
         + '</div>';
     }
 
+    // ---- Penetracion de GB (% de GB pagado con puntos, por producto): va DENTRO de
+    // "Pasaporte D!", no como seccion aparte (antes era su propio prog-section colapsable
+    // sin chip de navegacion propio — se integro como sub-block junto a Ratio de acumulacion). ----
+    if (prog === 'Pasaporte D!') {
+      var penetCanId = 'ch-penet-' + suffix;
+      var selProd = getPenetProd(suffix);
+      var penetBtns = PENET_PRODUCTS.map(function(p){
+        return '<button class="seg-btn' + (selProd === p ? ' active' : '') + '" type="button"'
+             + ' onclick="setPenetProd(\'' + suffix + '\',\'' + p + '\')">'
+             + p + '</button>';
+      }).join('');
+      html += '<div class="sub-block"><div class="sub-title">Penetración de GB — % de GB con puntos, por producto</div>';
+      if (!RAW.penet) {
+        html += '<div class="empty">loyalty_penetracion_gb.json no disponible</div>';
+      } else {
+        var fy = fyYears();
+        function _penetSeries(yearKey, prod) {
+          var byYm = {};
+          penetRows(country).forEach(function(r) {
+            var rYm = (r.ym || '').substring(0, 7);
+            var rYr = parseInt(rYm.substring(0, 4));
+            if (rYr !== yearKey) return;
+            if (prod !== 'Total' && r.grupo_pnl !== prod) return;
+            byYm[rYm] = byYm[rYm] || { gt: 0, gp: 0 };
+            byYm[rYm].gt += (+r.gb_total      || 0);
+            byYm[rYm].gp += (+r.gb_con_puntos || 0);
+          });
+          return FISCAL_MONTHS.map(function(mm) {
+            var yr = fiscalCalYear(mm, yearKey);
+            var ym = yr + '-' + mm;
+            var d = byYm[ym];
+            return (d && d.gt) ? Math.round(d.gp / d.gt * 1000) / 10 : null;
+          });
+        }
+        var cyrPenet  = _penetSeries(fy.cy, selProd);
+        var lyrPenet  = _penetSeries(fy.ly, selProd);
+        var totalRef  = selProd !== 'Total' ? _penetSeries(fy.cy, 'Total') : null;
+        var lastCy = cyrPenet.filter(function(v){ return v != null; });
+        var lastLy = lyrPenet.filter(function(v){ return v != null; });
+        var lastCyV = lastCy.length ? lastCy[lastCy.length - 1] : null;
+        var lastLyV = lastLy.length ? lastLy[lastLy.length - 1] : null;
+        var kpiSub  = lastCyV != null && lastLyV != null
+                      ? (lastCyV - lastLyV > 0 ? '+' : '') + (lastCyV - lastLyV).toFixed(1) + ' pp YoY · ' + selProd
+                      : selProd;
+        html += '<div class="kpi-row">';
+        html += kpiHtml('% GB con puntos', lastCyV != null ? lastCyV.toFixed(1) + '%' : '—', kpiSub, 'var(--accent)');
+        html += '</div>';
+        html += '<div style="margin-bottom:10px"><div class="seg seg-sm" style="flex-wrap:wrap;gap:4px">'
+              + penetBtns + '</div></div>';
+        html += '<div class="cc"><div class="ct">% de GB con puntos — por mes</div>'
+              + '<div class="cw" style="height:220px"><canvas id="' + penetCanId + '"></canvas></div>'
+              + '<div class="dtable-row"><div class="dtable-label">YoY (pp)</div>'
+              + '<div class="yoy-row" id="yoy-' + penetCanId + '"></div></div></div>';
+        (function(cid, cy, ly, tr) {
+          requestAnimationFrame(function() {
+            buildPenetracionChart(cid, cy, ly, tr);
+            var yoyEl = document.getElementById('yoy-' + cid);
+            if (yoyEl) {
+              var ppArr = cy.map(function(v, i){
+                return (v != null && ly[i] != null) ? +(v - ly[i]).toFixed(1) : null;
+              });
+              yoyEl.innerHTML = ppRowHtml(ppArr);
+            }
+          });
+        })(penetCanId, cyrPenet, lyrPenet, totalRef);
+      }
+      html += '</div>';
+    }
+
     // ---- Suscripción Club Despegar: va DENTRO de la sección de programa "Club Despegar" ----
     if (prog === 'Club Despegar') {
       html += '<div class="sub-block"><div class="sub-title">Suscripción — miembros por plan</div>';
@@ -1322,25 +1321,33 @@ function renderMetrics(country, m) {
       }
       html += '</div>';
 
-      // ── Gráfico: Pasaporte D! vía canal iFood (stacked bar: iFood + Resto + LY total)
-      if (RAW.acum_channel) {
-        var chCanId = 'ch-acum-ch-' + suffix;
-        html += '<div class="cc" style="margin-top:14px">'
-              + '<div class="ct">Pasaporte D! vía canal iFood — ' + (mode === 'USD' ? 'USD (DRO)' : 'puntos') + ' por mes</div>'
-              + '<div class="cw"><canvas id="' + chCanId + '"></canvas></div>'
-              + '<div class="dtable-row"><div class="dtable-label">YoY %</div>'
-              + '<div class="yoy-row" id="yoy-' + chCanId + '"></div></div>'
-              + '</div>';
-      }
+      // ---- Flujo y stock de puntos vía iFood: sub-bloque aparte (no es enrolamiento) ----
+      if (RAW.acum_channel || RAW.stock_ifood) {
+        html += '<div class="sub-block"><div class="sub-title">Flujo y stock de puntos</div>';
 
-      // ── Gráfico: Stock de puntos iFood en la calle (rollforward mensual)
-      if (RAW.stock_ifood) {
-        var stkCanId = 'ch-stock-if-' + suffix;
-        html += '<div class="cc" style="margin-top:14px">'
-              + '<div class="ct">Stock de puntos iFood en la calle — ' + (mode === 'USD' ? 'USD' : 'puntos') + ' a fin de mes</div>'
-              + '<div class="cw"><canvas id="' + stkCanId + '"></canvas></div>'
-              + '</div>'
-              + '<div style="margin:2px 0 0;font-size:11px;color:var(--muted)">Excluye IFOOD_WELCOME_CLUBE / IFO_WE_CLU</div>';
+        // ── Gráfico: participación de iFood sobre el total de Pasaporte D! (100% stacked, por mes)
+        if (RAW.acum_channel) {
+          var chCanId = 'ch-acum-ch-' + suffix;
+          var chTitle = country.key === 'total'
+            ? 'Pasaporte D! — participación de iFood sobre el total de todos los países, por mes'
+            : 'Pasaporte D! — participación de iFood sobre el total ' + country.label + ', por mes';
+          html += '<div class="cc">'
+                + '<div class="ct">' + chTitle + '</div>'
+                + '<div class="cw"><canvas id="' + chCanId + '"></canvas></div>'
+                + '</div>';
+        }
+
+        // ── Gráfico: Stock de puntos iFood en la calle (rollforward mensual)
+        if (RAW.stock_ifood) {
+          var stkCanId = 'ch-stock-if-' + suffix;
+          html += '<div class="cc" style="margin-top:14px">'
+                + '<div class="ct">Stock de puntos iFood en la calle — ' + (mode === 'USD' ? 'USD' : 'puntos') + ' a fin de mes</div>'
+                + '<div class="cw"><canvas id="' + stkCanId + '"></canvas></div>'
+                + '</div>'
+                + '<div style="margin:2px 0 0;font-size:11px;color:var(--muted)">Excluye IFOOD_WELCOME_CLUBE / IFO_WE_CLU</div>';
+        }
+
+        html += '</div>';
       }
     }
 
@@ -1355,6 +1362,25 @@ function renderMetrics(country, m) {
         + '<div class="cc"><div class="ct">Precio de venta por mes — costo (SSP) vs ' + brLabel + ' (CY, línea = total ' + fyYears().ly + ')</div><div class="cw"><canvas id="' + brCanvasId + '"></canvas></div>'
         + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-' + brCanvasId + '"></div></div></div>'
         + '</div>';
+    }
+
+    // ---- Desglose por point_type: va DENTRO de "Acciones Marketing" ----
+    // Respeta el toggle Q/$ de la sección (mode ya resuelto arriba). Barra apilada
+    // por mes, una serie por point_type (FORTUNE/Mkt_App/lo que traiga el
+    // diccionario ese mes — data-driven, ver programPointTypes()). Sin línea LY
+    // superpuesta: sumando las series ya se ve el total CY, y sumar una 2da línea
+    // (LY total) encima de una pila de por sí ya recargada la haría ilegible.
+    if (prog === 'Acciones Marketing') {
+      var amPtCanvasId = 'ch-am-pt-' + suffix;
+      var amPointTypes = programPointTypes(prog, getProgramFromAcum);
+      html += '<div class="sub-block"><div class="sub-title">Acumulación por tipo de punto</div>';
+      if (!amPointTypes.length) {
+        html += '<div class="empty">Sin filas de Acciones Marketing en el rango/país seleccionado</div>';
+      } else {
+        html += '<div class="cc"><div class="ct">' + (mode === 'USD' ? 'Valor USD' : 'Puntos') + ' por mes y tipo de punto — año fiscal ' + fyYears().cy + '</div><div class="cw"><canvas id="' + amPtCanvasId + '"></canvas></div>'
+          + '<div style="margin-top:6px;font-size:11px;color:var(--muted)">Vista solo del año fiscal actual — sin comparación YoY por serie</div></div>';
+      }
+      html += '</div>';
     }
 
     html += '</div></div>';  // prog-body, prog-section
@@ -1546,11 +1572,14 @@ function renderMetrics(country, m) {
       if (yEl2) yEl2.innerHTML = yoyRowHtml(ifdAltasLY, ifdAltasCY);
     }
 
-    // Pasaporte D! vía canal iFood — stacked bar (iFood + Resto) con línea de total LY.
+    // Pasaporte D! vía canal iFood — participación % de iFood sobre el total (100% stacked).
+    // Sin línea LY: al pasar a % el eje es 0-100, un LY en valor absoluto ya no es
+    // plotteable en la misma escala sin un eje secundario (lo que generaba la
+    // confusión original de la línea). Tooltip lleva el total absoluto del mes para
+    // no perder contexto de magnitud (hallazgo ux-designer 16-sep).
     if (prog === 'IFOOD' && RAW.acum_channel) {
       var chCanId2 = 'ch-acum-ch-' + suffix;
       var chIfoodMapCY = {}, chRestoMapCY = {};
-      var chIfoodMapLY = {}, chRestoMapLY = {};
       acumChannelRows(country).forEach(function(row) {
         var ym  = (row.processing_date || '').substring(0, 7);
         var yr  = parseInt(ym.substring(0, 4));
@@ -1566,39 +1595,21 @@ function renderMetrics(country, m) {
         } else {
           val = +row.points || 0;
         }
-        if (yr === fy.cy) {
-          if (grp === 'ifood') { chIfoodMapCY[ym] = (chIfoodMapCY[ym] || 0) + val; }
-          else                 { chRestoMapCY[ym] = (chRestoMapCY[ym] || 0) + val; }
-        } else if (yr === fy.ly) {
-          if (grp === 'ifood') { chIfoodMapLY[ym] = (chIfoodMapLY[ym] || 0) + val; }
-          else                 { chRestoMapLY[ym] = (chRestoMapLY[ym] || 0) + val; }
-        }
+        if (yr !== fy.cy) return;
+        if (grp === 'ifood') { chIfoodMapCY[ym] = (chIfoodMapCY[ym] || 0) + val; }
+        else                 { chRestoMapCY[ym] = (chRestoMapCY[ym] || 0) + val; }
       });
 
-      var chTotalLY = fiscalSeries(
-        mergeAdd_(chIfoodMapLY, chRestoMapLY),
-        mergeAdd_(chIfoodMapLY, chRestoMapLY),
-        fy.cy, fy.ly, fy.ly
-      );
-      var chTotalCY = fiscalSeries(
-        mergeAdd_(chIfoodMapCY, chRestoMapCY),
-        mergeAdd_(chIfoodMapCY, chRestoMapCY),
-        fy.cy, fy.ly, fy.cy
-      );
-
       var chDatasets = [
-        { label: 'Resto',
-          data: fiscalSeries(chRestoMapCY, chRestoMapCY, fy.cy, fy.ly, fy.cy),
-          backgroundColor: 'rgba(85,15,237,.18)' },
         { label: 'iFood',
           data: fiscalSeries(chIfoodMapCY, chIfoodMapCY, fy.cy, fy.ly, fy.cy),
           backgroundColor: 'rgba(255,90,0,.82)' },
+        { label: 'Resto',
+          data: fiscalSeries(chRestoMapCY, chRestoMapCY, fy.cy, fy.ly, fy.cy),
+          backgroundColor: 'rgba(85,15,237,.38)' },
       ];
 
-      buildStackedBarChart(chCanId2, chDatasets, fmtFn, true,
-                           { label: 'Total ' + fy.ly, data: chTotalLY });
-      var chYoyEl = document.getElementById('yoy-' + chCanId2);
-      if (chYoyEl) chYoyEl.innerHTML = yoyRowHtml(chTotalLY, chTotalCY);
+      buildMixChart(chCanId2, chDatasets, { legend: true, fmtFn: fmtFn });
     }
 
     // Stock de puntos iFood en la calle — rollforward mensual (no es flujo, es
@@ -1647,6 +1658,22 @@ function renderMetrics(country, m) {
       var yElBr = document.getElementById('yoy-' + brCanvasId2);
       if (yElBr) yElBr.innerHTML = yoyRowHtml(totalPrev, totalCurr);
     }
+
+    // Acumulación por point_type — apilado CY, sin línea LY (ver comentario en el HTML).
+    if (prog === 'Acciones Marketing') {
+      var amPtCanvasId2 = 'ch-am-pt-' + suffix;
+      var amPointTypes2 = programPointTypes(prog, getProgramFromAcum);
+      if (amPointTypes2.length) {
+        var amDatasets = amPointTypes2.map(function(pt, i){
+          var ptCY_map = monthlyMapByPointType(RAW.acum_cy, country, prog, getProgramFromAcum, pt, acValFn);
+          var ptLY_map = monthlyMapByPointType(RAW.acum_ly, country, prog, getProgramFromAcum, pt, acValFn);
+          return { label: pt,
+                   data: fiscalSeries(ptCY_map, ptLY_map, fy.cy, fy.ly, fy.cy),
+                   backgroundColor: CAT_FILL[i % CAT_FILL.length] };
+        });
+        buildStackedBarChart(amPtCanvasId2, amDatasets, fmtFn, true);
+      }
+    }
   });
 
   var bkMap  = breakageMonthlyMap(country);
@@ -1667,18 +1694,44 @@ var FISCAL_LABELS = ['Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic','Ene'
 
 // Mapa mensual real (claves "YYYY-MM") de un dataset, filtrado por pais+programa.
 // country puede ser un pais concreto o la vista TOTAL (suma de todos).
-function mergeAdd_(a, b) {
-  var out = {};
-  Object.keys(a).forEach(function(k){ out[k] = (out[k] || 0) + a[k]; });
-  Object.keys(b).forEach(function(k){ out[k] = (out[k] || 0) + b[k]; });
-  return out;
-}
 
 function monthlyMap(raw, country, prog, getProgFn, valueFn) {
   var agg = {};
   expand(raw).forEach(function(row){
     if (!matchCountryCode(row.country_code, country)) return;
     if (getProgFn(row) !== prog) return;
+    var ym = (row.processing_date||'').substring(0,7);
+    agg[ym] = (agg[ym]||0) + valueFn(row);
+  });
+  return agg;
+}
+
+// point_type dentro de un programa (ej. 'Acciones Marketing' -> FORTUNE / Mkt_App /
+// lo que traiga el diccionario ese mes). Data-driven, sin hardcodear valores: se
+// listan los point_type que hoy resuelven a ese programa vía getProgramFromAcum,
+// juntando CY+LY y todos los países (no solo el filtro activo) para que el set de
+// series no cambie si el usuario cambia de país o de rango de fechas.
+function programPointTypes(prog, getProgFn) {
+  var seen = {};
+  [RAW.acum_cy, RAW.acum_ly].forEach(function(raw){
+    expand(raw).forEach(function(row){
+      if (getProgFn(row) !== prog) return;
+      var pt = row.point_type || '(sin point_type)';
+      seen[pt] = true;
+    });
+  });
+  return Object.keys(seen).sort();
+}
+
+// Igual que monthlyMap pero además filtra por point_type — para desglosar un
+// programa en sus point_type de origen (ej. Acciones Marketing por point_type).
+function monthlyMapByPointType(raw, country, prog, getProgFn, pointType, valueFn) {
+  var agg = {};
+  expand(raw).forEach(function(row){
+    if (!matchCountryCode(row.country_code, country)) return;
+    if (getProgFn(row) !== prog) return;
+    var pt = row.point_type || '(sin point_type)';
+    if (pt !== pointType) return;
     var ym = (row.processing_date||'').substring(0,7);
     agg[ym] = (agg[ym]||0) + valueFn(row);
   });
@@ -1949,8 +2002,8 @@ function buildBarChart(canvasId, prevValues, currValues, prevLabel, currLabel, c
     data: { labels: FISCAL_LABELS, datasets: datasets },
     options: {
       responsive: true, maintainAspectRatio: false,
-      layout: { padding: { top: 20 } },
-      plugins: { legend: { labels: { font: { size: 12 }, boxWidth: 10 } } },
+      layout: { padding: { top: 4 } },
+      plugins: { legend: { labels: { font: { size: 12 }, boxWidth: 10 }, padding: 32 } },
       scales: scales
     }
   });
@@ -2006,7 +2059,7 @@ function buildPenetracionChart(canvasId, cyrSeries, lyrSeries, totalRef) {
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: {
-        legend: { labels: { font: { size: 12 }, boxWidth: 10 } },
+        legend: { labels: { font: { size: 12 }, boxWidth: 10 }, padding: 26 },
         datalabels: { display: false },
         tooltip: { callbacks: { label: function(c) {
           var v = c.parsed.y;
@@ -2023,10 +2076,16 @@ function buildPenetracionChart(canvasId, cyrSeries, lyrSeries, totalRef) {
   });
 }
 
-function buildMixChart(canvasId, datasets) {
+function buildMixChart(canvasId, datasets, opts) {
   // 100% stacked bar: muestra composición porcentual por mes.
   // datasets: misma forma que buildStackedBarChart [{label, data, backgroundColor}]
   // Los datos se normalizan internamente a 100%.
+  // opts (opcional): { legend: bool, fmtFn: fn } — legend=true muestra referencia de
+  // color (necesario cuando este chart NO tiene un gráfico de absolutos justo encima,
+  // a diferencia del mix de tiers de Pasaporte D!, donde el default false es correcto
+  // porque ya hay un gráfico de absolutos arriba); fmtFn agrega el total absoluto del
+  // mes al tooltip para no perder contexto de magnitud (hallazgo ux-designer 16-sep).
+  opts = opts || {};
   var ctx = document.getElementById(canvasId);
   if (!ctx) return;
   if (CHARTS[canvasId]) { CHARTS[canvasId].destroy(); }
@@ -2061,13 +2120,16 @@ function buildMixChart(canvasId, datasets) {
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: {
-        legend: { display: false },
+        legend: { display: !!opts.legend, labels: { font: { size: 12 }, boxWidth: 10 }, padding: 26 },
         datalabels: { display: true },
         tooltip: {
           callbacks: {
             label: function(c) {
               return ' ' + c.dataset.label + ': ' + c.parsed.y.toFixed(1) + '%';
-            }
+            },
+            afterLabel: opts.fmtFn ? function(c) {
+              return totals[c.dataIndex] ? 'Total mes: ' + opts.fmtFn(totals[c.dataIndex]) : '';
+            } : undefined
           }
         }
       },
@@ -2119,7 +2181,7 @@ function buildStackedBarChart(canvasId, datasets, fmtFn, stacked, lineOverlay) {
     data: { labels: FISCAL_LABELS, datasets: ds },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { labels: { font: { size: 12 }, boxWidth: 10 } }, datalabels: { display: false } },
+      plugins: { legend: { labels: { font: { size: 12 }, boxWidth: 10 }, padding: 26 }, datalabels: { display: false } },
       scales: {
         x: { stacked: stacked, grid: { display: false }, ticks: { font: { size: 12 } } },
         y: { stacked: stacked, grid: { color: '#f1f5f9' }, ticks: { font: { size: 12 }, callback: function(v){ return fmtFn(v); } } }
@@ -2141,6 +2203,7 @@ function buildRatioBarChart(canvasId, categories, shadowValues, currValues, shad
     return;
   }
   var lastIdx = categories.length - 1;  // "Total" — separador vertical + tick mas oscuro para no leerse como un producto mas
+  var maxVal = Math.max.apply(null, shadowValues.concat(currValues).map(function(v){ return v || 0; }));
   var labelCfg = {
     anchor: 'end', align: 'top', clamp: true, offset: 2,
     font: { size: 11, weight: '700' }, color: '#475569',
@@ -2169,13 +2232,14 @@ function buildRatioBarChart(canvasId, categories, shadowValues, currValues, shad
     },
     options: {
       responsive: true, maintainAspectRatio: false,
-      layout: { padding: { top: 20 } },
-      plugins: { legend: { labels: { font: { size: 12 }, boxWidth: 10 } } },
+      layout: { padding: { top: 4 } },
+      plugins: { legend: { labels: { font: { size: 12 }, boxWidth: 10 }, padding: 32 } },
       scales: {
         x: { grid: { display: false },
              ticks: { font: { size: 11 },
                       color: function(c){ return c.index === lastIdx ? '#1e293b' : '#556070'; } } },
-        y: { grid: { color: '#f1f5f9' }, ticks: { font: { size: 12 } } }
+        y: { grid: { color: '#f1f5f9' }, ticks: { font: { size: 12 } },
+             beginAtZero: true, suggestedMax: maxVal * 1.15 }
       }
     },
     plugins: [{
