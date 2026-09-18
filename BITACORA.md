@@ -5,6 +5,32 @@ Formato: fecha · tipo · descripción · archivos afectados.
 
 ---
 
+## 2026-09-18 (3)
+
+### mejora — Pulido visual del heatmap de Penetración de GB
+**Archivos:** `dashboard.html`
+
+El concepto del heatmap (18-sep, ver entrada anterior) quedó aprobado por el
+usuario, pero lo vio "feo" en su estado inicial. `ux-designer` (lanzado como
+`general-purpose` + rol/skill) propuso 10 ajustes de pulido puro: grilla con
+más aire (`border-spacing` 2→3px, padding de celda), header de meses con fondo
+y borde (antes flotaba sin distinguirse del cuerpo), columna de producto más
+ancha (110→150px, evita recorte de "Packages General"/"Vacation Rentals"),
+anchos de columna uniformes (`table-layout: fixed`), separador entre la
+columna de labels y la grilla de calor, radio de esquina del sistema
+(`var(--radius-sm)` en vez de hardcodeado), tipografía de celda igualada al
+resto de tablas (`--fs-body`), `cursor:help` en celdas con tooltip, columna de
+producto accesible (`<span class="sr-only">`).
+
+`auditor-de-codigo` encontró 2 hallazgos menores no bloqueantes: (1)
+`.heat-rowlabel` con `table-layout:fixed` + `white-space:nowrap` sin
+salvaguarda de overflow si en el futuro se agrega un producto de nombre más
+largo a `PENET_PRODUCTS` — se agregó `overflow:hidden; text-overflow:ellipsis`
+como cinturón de seguridad; (2) el `border-top` propuesto para separar la fila
+Total se iba a ver segmentado por el `border-spacing` (`border-collapse:
+separate`) — se sacó esa regla, el fondo oscuro de `.heat-cell-total` ya
+distingue la fila sin necesitar el borde.
+
 ## 2026-09-18 (2)
 
 ### mejora — Rediseño del gráfico "Penetración de GB" (Pasaporte D!): line chart → heatmap
