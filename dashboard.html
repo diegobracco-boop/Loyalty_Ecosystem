@@ -1108,8 +1108,15 @@ function renderMetrics(country, m) {
   var el = document.getElementById('metrics-' + suffix);
   if (!el) return;
 
+  var html = '';
+  if (isTotal(country)) {
+    html += '<div class="ratio-hint" style="font-size:12px;margin-bottom:14px">'
+          + 'Estás viendo el <strong>TOTAL agregado de los ' + COUNTRY_DATAKEYS.length + ' países</strong> (suma de todas las solapas de país).'
+          + '</div>';
+  }
+
   // Indice de programas: chips que saltan a cada seccion (Miembros + programas + Breakage).
-  var html = '<div class="prog-nav">';
+  html += '<div class="prog-nav">';
   html += '<button class="prog-chip" type="button" onclick="jumpTo(\'sec-miembros-' + suffix + '\')">Miembros</button>';
   programs.forEach(function(prog) {
     html += '<button class="prog-chip" type="button" onclick="jumpTo(\'' + progSecId(prog, suffix) + '\')">' + prog + '</button>';
@@ -1181,6 +1188,9 @@ function renderMetrics(country, m) {
       + kpiHtml('Valor Acumulado', fmtUSD(Math.abs(acCY.usd)), 'vs LY ' + fmtPct(Math.abs(acCY.usd), Math.abs(acLY.usd)), '#976cf6')
       + kpiHtml('Puntos Redimidos', fmtPts(Math.abs(rdCY.pts)), 'vs LY ' + fmtPct(Math.abs(rdCY.pts), Math.abs(rdLY.pts)), 'var(--red)')
       + kpiHtml('Valor Redimido', fmtUSD(Math.abs(rdCY.usd)), 'vs LY ' + fmtPct(Math.abs(rdCY.usd), Math.abs(rdLY.usd)), '#029687')
+      + (prog === 'Cobrand' || prog === 'Partners'
+         ? kpiHtml(prog === 'Partners' ? 'Partner Revenue' : 'Bank Revenue', fmtUSD(Math.abs(acCY.br)), 'vs LY ' + fmtPct(Math.abs(acCY.br), Math.abs(acLY.br)), '#029687')
+         : '')
       + '</div>';
 
     // Charts (evolutivo, anio fiscal completo, CY vs LY + YoY%)
@@ -1197,6 +1207,22 @@ function renderMetrics(country, m) {
         + '<div class="seg seg-sm">'
         +   '<button class="seg-btn' + (aView === 'total' ? ' active' : '') + '" type="button" onclick="setAcumView(\'' + suffix + '\',\'total\')">Total</button>'
         +   '<button class="seg-btn' + (aView === 'tier'  ? ' active' : '') + '" type="button" onclick="setAcumView(\'' + suffix + '\',\'tier\')">Por Tier</button>'
+        + '</div></div>';
+    }
+    // Cobrand / Partners: toggle "Total / Costo y Ganancia" — fusiona el chart de
+    // Acumulaciones con lo que antes era el chart aparte de Bank/Partner Revenue
+    // (costo SSP vs margen). Mismo total, dos lecturas del mismo mes.
+    // El toggle solo tiene sentido en vista $ — "Costo (SSP)" y margen son montos
+    // en USD, no hay forma de descomponer una vista en puntos así.
+    var brLabel = prog === 'Partners' ? 'Partner Revenue' : 'Bank Revenue';
+    if ((prog === 'Cobrand' || prog === 'Partners') && mode === 'USD') {
+      var brView = getBrView(suffix, prog);
+      var acTitleMargen = brLabel + ' — costo (SSP) vs margen, por mes';
+      acTitleHtml = '<div class="sub-title-row" style="margin-bottom:6px">'
+        + '<div class="ct" style="margin-bottom:0">' + (brView === 'margen' ? acTitleMargen : acTitle) + '</div>'
+        + '<div class="seg seg-sm">'
+        +   '<button class="seg-btn' + (brView === 'total'  ? ' active' : '') + '" type="button" onclick="setBrView(\'' + suffix + '\',\'' + prog + '\',\'total\')">Total</button>'
+        +   '<button class="seg-btn' + (brView === 'margen' ? ' active' : '') + '" type="button" onclick="setBrView(\'' + suffix + '\',\'' + prog + '\',\'margen\')">Costo y Ganancia</button>'
         + '</div></div>';
     }
     html += '<div class="cc" style="margin-bottom:14px">' + acTitleHtml + '<div class="cw"><canvas id="' + canvasId + '"></canvas></div>'
@@ -1343,8 +1369,8 @@ function renderMetrics(country, m) {
         if (RAW.acum_channel) {
           var chCanId = 'ch-acum-ch-' + suffix;
           var chTitle = country.key === 'total'
-            ? 'Pasaporte D! — participación de iFood sobre el total de todos los países, por mes'
-            : 'Pasaporte D! — participación de iFood sobre el total ' + country.label + ', por mes';
+            ? 'Participación del channel iFood en Pasaporte D! — todos los países, por mes'
+            : 'Participación del channel iFood en Pasaporte D! — ' + country.label + ', por mes';
           html += '<div class="cc">'
                 + '<div class="ct">' + chTitle + '</div>'
                 + '<div class="cw"><canvas id="' + chCanId + '"></canvas></div>'
@@ -1363,19 +1389,6 @@ function renderMetrics(country, m) {
 
         html += '</div>';
       }
-    }
-
-    // ---- Bank/Partner Revenue: va DENTRO de Cobrand y Partners (margen precio de venta vs SSP) ----
-    if (prog === 'Cobrand' || prog === 'Partners') {
-      var brCanvasId = 'ch-br-' + prog.replace(/[^a-z0-9]/gi, '') + '-' + suffix;
-      var brLabel = prog === 'Partners' ? 'Partner Revenue' : 'Bank Revenue';
-      html += '<div class="sub-block"><div class="sub-title">' + brLabel + ' — margen acumulación vs SSP</div>'
-        + '<div class="kpi-row">'
-        +   kpiHtml(brLabel, fmtUSD(acCY.br), 'vs LY ' + fmtPct(acCY.br, acLY.br), '#029687')
-        + '</div>'
-        + '<div class="cc"><div class="ct">Precio de venta por mes — costo (SSP) vs ' + brLabel + ' (CY, línea = total ' + fyYears().ly + ')</div><div class="cw"><canvas id="' + brCanvasId + '"></canvas></div>'
-        + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-' + brCanvasId + '"></div></div></div>'
-        + '</div>';
     }
 
     // ---- Desglose por point_type: va DENTRO de "Acciones Marketing" ----
@@ -1523,6 +1536,29 @@ function renderMetrics(country, m) {
           });
         buildMixChart('ch-mix-' + suffix, mixDatasets);
       }
+    } else if ((prog === 'Cobrand' || prog === 'Partners') && mode === 'USD' && getBrView(suffix, prog) === 'margen') {
+      // Costo (SSP) + margen (Bank/Partner Revenue) apilados por mes — mismo total
+      // que la vista "Total", descompuesto. Reemplaza al chart aparte que existía antes.
+      // brLabel se recalcula acá porque este bloque corre en un renderizado
+      // aparte (el chart real, más abajo en la función); misma logica que la
+      // que arma acTitleHtml arriba, duplicada a propósito para no acoplar los
+      // dos pasos.
+      var brLabel = prog === 'Partners' ? 'Partner Revenue' : 'Bank Revenue';
+      var costFn = function(row){ return getBankRevenueCost(row, rowCountryKey(row, country)); };
+      var revFn  = function(row){ return getBankRevenue(row, rowCountryKey(row, country)); };
+      var costCY_map = monthlyMap(RAW.acum_cy, country, prog, getProgramFromAcum, costFn);
+      var costLY_map = monthlyMap(RAW.acum_ly, country, prog, getProgramFromAcum, costFn);
+      var revCY_map  = monthlyMap(RAW.acum_cy, country, prog, getProgramFromAcum, revFn);
+      var revLY_map  = monthlyMap(RAW.acum_ly, country, prog, getProgramFromAcum, revFn);
+      var costCurr = fiscalSeries(costCY_map, costLY_map, fy.cy, fy.ly, fy.cy);
+      var costPrev = fiscalSeries(costCY_map, costLY_map, fy.cy, fy.ly, fy.ly);
+      var revCurr  = fiscalSeries(revCY_map,  revLY_map,  fy.cy, fy.ly, fy.cy);
+      var revPrev  = fiscalSeries(revCY_map,  revLY_map,  fy.cy, fy.ly, fy.ly);
+      var brTotalPrev = costPrev.map(function(v, i){ return v + revPrev[i]; });
+      buildSplitBarChart(canvasId, brTotalPrev, [
+        { label: 'Costo (SSP)', data: costCurr, backgroundColor: 'rgba(85,96,112,.65)' },
+        { label: brLabel,       data: revCurr,  backgroundColor: 'rgba(2,150,135,.8)' }
+      ], fy.ly, fmtUSDChart);
     } else {
       buildBarChart(canvasId,   acPrev, acCurr, fy.ly, fy.cy, 'rgba(85,15,237,.75)', fmtFn);
     }
@@ -1647,30 +1683,6 @@ function renderMetrics(country, m) {
       var stkPrev = fiscalSeries(stkMapCY, stkMapLY, fy.cy, fy.ly, fy.ly);
       var stkCurr = fiscalSeries(stkMapCY, stkMapLY, fy.cy, fy.ly, fy.cy);
       buildBarChart(stkCanId2, stkPrev, stkCurr, fy.ly, fy.cy, 'rgba(85,15,237,.7)', fmtFn);
-    }
-
-    // Bank/Partner Revenue — apilado (costo SSP + margen) por mes, con línea de total LY.
-    if (prog === 'Cobrand' || prog === 'Partners') {
-      var brCanvasId2 = 'ch-br-' + prog.replace(/[^a-z0-9]/gi, '') + '-' + suffix;
-      var brLabel2 = prog === 'Partners' ? 'Partner Revenue' : 'Bank Revenue';
-      var costFn = function(row){ return getBankRevenueCost(row, rowCountryKey(row, country)); };
-      var revFn  = function(row){ return getBankRevenue(row, rowCountryKey(row, country)); };
-      var costCY_map = monthlyMap(RAW.acum_cy, country, prog, getProgramFromAcum, costFn);
-      var costLY_map = monthlyMap(RAW.acum_ly, country, prog, getProgramFromAcum, costFn);
-      var revCY_map  = monthlyMap(RAW.acum_cy, country, prog, getProgramFromAcum, revFn);
-      var revLY_map  = monthlyMap(RAW.acum_ly, country, prog, getProgramFromAcum, revFn);
-      var costCurr = fiscalSeries(costCY_map, costLY_map, fy.cy, fy.ly, fy.cy);
-      var costPrev = fiscalSeries(costCY_map, costLY_map, fy.cy, fy.ly, fy.ly);
-      var revCurr  = fiscalSeries(revCY_map,  revLY_map,  fy.cy, fy.ly, fy.cy);
-      var revPrev  = fiscalSeries(revCY_map,  revLY_map,  fy.cy, fy.ly, fy.ly);
-      var totalCurr = costCurr.map(function(v, i){ return v + revCurr[i]; });
-      var totalPrev = costPrev.map(function(v, i){ return v + revPrev[i]; });
-      buildStackedBarChart(brCanvasId2, [
-        { label: 'Costo (SSP)', data: costCurr, backgroundColor: 'rgba(100,116,139,.5)' },
-        { label: brLabel2,      data: revCurr,  backgroundColor: 'rgba(2,150,135,.8)' }
-      ], fmtUSDChart, true, { label: 'Total ' + fy.ly, data: totalPrev });
-      var yElBr = document.getElementById('yoy-' + brCanvasId2);
-      if (yElBr) yElBr.innerHTML = yoyRowHtml(totalPrev, totalCurr);
     }
 
     // Acumulación por point_type — apilado CY, sin línea LY (ver comentario en el HTML).
@@ -2023,6 +2035,70 @@ function buildBarChart(canvasId, prevValues, currValues, prevLabel, currLabel, c
   });
   if (yoyEl) yoyEl.innerHTML = yoyRowHtml(prevValues, currValues);
   if (pprEl) pprEl.innerHTML = priceSeries ? priceRowHtml(priceSeries.prev, priceSeries.curr) : '';
+}
+
+// Mismo diseño visual que buildBarChart (barra LY gris a la izquierda + barra CY a
+// la derecha, con el total en datalabel arriba de cada una) pero la barra CY viene
+// partida en `currDatasets.length` segmentos apilados (ej. costo + margen) en vez de
+// un solo color sólido. Usa el combo grouped+stacked de Chart.js: dataset LY con
+// stack:'ly' (solo, 1 barra) + datasets CY con stack:'cy' (se apilan entre sí, y
+// quedan al lado de la barra LY porque son un stack distinto) — para que esto
+// funcione hace falta scales.x/y.stacked=true (si no, el 'stack' de cada dataset
+// se ignora y Chart.js dibuja 1+N barras sueltas en vez de 2 grupos).
+function buildSplitBarChart(canvasId, prevValues, currDatasets, prevLabel, fmtFn) {
+  var ctx = document.getElementById(canvasId);
+  var yoyEl = document.getElementById('yoy-' + canvasId);
+  if (!ctx) return;
+  if (CHARTS[canvasId]) { CHARTS[canvasId].destroy(); }
+  var currTotal = new Array(prevValues.length).fill(0);
+  currDatasets.forEach(function(d){ (d.data || []).forEach(function(v, i){ currTotal[i] += (v || 0); }); });
+  if (!prevValues.some(Boolean) && !currTotal.some(Boolean)) {
+    ctx.parentElement.innerHTML = '<div class="empty" style="padding:20px">Sin datos</div>';
+    if (yoyEl) yoyEl.innerHTML = '';
+    return;
+  }
+  fmtFn = fmtFn || fmtPts;
+  // Meses "sin dato todavia" (mismo criterio que buildBarChart): atenuar la barra LY
+  // en los meses posteriores al ultimo mes con dato CY, para no leerlos como reales.
+  var lyColor = 'rgba(100,116,139,.3)';
+  var lyColorLight = lightenColor(lyColor);
+  var lastDataIdx = -1;
+  for (var _i = 0; _i < currTotal.length; _i++) { if (currTotal[_i]) lastDataIdx = _i; }
+  function noDataYet(i) { return i > lastDataIdx; }
+  function totalLabelCfg(totals) {
+    return {
+      anchor: 'end', align: 'top', clamp: true, offset: 2,
+      font: { size: 11, weight: '700' }, color: '#475569',
+      formatter: function(v, dctx) { var t = totals[dctx.dataIndex]; return t ? fmtFn(t) : ''; }
+    };
+  }
+  var datasets = [
+    { label: String(prevLabel), data: prevValues,
+      backgroundColor: prevValues.map(function(_v, i){ return noDataYet(i) ? lyColorLight : lyColor; }),
+      borderRadius: 3, stack: 'ly', datalabels: totalLabelCfg(prevValues) }
+  ];
+  currDatasets.forEach(function(d, i) {
+    var isLast = i === currDatasets.length - 1;
+    datasets.push({
+      label: d.label, data: d.data, backgroundColor: d.backgroundColor, stack: 'cy',
+      borderRadius: isLast ? 3 : 0,
+      datalabels: isLast ? totalLabelCfg(currTotal) : { display: false }
+    });
+  });
+  CHARTS[canvasId] = new Chart(ctx, {
+    type: 'bar',
+    data: { labels: FISCAL_LABELS, datasets: datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      layout: { padding: { top: 4 } },
+      plugins: { legend: { labels: { font: { size: 12 }, boxWidth: 10, padding: 10 } } },
+      scales: {
+        x: { stacked: true, grid: { display: false }, ticks: { font: { size: 12 } } },
+        y: { stacked: true, grid: { color: '#f1f5f9' }, ticks: { font: { size: 12 }, callback: function(v){ return fmtFn(v); } } }
+      }
+    }
+  });
+  if (yoyEl) yoyEl.innerHTML = yoyRowHtml(prevValues, currTotal);
 }
 
 // Convierte un color (hex #rrggbb o rgba(...)) a una version mas clara (alpha .22,
@@ -2386,6 +2462,16 @@ function stockIfoodRows(country) {
 function getAcumView(suffix) { return ACUM_VIEW[suffix] || 'total'; }
 function setAcumView(suffix, v) {
   ACUM_VIEW[suffix] = v;
+  renderCountry(suffix);
+}
+
+// Toggle "Total / Costo y Ganancia" del chart de Acumulaciones en Cobrand y Partners
+// (fusiona lo que antes era el chart aparte de Bank/Partner Revenue). Key por
+// suffix+prog porque un mismo país puede tener ambas secciones a la vez.
+var BR_VIEW = {};  // 'suffix-prog' -> 'total' | 'margen'
+function getBrView(suffix, prog) { return BR_VIEW[suffix + '-' + prog] || 'total'; }
+function setBrView(suffix, prog, v) {
+  BR_VIEW[suffix + '-' + prog] = v;
   renderCountry(suffix);
 }
 
