@@ -5,7 +5,30 @@ Formato: fecha · tipo · descripción · archivos afectados.
 
 ---
 
-## 2026-09-18
+## 2026-09-18 (2)
+
+### mejora — Rediseño del gráfico "Penetración de GB" (Pasaporte D!): line chart → heatmap
+**Archivos:** `dashboard.html`
+
+Feedback del usuario: el gráfico anterior (line chart con selector de 1 producto
+a la vez, 7 botones, 3 líneas por vista — CY/LY/Total de referencia) era "poco
+claro, muchas líneas, no queda fácil la comparación por producto". Con 7
+productos activos, un multi-line con todos a la vez tampoco serviría (skill
+`dataviz`: >6 series es techo de token categórico). Se reemplazó por un
+**heatmap HTML** (tabla, no canvas): 7 productos × 12 meses fiscales, color por
+magnitud (rampa secuencial de 1 sola familia lila, `#f3edfe`→`#3d00d1`,
+anclada en `--accent`/`--accent-dark` ya usados en el header), valor % siempre
+visible como texto en la celda (no color-only), fila "Total" al pie con el
+mismo criterio visual que el "Total" del gráfico de barras vecino (Ratio de
+acumulación). Tooltip nativo con delta vs LY en pp.
+
+Auditado por `ux-designer` y `auditor-de-codigo` (patrón `general-purpose` +
+rol/skill, según `CLAUDE.md`) antes de commitear — sin hallazgos bloqueantes.
+Se aplicaron 2 ajustes de pulido que señaló UX: el corte de texto blanco/oscuro
+bajó de `idx>=4` a `idx>=3` (el paso `#a37ef2` daba ~4.75:1 con texto oscuro,
+al límite del piso AA 4.5:1) y se agregó `<caption class="sr-only">` a la
+tabla para lectores de pantalla. Se eliminó código muerto: `buildPenetracionChart`,
+`PENET_PROD`/`getPenetProd`/`setPenetProd`.
 
 ### mejora — Rediseño estético de `dashboard.html` (tipografía, sombras, microinteracciones)
 **Archivos:** `dashboard.html`, `.claude/agents/redisenar-dashboard.md`

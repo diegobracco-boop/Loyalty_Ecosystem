@@ -209,6 +209,17 @@ table.pnl tr.grand-total td.tc { background: #0f172a !important; }
 .seg-btn:hover { color: var(--text); }
 .seg-btn.active { background: var(--accent); color: #fff; }
 
+/* ---- Heatmap (Penetracion de GB: producto x mes) ---- */
+.heat-table { width: 100%; border-collapse: separate; border-spacing: 2px; }
+.heat-table th { font-size: var(--fs-tiny); font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .3px; padding: 4px 2px; text-align: center; }
+.heat-rowlabel { text-align: left !important; font-size: var(--fs-small); font-weight: 600; color: var(--text); padding-right: 10px !important; white-space: nowrap; min-width: 110px; }
+.heat-cell { text-align: center; font-size: var(--fs-small); font-weight: 700; font-variant-numeric: tabular-nums; padding: 8px 4px; border-radius: 4px; cursor: default; }
+.heat-empty { background: #f8fafc; color: var(--muted); font-weight: 400; }
+.heat-cell-total { background: #1e293b; color: #fff; }
+.heat-total .heat-rowlabel { font-weight: 800; }
+.heat-legend { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: var(--fs-tiny); color: var(--muted); }
+.heat-legend-bar { flex: 0 1 200px; height: 8px; border-radius: 4px; }
+
 /* ---- Breakdown table ---- */
 .bk-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-bottom: 16px; box-shadow: var(--shadow); }
 .bk-hdr { padding: 10px 16px; border-bottom: 1px solid var(--border); font-size: var(--fs-small); font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
@@ -228,6 +239,7 @@ table.bk tr:hover td { background: #f8fafc; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .lt { font-size: var(--fs-body); color: var(--muted); font-weight: 600; }
 .hidden { display: none !important; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 .empty { text-align: center; padding: 28px; color: var(--muted); font-size: var(--fs-body); }
 </style>
 </head>
@@ -1267,15 +1279,15 @@ function renderMetrics(country, m) {
 
     // ---- Penetracion de GB (% de GB pagado con puntos, por producto): va DENTRO de
     // "Pasaporte D!", no como seccion aparte (antes era su propio prog-section colapsable
-    // sin chip de navegacion propio — se integro como sub-block junto a Ratio de acumulacion). ----
+    // sin chip de navegacion propio — se integro como sub-block junto a Ratio de acumulacion).
+    // Rediseño 18-sep: antes era un line chart con selector de 1 producto a la vez (7 botones,
+    // 3 lineas por vista — CY/LY/Total ref) — mala comparacion entre productos porque solo se
+    // veia uno por vez, y el reference "Total" punteado se confundia con la linea LY del mismo
+    // color. Con 7 productos activos, un multi-line de todos a la vez tampoco serviría (ladder
+    // de series de la skill dataviz: >6 series es techo de token categórico). Se reemplaza por
+    // un heatmap (producto × mes fiscal) — magnitud por color, todos los productos visibles a
+    // la vez, comparación directa fila contra fila. ----
     if (prog === 'Pasaporte D!') {
-      var penetCanId = 'ch-penet-' + suffix;
-      var selProd = getPenetProd(suffix);
-      var penetBtns = PENET_PRODUCTS.map(function(p){
-        return '<button class="seg-btn' + (selProd === p ? ' active' : '') + '" type="button"'
-             + ' onclick="setPenetProd(\'' + suffix + '\',\'' + p + '\')">'
-             + p + '</button>';
-      }).join('');
       html += '<div class="sub-block"><div class="sub-title">Penetración de GB — % de GB con puntos, por producto</div>';
       if (!RAW.penet) {
         html += '<div class="empty">loyalty_penetracion_gb.json no disponible</div>';
@@ -1299,37 +1311,47 @@ function renderMetrics(country, m) {
             return (d && d.gt) ? Math.round(d.gp / d.gt * 1000) / 10 : null;
           });
         }
-        var cyrPenet  = _penetSeries(fy.cy, selProd);
-        var lyrPenet  = _penetSeries(fy.ly, selProd);
-        var totalRef  = selProd !== 'Total' ? _penetSeries(fy.cy, 'Total') : null;
-        var lastCy = cyrPenet.filter(function(v){ return v != null; });
-        var lastLy = lyrPenet.filter(function(v){ return v != null; });
+        var heatProds = PENET_PRODUCTS.slice(1); // sin 'Total', va aparte al pie
+        var cyByProd = {}, lyByProd = {};
+        PENET_PRODUCTS.forEach(function(p) {
+          cyByProd[p] = _penetSeries(fy.cy, p);
+          lyByProd[p] = _penetSeries(fy.ly, p);
+        });
+        var totalCy = cyByProd['Total'], totalLy = lyByProd['Total'];
+        var lastCy = totalCy.filter(function(v){ return v != null; });
+        var lastLy = totalLy.filter(function(v){ return v != null; });
         var lastCyV = lastCy.length ? lastCy[lastCy.length - 1] : null;
         var lastLyV = lastLy.length ? lastLy[lastLy.length - 1] : null;
         var kpiSub  = lastCyV != null && lastLyV != null
-                      ? (lastCyV - lastLyV > 0 ? '+' : '') + (lastCyV - lastLyV).toFixed(1) + ' pp YoY · ' + selProd
-                      : selProd;
+                      ? (lastCyV - lastLyV > 0 ? '+' : '') + (lastCyV - lastLyV).toFixed(1) + ' pp YoY · Total'
+                      : 'Total';
         html += '<div class="kpi-row">';
         html += kpiHtml('% GB con puntos', lastCyV != null ? lastCyV.toFixed(1) + '%' : '—', kpiSub, 'var(--accent)');
         html += '</div>';
-        html += '<div style="margin-bottom:10px"><div class="seg seg-sm" style="flex-wrap:wrap;gap:4px">'
-              + penetBtns + '</div></div>';
-        html += '<div class="cc"><div class="ct">% de GB con puntos — por mes</div>'
-              + '<div class="cw" style="height:220px"><canvas id="' + penetCanId + '"></canvas></div>'
-              + '<div class="dtable-row"><div class="dtable-label">YoY (pp)</div>'
-              + '<div class="yoy-row" id="yoy-' + penetCanId + '"></div></div></div>';
-        (function(cid, cy, ly, tr) {
-          requestAnimationFrame(function() {
-            buildPenetracionChart(cid, cy, ly, tr);
-            var yoyEl = document.getElementById('yoy-' + cid);
-            if (yoyEl) {
-              var ppArr = cy.map(function(v, i){
-                return (v != null && ly[i] != null) ? +(v - ly[i]).toFixed(1) : null;
-              });
-              yoyEl.innerHTML = ppRowHtml(ppArr);
-            }
-          });
-        })(penetCanId, cyrPenet, lyrPenet, totalRef);
+
+        var anyVal = heatProds.some(function(p){ return cyByProd[p].some(function(v){ return v != null; }); });
+        if (!anyVal) {
+          html += '<div class="empty">Sin datos</div>';
+        } else {
+          var heatMax = Math.max.apply(null, heatProds.map(function(p){
+            return Math.max.apply(null, cyByProd[p].map(function(v){ return v || 0; }));
+          }));
+          heatMax = Math.max(10, Math.ceil(heatMax / 10) * 10);
+          html += '<div class="cc"><div class="ct">% de GB con puntos — por mes, todos los productos</div>'
+                + '<div class="tbl-scroll"><table class="heat-table"><caption class="sr-only">Penetración de GB (% de GB pagado con puntos) por producto y mes fiscal</caption><thead><tr><th class="heat-rowlabel"></th>'
+                + FISCAL_LABELS.map(function(l){ return '<th>' + l + '</th>'; }).join('')
+                + '</tr></thead><tbody>'
+                + heatProds.map(function(p){
+                    return '<tr><td class="heat-rowlabel">' + p + '</td>'
+                      + cyByProd[p].map(function(v, i){ return heatCellHtml(v, heatMax, lyByProd[p][i]); }).join('')
+                      + '</tr>';
+                  }).join('')
+                + '<tr class="heat-total"><td class="heat-rowlabel">Total</td>'
+                + totalCy.map(function(v, i){ return heatCellHtml(v, heatMax, totalLy[i], true); }).join('')
+                + '</tr></tbody></table></div>'
+                + heatLegendHtml(heatMax)
+                + '</div>';
+        }
       }
       html += '</div>';
     }
@@ -2132,50 +2154,32 @@ function lightenColor(color) {
 // Meses posteriores al último con datos CY (suma de todos los datasets) atenúan la
 // línea — ahí el año actual todavía no llegó, la línea LY no tiene con qué compararse
 // (mismo criterio "sin dato todavía"/noDataYet que ya usa buildBarChart con priceSeries).
-function buildPenetracionChart(canvasId, cyrSeries, lyrSeries, totalRef) {
-  var ctx = document.getElementById(canvasId);
-  if (!ctx) return;
-  if (CHARTS[canvasId]) { CHARTS[canvasId].destroy(); }
-  var any = (cyrSeries || []).some(function(v){ return v != null; });
-  if (!any) { ctx.parentElement.innerHTML = '<div class="empty" style="padding:20px">Sin datos</div>'; return; }
-  var fy = fyYears();
-  var ds = [];
-  if (totalRef && totalRef.some(function(v){ return v != null; })) {
-    ds.push({ label: 'Total', data: totalRef,
-      borderColor: 'rgba(100,116,139,.4)', borderWidth: 1.5, borderDash: [3,4],
-      pointRadius: 0, tension: .3, fill: false, datalabels: { display: false } });
+// Heatmap de Penetracion de GB (producto x mes fiscal) — reemplaza el line chart
+// de 1 producto a la vez (rediseño 18-sep, ver comentario en el bloque de render).
+// Rampa secuencial de 1 sola familia de color (lila de marca, --accent #550fed y
+// --accent-dark #3d00d1 de la gradiente del header), claro->oscuro por magnitud.
+var HEAT_STEPS = ['#f3edfe', '#e0d1fc', '#c7adf9', '#a37ef2', '#7a4aec', '#550fed', '#3d00d1'];
+function heatStepIdx(v, max) {
+  if (v == null || !max) return -1;
+  var idx = Math.floor((v / max) * HEAT_STEPS.length);
+  return Math.max(0, Math.min(HEAT_STEPS.length - 1, idx));
+}
+function heatCellHtml(v, max, lyV, isTotal) {
+  if (v == null) return '<td class="heat-cell heat-empty" title="Sin datos">—</td>';
+  var delta = (lyV != null) ? +(v - lyV).toFixed(1) : null;
+  var deltaTxt = delta != null ? ((delta > 0 ? '+' : '') + delta + ' pp YoY') : 'sin dato LY';
+  var title = v.toFixed(1) + '% · ' + deltaTxt;
+  if (isTotal) {
+    return '<td class="heat-cell heat-cell-total" title="' + title + '">' + v.toFixed(0) + '%</td>';
   }
-  if (lyrSeries && lyrSeries.some(function(v){ return v != null; })) {
-    ds.push({ label: String(fy.ly), data: lyrSeries,
-      borderColor: 'rgba(85,15,237,.35)', borderWidth: 1.5, borderDash: [5,4],
-      pointRadius: 2, pointBackgroundColor: 'rgba(85,15,237,.35)',
-      tension: .3, fill: false, datalabels: { display: false } });
-  }
-  ds.push({ label: String(fy.cy), data: cyrSeries,
-    borderColor: 'rgba(85,15,237,.85)', borderWidth: 2.5,
-    pointRadius: 3, pointBackgroundColor: 'rgba(85,15,237,.85)',
-    tension: .3, fill: false, datalabels: { display: false } });
-  CHARTS[canvasId] = new Chart(ctx, {
-    type: 'line',
-    data: { labels: FISCAL_LABELS, datasets: ds },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: {
-        legend: { labels: { font: { size: 12 }, boxWidth: 10, padding: 10 } },
-        datalabels: { display: false },
-        tooltip: { callbacks: { label: function(c) {
-          var v = c.parsed.y;
-          return ' ' + c.dataset.label + ': ' + (v != null ? v.toFixed(1) + '%' : '—');
-        }}}
-      },
-      scales: {
-        x: { grid: { display: false }, ticks: { font: { size: 12 } } },
-        y: { suggestedMin: 0,
-             grid: { color: '#f1f5f9' },
-             ticks: { font: { size: 12 }, callback: function(v){ return v + '%'; } } }
-      }
-    }
-  });
+  var idx = heatStepIdx(v, max);
+  var bg = HEAT_STEPS[idx];
+  var txt = idx >= 3 ? '#fff' : '#1e293b'; // corte en idx3, no idx4: idx3 (#a37ef2) da ~4.75:1 con texto oscuro, casi en el piso AA (4.5:1)
+  return '<td class="heat-cell" style="background:' + bg + ';color:' + txt + '" title="' + title + '">' + v.toFixed(0) + '%</td>';
+}
+function heatLegendHtml(max) {
+  var grad = 'linear-gradient(90deg,' + HEAT_STEPS.join(',') + ')';
+  return '<div class="heat-legend"><span>0%</span><div class="heat-legend-bar" style="background:' + grad + '"></div><span>' + Math.round(max) + '%+</span></div>';
 }
 
 function buildMixChart(canvasId, datasets, opts) {
@@ -2419,9 +2423,6 @@ var PENET_PRODUCTS = [
   'Cars','Dest. Serv.','Insurance','Vacation Rentals'
 ];
 var _penetRowsCache = null;
-var PENET_PROD = {};
-function getPenetProd(suffix) { return PENET_PROD[suffix] || 'Total'; }
-function setPenetProd(suffix, v) { PENET_PROD[suffix] = v; renderCountry(suffix); }
 function penetRows(country) {
   if (!_penetRowsCache) _penetRowsCache = expand(RAW.penet);
   return _penetRowsCache.filter(function(r){ return matchCountryCode(r.country_code, country); });
