@@ -655,7 +655,7 @@ function fmtUSDChart(v) {
 }
 
 // Precio por punto (USD/pt) — valores chicos, precision propia (no sigue fmtPtsChart/fmtUSDChart).
-function fmtPricePerPt(v) { return (v || 0).toFixed(5).replace('.', ','); }
+function fmtPricePerPt(v) { return (v || 0).toFixed(4).replace('.', ','); }
 
 function fmtPct(v, ref) {
   if (!ref) return '<span class="neu">—</span>';
