@@ -57,10 +57,12 @@ Cuando el usuario diga qué cambios quiere, aplicalos:
    owner=`diegobracco-boop`, repo=`Loyalty_Ecosystem`, branch=`main`).
 3. Actualizá `BITACORA.md` con la entrada del cambio.
 4. Confirmále qué se commiteó.
-5. **No entregues los comandos de deploy automáticamente.** En su lugar,
-   preguntále: "¿Querés que te pase los comandos de PowerShell para
-   deployar (git pull, clasp push, clasp deploy)?" Si dice que sí,
-   entregaselos. Si dice que no, no los incluyas.
+5. **Deployá vos mismo, no le pases los comandos al usuario.** Corré el
+   deploy manual (equivalente a `/publicar`): `clasp push -f` seguido de
+   `clasp deploy -i <deployment id estable>` (ver `CLAUDE.md` para el id
+   vigente). Verificá con `clasp deployments` que el deploy corrió.
+   Confirmále al usuario que el deploy se hizo (o el error, si falló) —
+   no le pidas que lo corra él.
 
 Si el usuario dijo "no" o no respondió a un cambio específico, **no lo
 apliques**. Respetá la selección del usuario al pie de la letra.
