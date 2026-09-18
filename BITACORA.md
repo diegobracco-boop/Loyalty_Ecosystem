@@ -5,6 +5,36 @@ Formato: fecha · tipo · descripción · archivos afectados.
 
 ---
 
+## 2026-09-18
+
+### mejora — Rediseño estético de `dashboard.html` (tipografía, sombras, microinteracciones)
+**Archivos:** `dashboard.html`, `.claude/agents/redisenar-dashboard.md`
+
+Diagnóstico y propuesta hechos por el subagente `redisenar-dashboard`, auditados
+antes de aplicar por `ux-designer` y `auditor-de-codigo` (lanzados como
+`general-purpose` con su rol+skill, según el patrón de `CLAUDE.md`).
+
+- **Escala tipográfica completa** en `:root` (`--fs-tiny` a `--fs-hero`, 8
+  tokens cubriendo los 8 tamaños reales del archivo: 10/10.5/11/12/13/14/17/22px)
+  reemplazando los valores hardcodeados en ~35 selectores.
+- **Sombras** (`--shadow`/`--shadow-md`) aplicadas a `.kc`, `.cc`, `.bk-card`,
+  `.pnl-wrap`, y en hover de `.prog-title`.
+- **Hover con elevación** en KPI cards (`.kc`).
+- **Token `--radius-sm:6px`** reemplazando el 6px hardcodeado en `select`,
+  `input[type=month]`, `.seg`, `.ratio-sel`.
+- **Padding normalizado** de `.kc`/`.cc` a `16px` (antes `14px 16px`). Se dejó
+  `.banner` con su padding original (`14px 18px`) porque compensa a propósito
+  el borde de acento de 4px — el auditor de código lo marcó como intencional,
+  no descuido.
+
+**Descartado en esta pasada:** el cambio de borde superior semántico
+(`.kc--pos`/`.kc--neg` según signo del KPI). El auditor de código encontró que,
+tal como estaba propuesto, no funcionaría — `kpiHtml()` ya setea
+`border-top-color` vía `style` inline con significado CATEGÓRICO (no de
+tendencia), y el inline siempre gana sobre una clase CSS. Implementarlo bien
+requiere refactorizar `kpiHtml()` y sus ~15 call-sites; queda pendiente como
+tarea aparte.
+
 ## 2026-09-16
 
 ### fix — Cuota de Drive agotada por carga concurrente (dashboard caído)
