@@ -215,11 +215,10 @@ table.pnl tr.grand-total td.tc { background: #0f172a !important; }
 .heat-rowlabel { text-align: left !important; font-size: var(--fs-small); font-weight: 600; color: var(--text); padding-right: 10px !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 150px; border-right: 1px solid var(--border); }
 .heat-cell { text-align: center; font-variant-numeric: tabular-nums; padding: 8px 4px; border: 1px solid rgba(0,0,0,.06); cursor: help; line-height: 1.2; }
 .heat-val  { font-size: var(--fs-body); font-weight: 700; line-height: 1; }
-/* Chip con fondo propio (no depende del color de la celda) — así el contraste del
-   texto verde/rojo queda garantizado sin perseguir cada paso de HEAT_STEPS. */
-.heat-yoy  { display: inline-block; margin-top: 2px; padding: 1px 4px; border-radius: 3px; background: #fff; font-size: var(--fs-tiny); font-weight: 600; line-height: 1.3; }
 .heat-empty { background: #f8fafc; color: var(--muted); font-weight: 400; cursor: default; }
 .heat-cell-total { background: #1e293b !important; color: #fff !important; }
+/* Fila Total separada del resto del heatmap (no es un producto más, es la agregación) */
+.heat-total { border-top: 3px solid var(--border); }
 .heat-total .heat-rowlabel { font-weight: 800; }
 .heat-legend { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: var(--fs-tiny); color: var(--muted); }
 .heat-legend-bar { flex: 0 1 200px; height: 8px; border-radius: 4px; }
@@ -2167,12 +2166,12 @@ function lightenColor(color) {
 // Heatmap de Penetracion de GB (producto x mes fiscal) — reemplaza el line chart
 // de 1 producto a la vez (rediseño 18-sep, ver comentario en el bloque de render).
 // Rampa secuencial azul (paleta de comparación, distinta de --accent lila para no
-// confundirse con el resto del dashboard), claro->oscuro por magnitud, + badge de
-// variación YoY en pp dentro de cada celda (rediseño 21-sep).
-// idx4 es #2563eb (no el #3b82f6 de Tailwind puro): ese tono intermedio no pasa
-// 4.5:1 AA ni con texto blanco ni oscuro (verificado, ~3.7-4:1 ambos) — se oscureció
-// un paso para que el corte blanco/oscuro de abajo (idx>=4) cumpla en toda la rampa.
-var HEAT_STEPS = ['#eff6ff', '#bfdbfe', '#93c5fd', '#60a5fa', '#2563eb', '#1d4ed8', '#1e3a8a'];
+// confundirse con el resto del dashboard), claro->oscuro por magnitud.
+// Ajustada 21-sep (feedback: quedaba muy oscura/uniforme, todo se mezclaba): se sacó
+// el paso más oscuro (navy #1e3a8a) y se sumó uno extra claro al inicio — la rampa
+// entera baja de intensidad. La variación YoY en pp se sacó de la celda (quedaba
+// muy cargado de data) — sigue disponible al pasar el mouse (title).
+var HEAT_STEPS = ['#eff6ff', '#dbeafe', '#bfdbfe', '#93c5fd', '#60a5fa', '#2563eb', '#1d4ed8'];
 function heatStepIdx(v, max) {
   if (v == null || !max) return -1;
   var idx = Math.floor((v / max) * HEAT_STEPS.length);
@@ -2183,19 +2182,13 @@ function heatCellHtml(v, max, lyV, isTotal) {
   var delta = (lyV != null) ? +(v - lyV).toFixed(1) : null;
   var deltaTxt = delta != null ? ((delta > 0 ? '+' : '') + delta + ' pp YoY') : 'sin dato LY';
   var title = v.toFixed(1) + '% · ' + deltaTxt;
-  // Chip con fondo propio (ver CSS .heat-yoy) → colores oficiales --green/--red sin
-  // perseguir contraste contra el fondo variable de la celda.
-  var yoyColor = delta == null ? '' : (delta >= 0 ? 'var(--green)' : 'var(--red)');
-  var yoyHtml  = delta != null
-    ? '<div class="heat-yoy" style="color:' + yoyColor + '">' + (delta > 0 ? '+' : '') + delta + 'pp</div>'
-    : '';
   if (isTotal) {
-    return '<td class="heat-cell heat-cell-total" title="' + title + '"><div class="heat-val">' + v.toFixed(0) + '%</div>' + yoyHtml + '</td>';
+    return '<td class="heat-cell heat-cell-total" title="' + title + '"><div class="heat-val">' + v.toFixed(0) + '%</div></td>';
   }
   var idx = heatStepIdx(v, max);
   var bg  = HEAT_STEPS[idx];
-  var txt = idx >= 4 ? '#fff' : '#1e293b'; // paleta azul: corte en idx4 (#2563eb), AA en ambos lados
-  return '<td class="heat-cell" style="background:' + bg + ';color:' + txt + '" title="' + title + '"><div class="heat-val">' + v.toFixed(0) + '%</div>' + yoyHtml + '</td>';
+  var txt = idx >= 5 ? '#fff' : '#1e293b'; // corte en idx5 (#2563eb): AA 4.5:1 en ambos lados
+  return '<td class="heat-cell" style="background:' + bg + ';color:' + txt + '" title="' + title + '"><div class="heat-val">' + v.toFixed(0) + '%</div></td>';
 }
 function heatLegendHtml(max) {
   var grad = 'linear-gradient(90deg,' + HEAT_STEPS.join(',') + ')';
