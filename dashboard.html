@@ -1353,17 +1353,6 @@ function renderMetrics(country, m) {
           lyByProd[p] = _penetSeries(fy.ly, p);
         });
         var totalCy = cyByProd['Total'], totalLy = lyByProd['Total'];
-        var lastCy = totalCy.filter(function(v){ return v != null; });
-        var lastLy = totalLy.filter(function(v){ return v != null; });
-        var lastCyV = lastCy.length ? lastCy[lastCy.length - 1] : null;
-        var lastLyV = lastLy.length ? lastLy[lastLy.length - 1] : null;
-        var kpiSub  = lastCyV != null && lastLyV != null
-                      ? (lastCyV - lastLyV > 0 ? '+' : '') + (lastCyV - lastLyV).toFixed(1) + ' pp YoY · Total'
-                      : 'Total';
-        html += '<div class="kpi-row">';
-        html += kpiHtml('% del GB que acumula puntos', lastCyV != null ? lastCyV.toFixed(1) + '%' : '—', kpiSub, 'var(--accent)');
-        html += '</div>';
-
         var anyVal = heatProds.some(function(p){ return cyByProd[p].some(function(v){ return v != null; }); });
         if (!anyVal) {
           html += '<div class="empty">Sin datos</div>';
