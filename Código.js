@@ -140,11 +140,16 @@ function _loyPnl(filename, baseKey) {
       'Revisar los nombres de columna en Inputs_Planning_PnL (repo B2B_Ecosystem).');
   });
   var n1i = raw.cols.indexOf('P&L N1');
-  // GB/Orders TOTALES (todas las LoB, no solo B2C) — PENDIENTE de visualizar
-  // (22-sep): se traen y quedan contenidos en RAW.baseline/budget/forecast,
-  // pero el dashboard no los usa todavía. buildPnl()/scenarioLoyaltyPnl() en
-  // dashboard.html siguen filtrando por 'loyalty' en P&L N1, así que estas
-  // filas viajan sin efecto en el P&L actual hasta que se decida mostrarlas.
+  var lobi = raw.cols.indexOf('LoB');
+  // GB/Orders B2C (mismo alcance que loyalty_runrate.json, NO todas las LoB —
+  // corregido 22-sep) — PENDIENTE de visualizar: se traen y quedan contenidos
+  // en RAW.baseline/budget/forecast, pero el dashboard no los usa todavía.
+  // buildPnl()/scenarioLoyaltyPnl() en dashboard.html siguen filtrando por
+  // 'loyalty' en P&L N1, así que estas filas viajan sin efecto en el P&L
+  // actual hasta que se decida mostrarlas. El resto de filtros (Marca, LoB
+  // b2b/b2b2c/b2c, exclusiones de negocio) ya vienen aplicados upstream en
+  // Inputs_Planning_PnL — acá solo se acota a B2C, igual que el resto del
+  // scope de Loyalty (todas sus líneas ya son B2C, ver CLAUDE.md).
   var GB_ORDERS_N1 = ['gross bookings domestic', 'gross bookings international',
                        'orders domestic', 'orders international'];
   var rows = [], loyCount = 0;
@@ -153,7 +158,9 @@ function _loyPnl(filename, baseKey) {
     var vLower = v ? String(v).toLowerCase() : '';
     var isLoy = vLower.indexOf('loyalty') !== -1;
     if (isLoy) loyCount++;
-    if (isLoy || GB_ORDERS_N1.indexOf(vLower) !== -1) rows.push(raw.rows[i]);
+    var isGbOrdersB2c = GB_ORDERS_N1.indexOf(vLower) !== -1
+      && lobi !== -1 && String(raw.rows[i][lobi]).toLowerCase() === 'b2c';
+    if (isLoy || isGbOrdersB2c) rows.push(raw.rows[i]);
   }
   if (loyCount === 0) throw new Error(
     'Cero filas "loyalty" en ' + filename + '. El filtro dejó de matchear — ' +
