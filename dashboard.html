@@ -1300,7 +1300,7 @@ function renderMetrics(country, m) {
     // un heatmap (producto × mes fiscal) — magnitud por color, todos los productos visibles a
     // la vez, comparación directa fila contra fila. ----
     if (prog === 'Pasaporte D!') {
-      html += '<div class="sub-block"><div class="sub-title">Penetración de GB — % de GB con puntos, por producto</div>';
+      html += '<div class="sub-block"><div class="sub-title">Penetración GB Acum — % de GB de reservas con acumulación de puntos, por producto</div>';
       if (!RAW.penet) {
         html += '<div class="empty">loyalty_penetracion_gb.json no disponible</div>';
       } else {
@@ -1350,7 +1350,7 @@ function renderMetrics(country, m) {
           }));
           heatMax = Math.max(10, Math.ceil(heatMax / 10) * 10);
           html += '<div class="cc"><div class="ct">% de GB con puntos — por mes, todos los productos</div>'
-                + '<div class="tbl-scroll"><table class="heat-table"><caption class="sr-only">Penetración de GB (% de GB pagado con puntos) por producto y mes fiscal</caption><thead><tr><th class="heat-rowlabel"><span class="sr-only">Producto</span></th>'
+                + '<div class="tbl-scroll"><table class="heat-table"><caption class="sr-only">Penetración GB Acum (% de GB de reservas con acumulación de puntos) por producto y mes fiscal</caption><thead><tr><th class="heat-rowlabel"><span class="sr-only">Producto</span></th>'
                 + FISCAL_LABELS.map(function(l){ return '<th>' + l + '</th>'; }).join('')
                 + '</tr></thead><tbody>'
                 + heatProds.map(function(p){
@@ -1848,7 +1848,7 @@ function yoyRowHtml(prevValues, currValues) {
 }
 
 // Fila de diferencia YA calculada en puntos porcentuales (no % de variación
-// relativa) — para métricas que ya son un %, como Penetración de GB.
+// relativa) — para métricas que ya son un %, como Penetración GB Acum.
 function ppRowHtml(ppValues) {
   return FISCAL_LABELS.map(function(lbl, i){
     var p = ppValues[i];

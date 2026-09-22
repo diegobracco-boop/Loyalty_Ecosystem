@@ -1922,7 +1922,11 @@ GROUP BY processing_date, country_code, tier
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# Penetración de GB: % de GB con puntos vs GB total, por mes × país × producto
+# Penetración GB Acum: % de GB con acumulación de puntos vs GB total, por mes
+# × país × producto. "Acum" para no confundir con otras nociones de
+# "penetración" (ej. % de GB pagado con puntos en redenciones, o el concepto
+# "Penetracion" de la regla EPM de Control de Gestión — sin relación entre sí,
+# ver memoria epm-calculo-loyalty-mapeo).
 # ──────────────────────────────────────────────────────────────────────────
 _PENET_SQL = """
 WITH clm_ga AS (
@@ -2000,7 +2004,7 @@ def fetch_penet(desde: str, hasta: str) -> pd.DataFrame:
     cols = ["ym", "country_code", "grupo_pnl",
             "trx_total", "trx_con_puntos", "gb_total", "gb_con_puntos"]
     df = fetch(build_penet_query(desde, hasta),
-               f"Penetración GB ({desde[:7]}→{hasta[:7]})")
+               f"Penetración GB Acum ({desde[:7]}→{hasta[:7]})")
     if df.empty:
         return pd.DataFrame(columns=cols)
 
@@ -2993,7 +2997,7 @@ df_acum_channel = enrich_acum_channel_usd(
 print("\n--- Stock de puntos iFood en la calle ---")
 df_stock_ifood = fetch_stock_ifood(LY_DESDE, ACTUALS_HASTA)
 
-print("\n--- Penetración de GB (% reservas con puntos, por producto) ---")
+print("\n--- Penetración GB Acum (% GB con acumulación de puntos, por producto) ---")
 df_penet = pd.concat([
     fetch_penet(ACTUALS_DESDE, ACTUALS_HASTA),
     fetch_penet(LY_DESDE, LY_HASTA),
@@ -3103,7 +3107,7 @@ penet_bytes = json.dumps(
     {"meta": META_PENET, "data": to_compact(df_penet)},
     ensure_ascii=False, separators=(",", ":"), allow_nan=False,
 ).encode("utf-8")
-print(f"  Penetración GB: {len(penet_bytes)//1024:.0f} KB  ({len(df_penet):,} filas)")
+print(f"  Penetración GB Acum: {len(penet_bytes)//1024:.0f} KB  ({len(df_penet):,} filas)")
 
 META_ACUM_CHANNEL = {
     "generated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
