@@ -189,7 +189,9 @@ table.pnl tr.grand-total td.tc { background: #0f172a !important; }
 @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
 .cc { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); }
 .ct { font-size: var(--fs-tiny); font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 4px; }
+.ct-no-mb { margin-bottom: 0; }
 .cw { position: relative; height: 220px; }
+.ct-sub { font-size: 11px; color: var(--muted); margin: 0 0 8px; }
 
 /* ---- Filas de datos bajo cada grafico evolutivo (YoY, precio/pt) ---- */
 .dtable-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
@@ -202,6 +204,11 @@ table.pnl tr.grand-total td.tc { background: #0f172a !important; }
 .yoy-cell .pos, .yoy-cell .neg, .yoy-cell .neu { font-size: var(--fs-body); }
 .ppr-ly { font-size: var(--fs-small); color: var(--muted); margin-bottom: 1px; }
 .ppr-cell .pos, .ppr-cell .neg, .ppr-cell .neu { font-size: var(--fs-md); }
+
+/* ---- Burbujas: puntos acumulados promedio por tier ---- */
+.tier-avg-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.tier-avg-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border: 1px solid; border-radius: 999px; background: #f8fafc; font-size: var(--fs-small); color: var(--text); }
+.tier-avg-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
 
 /* ---- Segmented toggle (Redenciones Q/$) ---- */
 .seg { display: flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
@@ -1264,7 +1271,8 @@ function renderMetrics(country, m) {
     html += '<div class="cc" style="margin-bottom:14px">' + acTitleHtml + '<div class="cw"><canvas id="' + canvasId + '"></canvas></div>'
       + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-' + canvasId + '"></div></div>'
       + '</div>'
-      + (prog === 'Pasaporte D!' && aView === 'tier' ? '<div class="cc" style="margin-bottom:14px"><div class="ct" style="font-size:12px;color:#64748b;margin-bottom:4px">Mix por tier (%)</div><div class="cw" style="height:160px"><canvas id="ch-mix-' + suffix + '"></canvas></div></div>' : '');
+      + (prog === 'Pasaporte D!' && aView === 'tier' ? '<div class="cc" style="margin-bottom:14px"><div class="ct" style="font-size:12px;color:#64748b;margin-bottom:4px">Mix por tier (%)</div><div class="cw" style="height:160px"><canvas id="ch-mix-' + suffix + '"></canvas></div></div>' : '')
+      + (prog === 'Pasaporte D!' && aView === 'tier' ? '<div class="cc" style="margin-bottom:14px"><div class="ct" style="font-size:12px;color:#64748b;margin-bottom:8px">Puntos acumulados promedio por tier — año fiscal ' + fyYears().cy + ' (por miembro activo del tier)</div><div class="tier-avg-row" id="tier-avg-' + suffix + '"></div></div>' : '');
     html += '<div class="cc" style="margin-bottom:14px"><div class="ct">' + rdTitle + '</div><div class="cw"><canvas id="' + canvasRdId + '"></canvas></div>'
       + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-' + canvasRdId + '"></div></div>'
       + '<div class="dtable-row"><div class="dtable-label">Precio LY / YoY</div><div class="ppr-row" id="ppr-' + canvasRdId + '"></div></div>'
@@ -1289,6 +1297,21 @@ function renderMetrics(country, m) {
         + '</div>';
     }
 
+    // ---- Participación del channel iFood en Pasaporte D! (100% stacked, por mes):
+    // movido acá desde la sección de programa "IFOOD" — es una vista de Pasaporte D!
+    // (de dónde vienen esos puntos), no de enrolamiento/stock de iFood. Solo tiene
+    // sentido en Brasil (único país con volumen de iFood) y en TOTAL (agregado).
+    if (prog === 'Pasaporte D!' && RAW.acum_channel && (country.key === 'total' || country.key === 'brasil')) {
+      var chCanId = 'ch-acum-ch-' + suffix;
+      var chTitle = country.key === 'total'
+        ? 'Participación del channel iFood en Pasaporte D! — todos los países, por mes'
+        : 'Participación del channel iFood en Pasaporte D! — ' + country.label + ', por mes';
+      html += '<div class="sub-block"><div class="sub-title">Pasaporte D! vía iFood</div><div class="cc">'
+            + '<div class="ct">' + chTitle + '</div>'
+            + '<div class="cw"><canvas id="' + chCanId + '"></canvas></div>'
+            + '</div></div>';
+    }
+
     // ---- Penetracion de GB (% de GB pagado con puntos, por producto): va DENTRO de
     // "Pasaporte D!", no como seccion aparte (antes era su propio prog-section colapsable
     // sin chip de navegacion propio — se integro como sub-block junto a Ratio de acumulacion).
@@ -1300,7 +1323,7 @@ function renderMetrics(country, m) {
     // un heatmap (producto × mes fiscal) — magnitud por color, todos los productos visibles a
     // la vez, comparación directa fila contra fila. ----
     if (prog === 'Pasaporte D!') {
-      html += '<div class="sub-block"><div class="sub-title">Penetración GB Acum — % de GB de reservas con acumulación de puntos, por producto</div>';
+      html += '<div class="sub-block"><div class="sub-title">Penetración GB Acum — % del GB que acumula puntos, por producto</div>';
       if (!RAW.penet) {
         html += '<div class="empty">loyalty_penetracion_gb.json no disponible</div>';
       } else {
@@ -1338,7 +1361,7 @@ function renderMetrics(country, m) {
                       ? (lastCyV - lastLyV > 0 ? '+' : '') + (lastCyV - lastLyV).toFixed(1) + ' pp YoY · Total'
                       : 'Total';
         html += '<div class="kpi-row">';
-        html += kpiHtml('% GB con puntos', lastCyV != null ? lastCyV.toFixed(1) + '%' : '—', kpiSub, 'var(--accent)');
+        html += kpiHtml('% del GB que acumula puntos', lastCyV != null ? lastCyV.toFixed(1) + '%' : '—', kpiSub, 'var(--accent)');
         html += '</div>';
 
         var anyVal = heatProds.some(function(p){ return cyByProd[p].some(function(v){ return v != null; }); });
@@ -1349,7 +1372,7 @@ function renderMetrics(country, m) {
             return Math.max.apply(null, cyByProd[p].map(function(v){ return v || 0; }));
           }));
           heatMax = Math.max(10, Math.ceil(heatMax / 10) * 10);
-          html += '<div class="cc"><div class="ct">% de GB con puntos — por mes, todos los productos</div>'
+          html += '<div class="cc"><div class="ct">% del GB que acumula puntos — por mes, todos los productos</div>'
                 + '<div class="tbl-scroll"><table class="heat-table"><caption class="sr-only">Penetración GB Acum (% de GB de reservas con acumulación de puntos) por producto y mes fiscal</caption><thead><tr><th class="heat-rowlabel"><span class="sr-only">Producto</span></th>'
                 + FISCAL_LABELS.map(function(l){ return '<th>' + l + '</th>'; }).join('')
                 + '</tr></thead><tbody>'
@@ -1407,32 +1430,19 @@ function renderMetrics(country, m) {
       }
       html += '</div>';
 
-      // ---- Flujo y stock de puntos vía iFood: sub-bloque aparte (no es enrolamiento) ----
-      if (RAW.acum_channel || RAW.stock_ifood) {
+      // ---- Stock de puntos vía iFood: sub-bloque aparte (no es enrolamiento) ----
+      // El gráfico de "Participación del channel iFood en Pasaporte D!" se movió
+      // a la sección de programa "Pasaporte D!" (más abajo) — es una vista de
+      // Pasaporte D!, no de enrolamiento/stock de iFood.
+      if (RAW.stock_ifood) {
         html += '<div class="sub-block"><div class="sub-title">Flujo y stock de puntos</div>';
-
-        // ── Gráfico: participación de iFood sobre el total de Pasaporte D! (100% stacked, por mes)
-        if (RAW.acum_channel) {
-          var chCanId = 'ch-acum-ch-' + suffix;
-          var chTitle = country.key === 'total'
-            ? 'Participación del channel iFood en Pasaporte D! — todos los países, por mes'
-            : 'Participación del channel iFood en Pasaporte D! — ' + country.label + ', por mes';
-          html += '<div class="cc">'
-                + '<div class="ct">' + chTitle + '</div>'
-                + '<div class="cw"><canvas id="' + chCanId + '"></canvas></div>'
-                + '</div>';
-        }
-
-        // ── Gráfico: Stock de puntos iFood en la calle (rollforward mensual)
-        if (RAW.stock_ifood) {
-          var stkCanId = 'ch-stock-if-' + suffix;
-          html += '<div class="cc" style="margin-top:14px">'
-                + '<div class="ct">Stock de puntos iFood en la calle — ' + (mode === 'USD' ? 'USD' : 'puntos') + ' a fin de mes</div>'
-                + '<div class="cw"><canvas id="' + stkCanId + '"></canvas></div>'
-                + '</div>'
-                + '<div style="margin:2px 0 0;font-size:11px;color:var(--muted)">Excluye IFOOD_WELCOME_CLUBE / IFO_WE_CLU</div>';
-        }
-
+        var stkCanId = 'ch-stock-if-' + suffix;
+        html += '<div class="cc">'
+              + '<div class="ct ct-no-mb">Stock de puntos iFood en la calle — ' + (mode === 'USD' ? 'USD' : 'puntos') + ' a fin de mes</div>'
+              + '<div class="ct-sub">Saldo = Acumulación &minus; Redención &minus; Vencimiento (acumulado)</div>'
+              + '<div class="cw"><canvas id="' + stkCanId + '"></canvas></div>'
+              + '</div>'
+              + '<div style="margin:2px 0 0;font-size:11px;color:var(--muted)">Excluye IFOOD_WELCOME_CLUBE / IFO_WE_CLU</div>';
         html += '</div>';
       }
     }
@@ -1582,6 +1592,29 @@ function renderMetrics(country, m) {
           });
         buildMixChart('ch-mix-' + suffix, mixDatasets);
       }
+      // Burbujas: puntos acumulados promedio por tier (anual, año fiscal CY vs LY) —
+      // siempre en puntos (independiente del toggle Q/$), mismo criterio que el mix.
+      // Denominador = miembros ACTIVOS HOY por tier (mb.byTier, foto actual — no hay
+      // conteo histórico de miembros por tier, ver gotcha de sesgo de supervivencia
+      // en CLAUDE.md), así que el "vs LY" refleja el cambio en puntos acumulados,
+      // no en cantidad de miembros del tier.
+      var tierAvgEl = document.getElementById('tier-avg-' + suffix);
+      if (tierAvgEl) {
+        var tierAvgHtml = MB_TIERS.filter(function(t){ return Object.keys(tierPtsMap[t]).length && mb.byTier && mb.byTier[t]; })
+          .map(function(t){
+            var cySum = fiscalSeries(tierPtsMap[t], tierPtsMap[t], fy.cy, fy.ly, fy.cy).reduce(function(a,b){ return a+b; }, 0);
+            var lySum = fiscalSeries(tierPtsMap[t], tierPtsMap[t], fy.cy, fy.ly, fy.ly).reduce(function(a,b){ return a+b; }, 0);
+            var members = mb.byTier[t];
+            var avgCY = cySum / members;
+            var avgLY = lySum / members;
+            return '<span class="tier-avg-chip" style="border-color:' + MB_TIER_COLOR_SOLID[t] + '" title="Promedio sobre miembros activos hoy (foto actual del padrón, no un histórico por año) — ver gotcha de sesgo de supervivencia">'
+              + '<span class="tier-avg-dot" style="background:' + MB_TIER_COLOR_SOLID[t] + '"></span>'
+              + '<strong>' + t + '</strong> ' + fmtPts(avgCY) + ' pts/miembro'
+              + '<span style="color:var(--muted)"> · vs LY ' + fmtPct(avgCY, avgLY) + '</span>'
+              + '</span>';
+          }).join('');
+        tierAvgEl.innerHTML = tierAvgHtml || '<div class="empty">Sin datos de miembros por tier</div>';
+      }
     } else if ((prog === 'Cobrand' || prog === 'Partners') && mode === 'USD' && getBrView(suffix, prog) === 'margen') {
       // Costo (SSP) + margen (Bank/Partner Revenue) apilados por mes — mismo total
       // que la vista "Total", descompuesto. Reemplaza al chart aparte que existía antes.
@@ -1636,44 +1669,13 @@ function renderMetrics(country, m) {
       buildRatioBarChart(ratioCanvasId, ratioCats, ratioPrev, ratioCurr, ratioPrevLbl, ratioCurLbl);
     }
 
-    // Club Despegar — stock de suscriptos apilado por plan (CY) + total LY como línea.
-    if (prog === 'Club Despegar' && (cdd.activos || Object.keys(cdd.altasByYm).length)) {
-      var cddDatasets = CDD_PLANS.filter(function(p){
-        return Object.keys(cdd.stockByPlanYm[p] || {}).length;
-      }).map(function(p){
-        return { label: p,
-                 data: fiscalSeries(cdd.stockByPlanYm[p], cdd.stockByPlanYm[p], fy.cy, fy.ly, fy.cy),
-                 backgroundColor: CDD_PLAN_COLOR[p] };
-      });
-      var cddStockCY = fiscalSeries(cdd.stockByYm, cdd.stockByYm, fy.cy, fy.ly, fy.cy);
-      var cddStockLY = fiscalSeries(cdd.stockByYm, cdd.stockByYm, fy.cy, fy.ly, fy.ly);
-      buildStackedBarChart('ch-cdd-stock-' + suffix, cddDatasets, fmtPtsChart, true,
-        { label: 'Total ' + fy.ly, data: cddStockLY });
-      var yEl = document.getElementById('yoy-ch-cdd-stock-' + suffix);
-      if (yEl) yEl.innerHTML = yoyRowHtml(cddStockLY, cddStockCY);
-    }
-
-    // iFood — altas apiladas por tipo (CY) + total LY como línea.
-    if (prog === 'IFOOD' && ifd.total) {
-      var ifdDatasets = IFOOD_TIPOS.map(function(t){
-        return { label: t,
-                 data: fiscalSeries(ifd.altasByTipoYm[t], ifd.altasByTipoYm[t], fy.cy, fy.ly, fy.cy),
-                 backgroundColor: IFOOD_COLOR[t] };
-      });
-      var ifdAltasCY = fiscalSeries(ifd.altasByYm, ifd.altasByYm, fy.cy, fy.ly, fy.cy);
-      var ifdAltasLY = fiscalSeries(ifd.altasByYm, ifd.altasByYm, fy.cy, fy.ly, fy.ly);
-      buildStackedBarChart('ch-ifd-altas-' + suffix, ifdDatasets, fmtPtsChart, true,
-        { label: 'Total ' + fy.ly, data: ifdAltasLY });
-      var yEl2 = document.getElementById('yoy-ch-ifd-altas-' + suffix);
-      if (yEl2) yEl2.innerHTML = yoyRowHtml(ifdAltasLY, ifdAltasCY);
-    }
-
     // Pasaporte D! vía canal iFood — participación % de iFood sobre el total (100% stacked).
+    // Movido acá desde "IFOOD" (misma fecha que el HTML): es una vista de Pasaporte D!.
     // Sin línea LY: al pasar a % el eje es 0-100, un LY en valor absoluto ya no es
     // plotteable en la misma escala sin un eje secundario (lo que generaba la
     // confusión original de la línea). Tooltip lleva el total absoluto del mes para
     // no perder contexto de magnitud (hallazgo ux-designer 16-sep).
-    if (prog === 'IFOOD' && RAW.acum_channel) {
+    if (prog === 'Pasaporte D!' && RAW.acum_channel && (country.key === 'total' || country.key === 'brasil')) {
       var chCanId2 = 'ch-acum-ch-' + suffix;
       var chIfoodMapCY = {}, chRestoMapCY = {};
       acumChannelRows(country).forEach(function(row) {
@@ -1706,6 +1708,38 @@ function renderMetrics(country, m) {
       ];
 
       buildMixChart(chCanId2, chDatasets, { legend: true, fmtFn: fmtFn });
+    }
+
+    // Club Despegar — stock de suscriptos apilado por plan (CY) + total LY como línea.
+    if (prog === 'Club Despegar' && (cdd.activos || Object.keys(cdd.altasByYm).length)) {
+      var cddDatasets = CDD_PLANS.filter(function(p){
+        return Object.keys(cdd.stockByPlanYm[p] || {}).length;
+      }).map(function(p){
+        return { label: p,
+                 data: fiscalSeries(cdd.stockByPlanYm[p], cdd.stockByPlanYm[p], fy.cy, fy.ly, fy.cy),
+                 backgroundColor: CDD_PLAN_COLOR[p] };
+      });
+      var cddStockCY = fiscalSeries(cdd.stockByYm, cdd.stockByYm, fy.cy, fy.ly, fy.cy);
+      var cddStockLY = fiscalSeries(cdd.stockByYm, cdd.stockByYm, fy.cy, fy.ly, fy.ly);
+      buildStackedBarChart('ch-cdd-stock-' + suffix, cddDatasets, fmtPtsChart, true,
+        { label: 'Total ' + fy.ly, data: cddStockLY });
+      var yEl = document.getElementById('yoy-ch-cdd-stock-' + suffix);
+      if (yEl) yEl.innerHTML = yoyRowHtml(cddStockLY, cddStockCY);
+    }
+
+    // iFood — altas apiladas por tipo (CY) + total LY como línea.
+    if (prog === 'IFOOD' && ifd.total) {
+      var ifdDatasets = IFOOD_TIPOS.map(function(t){
+        return { label: t,
+                 data: fiscalSeries(ifd.altasByTipoYm[t], ifd.altasByTipoYm[t], fy.cy, fy.ly, fy.cy),
+                 backgroundColor: IFOOD_COLOR[t] };
+      });
+      var ifdAltasCY = fiscalSeries(ifd.altasByYm, ifd.altasByYm, fy.cy, fy.ly, fy.cy);
+      var ifdAltasLY = fiscalSeries(ifd.altasByYm, ifd.altasByYm, fy.cy, fy.ly, fy.ly);
+      buildStackedBarChart('ch-ifd-altas-' + suffix, ifdDatasets, fmtPtsChart, true,
+        { label: 'Total ' + fy.ly, data: ifdAltasLY });
+      var yEl2 = document.getElementById('yoy-ch-ifd-altas-' + suffix);
+      if (yEl2) yEl2.innerHTML = yoyRowHtml(ifdAltasLY, ifdAltasCY);
     }
 
     // Stock de puntos iFood en la calle — rollforward mensual (no es flujo, es
