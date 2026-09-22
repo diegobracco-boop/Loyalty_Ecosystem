@@ -317,7 +317,7 @@ a.ext-link:hover { text-decoration: underline; }
       <div class="steps">
         <div class="step"><div class="step-num">1</div><div><div class="step-title">Leé el Panorama y "Cómo se conecta todo"</div><div class="step-desc">Qué resuelve el dashboard, el flujo Datalake → <code>loyalty_sync.py</code> → JSON en Drive → landing, y que el P&amp;L viene de otro repo.</div></div></div>
         <div class="step"><div class="step-num">2</div><div><div class="step-title">Pasá por el Glosario</div><div class="step-desc">Los términos que se repiten: <strong>acumulación / redención / breakage</strong>, <strong>SSP</strong>, <strong>tier</strong>, <strong>Pasaporte D!</strong>, <strong>Baseline vs Goal</strong>, <strong>foto actual / survivorship</strong>. Sin esto, las secciones no se leen.</div></div></div>
-        <div class="step"><div class="step-num">3</div><div><div class="step-title">Abrí el dashboard y navegá cada sección</div><div class="step-desc">Con "¿Qué vista uso?" al lado. Probá cambiar de pestaña de país, cambiar Goal (Budget/Forecast), el período (Mes/Q/Half), abrir un programa.</div></div></div>
+        <div class="step"><div class="step-num">3</div><div><div class="step-title">Abrí el dashboard y navegá cada sección</div><div class="step-desc">Con "¿Qué vista uso?" al lado. Probá cambiar de pestaña de país, cambiar Goal (Budget/Forecast/Run Rate), el período (Mes/Q/Half), abrir un programa.</div></div></div>
         <div class="step"><div class="step-num">4</div><div><div class="step-title">Mirá "Quién hace qué"</div><div class="step-desc">Los 3 perfiles (Analista / Analista+query / Operador), quién corre el sync, a quién le escribís si un número se ve raro.</div></div></div>
         <div class="step"><div class="step-num">5</div><div><div class="step-title">Cuando tengas que actualizar algo</div><div class="step-desc">Andá a <strong>Recetas por tarea</strong>, y de ahí a la <strong>Referencia operativa</strong> del pipeline si hace falta el detalle.</div></div></div>
       </div>
@@ -338,7 +338,8 @@ a.ext-link:hover { text-decoration: underline; }
       <table class="doc-table"><tbody>
         <tr><td><strong>P&amp;L Contable</strong></td><td>El P&amp;L de Loyalty con líneas de accounting. Fuente: los JSON canónicos de <code>Inputs_Planning_PnL</code> (repo B2B); la landing filtra <code>P&amp;L N1</code> que contiene "loyalty".</td></tr>
         <tr><td><strong>Baseline</strong></td><td>La foto realista: actuals de meses cerrados + run-rate + forecast para los abiertos. Es contra lo que se compara.</td></tr>
-        <tr><td><strong>Goal</strong></td><td>El objetivo elegido en el selector: <strong>Budget</strong> (presupuesto oficial) o <strong>Forecast</strong> (última proyección).</td></tr>
+        <tr><td><strong>Goal</strong></td><td>El objetivo elegido en el selector: <strong>Budget</strong> (presupuesto oficial), <strong>Forecast</strong> (última proyección) o <strong>Run Rate</strong> (proyección de 3 meses).</td></tr>
+        <tr><td><strong>Run Rate</strong></td><td>A diferencia de Budget/Forecast (año fiscal completo, de <code>Inputs_Planning_PnL</code>), Run Rate es un archivo aparte armado a mano desde el CSV crudo de Legal Entity NA, y solo cubre <strong>Sep-Mar</strong> — los meses sin dato muestran "—" y el Total/Δ compara ese tramo parcial contra el Baseline completo (aviso en pantalla al elegirlo).</td></tr>
         <tr><td><strong>Δ (Baseline − Goal)</strong></td><td>La diferencia. Verde/rojo según sea mejor o peor que el Goal.</td></tr>
         <tr><td colspan="2" class="note">El P&amp;L de Loyalty usa el mismo color-coding que el P&amp;L Accounting de B2B: BASELINE lila · GOAL azul · Δ verde.</td></tr>
       </tbody></table>
@@ -363,6 +364,7 @@ a.ext-link:hover { text-decoration: underline; }
         <tr><td><strong>SSP Facturación</strong></td><td>= SSP Calculado × (1 − breakage esperado). Es el factor que multiplica la base de la acumulación para dar el valor USD.</td></tr>
         <tr><td>Valor USD de acumulación</td><td>≈ base de ingreso no pagada con puntos × SSP Facturación[país][mes]. Factor chico (~0.3-0.9%).</td></tr>
         <tr><td class="note" colspan="2">⚠️ Bug conocido en el Excel del cierre: MX↔CO estaban swapeados (referencias cruzadas del pivot). El pipeline lo corrige.</td></tr>
+        <tr><td><strong>Penetración GB Acum</strong></td><td>% de GB de reservas que tuvieron un evento de <strong>acumulación</strong> de puntos, por producto. <strong>No es lo mismo que "% pagado con puntos"</strong> (eso es redención, otra métrica) ni tiene relación con la "Penetración" que usa la regla de proyecciones de Control de Gestión en EPM — 3 conceptos distintos que comparten el nombre "penetración" por coincidencia, no por ser el mismo dato.</td></tr>
       </tbody></table>
     </div>
 
@@ -402,12 +404,13 @@ a.ext-link:hover { text-decoration: underline; }
       <table class="doc-table">
         <thead><tr><th>Necesito…</th><th>Sección</th><th>Nota</th></tr></thead>
         <tbody>
-          <tr><td>El P&amp;L de Loyalty vs Budget / Forecast</td><td><strong>P&amp;L Contable</strong></td><td>Selector Goal (Budget/Forecast) y período (Mes/Q/Half). El default de fechas es Ene-Dic → para el FY completo poner Hasta = Marzo del año siguiente.</td></tr>
+          <tr><td>El P&amp;L de Loyalty vs Budget / Forecast / Run Rate</td><td><strong>P&amp;L Contable</strong></td><td>Selector Goal (Budget/Forecast/Run Rate) y período (Mes/Q/Half). El default de fechas es Ene-Dic → para el FY completo poner Hasta = Marzo del año siguiente. Run Rate solo cubre Sep-Mar (Legal Entity NA) — el resto de los meses muestra "—".</td></tr>
           <tr><td>Detalle de acumulación / redención / breakage por programa</td><td><strong>Métricas de negocio</strong></td><td>Chips de programa arriba. Cada uno: 4 KPIs + 2 charts mensuales CY vs LY.</td></tr>
           <tr><td>Cuántos miembros activos, por tier</td><td><strong>Miembros del programa</strong></td><td>Foto actual (no serie histórica). KPIs por tier + altas por mes + stock acumulado.</td></tr>
           <tr><td>Suscriptos a Club Despegar (AR)</td><td>Sección de programa <strong>"Club Despegar"</strong></td><td>Solo pestaña Argentina + TOTAL. Stock por plan + altas/bajas.</td></tr>
           <tr><td>Enrolados en iFood (BR)</td><td>Sección de programa <strong>"IFOOD"</strong></td><td>Solo pestaña Brasil + TOTAL.</td></tr>
           <tr><td>Cuántos puntos se dan por cada $ de venta, por producto</td><td>Dentro de <strong>"Pasaporte D!"</strong> → Ratio de acumulación</td><td>Selector Mes/Año. Barra clara = período anterior, de color = el elegido. Solo <code>point_type='general'</code> (no cobrand/partners).</td></tr>
+          <tr><td>Qué % del GB generó acumulación de puntos, por producto</td><td>Dentro de <strong>"Pasaporte D!"</strong> → Penetración GB Acum</td><td>Heatmap producto × mes fiscal. Mide si la reserva tuvo un evento de <strong>acumulación</strong> — NO si se pagó con puntos (eso es otra cosa, ver Glosario).</td></tr>
           <tr><td>Todo sumado (los 8 países)</td><td>Pestaña <strong>TOTAL</strong></td><td>Primera pestaña, es el default.</td></tr>
         </tbody>
       </table>
@@ -556,6 +559,8 @@ a.ext-link:hover { text-decoration: underline; }
           <tr><td>loyalty_club_despegar.json</td><td><code>_CLUB_DESPEGAR_SQL</code> — <code>membertrip_subscription</code>. Series stock / alta / baja × plan.</td><td>Programa "Club Despegar" (AR + TOTAL)</td></tr>
           <tr><td>loyalty_ifood_enroll.json</td><td><code>_IFOOD_ENROLL_SQL</code> — <code>ifood_dim_users</code>. Altas por mes por tipo.</td><td>Programa "IFOOD" (BR + TOTAL)</td></tr>
           <tr><td>loyalty_ratio_acumulacion.json</td><td>Mismo <code>_ACUM_SQL</code> que acumulaciones (cero SQL nuevo) — <code>SUM(points)/SUM(gb)</code>, solo <code>point_type='general'</code>, por mes × país × <code>grupo_pnl</code> (7 productos + Total). "Producto" viene de la pestaña <code>regla producto</code> del Sheet Config, matcheada por <code>purchase_type</code> → <code>product_type</code> → código Comarch, en ese orden.</td><td>Dentro de "Pasaporte D!": gráfico de barras con selector Mes/Año (período elegido vs. el inmediato anterior)</td></tr>
+          <tr><td>loyalty_penetracion_gb.json</td><td><code>_PENET_SQL</code>/<code>fetch_penet</code> — % GB de reservas con evento de <strong>acumulación</strong> (<code>clm_transactions</code> tipo <code>GA</code>/<code>B</code>), por mes × país × producto. Renombrada "Penetración GB Acum" (22-sep) para no confundir con % pagado con puntos.</td><td>Dentro de "Pasaporte D!": heatmap producto × mes fiscal</td></tr>
+          <tr><td class="note" colspan="3">⚠️ <code>loyalty_runrate.json</code> (Goal "Run Rate" del P&amp;L Contable) <strong>NO sale de este pipeline</strong> — es un archivo aparte, armado a mano desde el CSV crudo de <code>Inputs_Planning_PnL</code> (repo B2B, Legal Entity NA), solo Sep-Mar. Ver sección P&amp;L y escenarios.</td></tr>
         </tbody>
       </table>
     </div>
