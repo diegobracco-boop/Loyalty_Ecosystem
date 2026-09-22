@@ -288,6 +288,7 @@ table.bk tr:hover td { background: #f8fafc; }
     <select id="f-scenario">
       <option value="forecast" selected>Forecast</option>
       <option value="budget">Budget</option>
+      <option value="runrate">Run Rate</option>
     </select>
   </div>
   <div class="fg">
@@ -571,7 +572,7 @@ var RAW = { acum_cy: null, acum_ly: null, reden_cy: null, reden_ly: null, breaka
             baseline: null, budget: null, forecast: null, dict: null, ssp: null, ratio_acum: null,
             acum_tier: null };
 var LOADED = 0;
-var TOTAL  = 18;
+var TOTAL  = 19;
 var ACTIVE_COUNTRY = 'total';
 var CHARTS = {};
 
@@ -708,7 +709,7 @@ function getScenario() {
   var el = document.getElementById('f-scenario');
   return el ? el.value : 'forecast';
 }
-function scenarioLabel(s) { return s === 'budget' ? 'Budget' : 'Forecast'; }
+function scenarioLabel(s) { return s === 'budget' ? 'Budget' : s === 'runrate' ? 'Run Rate' : 'Forecast'; }
 
 // Agrupacion de columnas del P&L Contable: 'month' | 'quarter' | 'half'
 function getPeriodMode() {
@@ -781,6 +782,7 @@ function buildPnl(country) {
   var scn = scenarioLoyaltyPnl(country, months);
   Object.keys(scn.budget).forEach(function(l){ lineSet[l] = 1; });
   Object.keys(scn.forecast).forEach(function(l){ lineSet[l] = 1; });
+  Object.keys(scn.runrate).forEach(function(l){ lineSet[l] = 1; });
   var lines = Object.keys(lineSet).sort();
 
   // agg[line] = {ym: monto}
@@ -809,8 +811,8 @@ function buildPnl(country) {
 function scenarioLoyaltyPnl(country, monthArr) {
   var monthSet = {};
   monthArr.forEach(function(m){ monthSet[m] = 1; });
-  var out = { budget: {}, forecast: {} };
-  ['budget', 'forecast'].forEach(function(s) {
+  var out = { budget: {}, forecast: {}, runrate: {} };
+  ['budget', 'forecast', 'runrate'].forEach(function(s) {
     var byLine = out[s];
     expandBaseline(RAW[s]).forEach(function(row) {
       if (!matchCountryRow(row['Pais'], country)) return;
@@ -938,7 +940,14 @@ function renderPnl(containerId, country) {
 
   html += '</tbody></table></div>';
   html += '<div class="proj-note">Baseline = actuals (meses cerrados) + run-rate + forecast · Goal = '
-        + scenarioLabel(GOAL) + ' · Δ = Baseline &minus; Goal</div>';
+        + scenarioLabel(GOAL) + ' · Δ = Baseline &minus; Goal'
+        // Run Rate solo cubre Sep-26→Mar-27 (Legal Entity NA): el Total/Δ suma el
+        // Baseline COMPLETO contra un Run Rate PARCIAL (0 fuera de esa ventana) —
+        // no es una comparación de año completo, aclarar para no confundir.
+        + (GOAL === 'runrate' ? '<br><strong>Run Rate</strong> cubre solo Sep-26→Mar-27 (Legal '
+           + 'Entity NA) — el Total/Δ compara el Baseline del año completo contra un Run Rate '
+           + 'parcial, no son comparables como año completo.' : '')
+        + '</div>';
   el.innerHTML = html;
 }
 
@@ -2681,7 +2690,7 @@ function onLoaded(key, data) {
 // "carga incompleta" — hoy solo ratio_acum (loyalty_ratio_acumulacion.json aun
 // no se subio a Drive con una sync real; el resto del codigo ya degrada a "Sin
 // datos" sin romper nada, ver ratioRows/buildRatioBarChart).
-var RAW_OPTIONAL = { ratio_acum: 1, acum_tier: 1, penet: 1, acum_channel: 1, stock_ifood: 1 };
+var RAW_OPTIONAL = { ratio_acum: 1, acum_tier: 1, penet: 1, acum_channel: 1, stock_ifood: 1, runrate: 1 };
 function checkStale() {
   var el = document.getElementById('stale-banner');
   var txt = document.getElementById('stale-banner-text');

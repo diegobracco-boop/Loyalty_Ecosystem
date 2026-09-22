@@ -75,7 +75,8 @@ function getAllRaw() {
     ratio_acum: getRawRatioAcum, acum_tier: getRawAcumTier,
     penet: getRawPenetracionGb, acum_channel: getRawAcumChannel,
     stock_ifood: getRawStockIfood,
-    baseline: getLoyBaseline, budget: getLoyBudget, forecast: getLoyForecast
+    baseline: getLoyBaseline, budget: getLoyBudget, forecast: getLoyForecast,
+    runrate: getLoyRunrate
   };
   Object.keys(getters).forEach(function(k) {
     try { out[k] = { ok: true, data: getters[k]() }; }
@@ -90,6 +91,16 @@ function getAllRaw() {
 function getLoyBaseline() { return _loyPnl('baseline_actuals+projections.json', 'loy_baseline'); }
 function getLoyBudget()   { return _loyPnl('budget.json',   'loy_budget');   }
 function getLoyForecast() { return _loyPnl('forecast.json', 'loy_forecast'); }
+
+// Run Rate (22-sep, PENDIENTE de visualizar más allá del selector Goal): a
+// diferencia de budget/forecast/baseline, este NO sale del folder canónico de
+// Inputs_Planning_PnL — se armó a mano (ver memoria) desde el CSV crudo
+// 'RR - Legal Entity NA - 27.csv' (Legal Entity NA únicamente, no ALL+NA),
+// recortado a los meses Sep-26→Mar-27 (Abr-Ago se descartó a propósito) y
+// PRE-filtrado a Loyalty + GB/Orders B2C — no pasa por _loyPnl porque ya viene
+// scoped. Vive en LOYALTY_FOLDER_ID (no en BASELINE_FOLDER_ID) porque no es un
+// archivo del pipeline de Diego, es propio de Loyalty.
+function getLoyRunrate() { return _load(LOYALTY_FOLDER_ID, 'loyalty_runrate.json', 'loy_runrate'); }
 
 // ---- Internal helpers ----
 
@@ -129,12 +140,22 @@ function _loyPnl(filename, baseKey) {
       'Revisar los nombres de columna en Inputs_Planning_PnL (repo B2B_Ecosystem).');
   });
   var n1i = raw.cols.indexOf('P&L N1');
-  var rows = [];
+  // GB/Orders TOTALES (todas las LoB, no solo B2C) — PENDIENTE de visualizar
+  // (22-sep): se traen y quedan contenidos en RAW.baseline/budget/forecast,
+  // pero el dashboard no los usa todavía. buildPnl()/scenarioLoyaltyPnl() en
+  // dashboard.html siguen filtrando por 'loyalty' en P&L N1, así que estas
+  // filas viajan sin efecto en el P&L actual hasta que se decida mostrarlas.
+  var GB_ORDERS_N1 = ['gross bookings domestic', 'gross bookings international',
+                       'orders domestic', 'orders international'];
+  var rows = [], loyCount = 0;
   for (var i = 0; i < raw.rows.length; i++) {
     var v = raw.rows[i][n1i];
-    if (v && String(v).toLowerCase().indexOf('loyalty') !== -1) rows.push(raw.rows[i]);
+    var vLower = v ? String(v).toLowerCase() : '';
+    var isLoy = vLower.indexOf('loyalty') !== -1;
+    if (isLoy) loyCount++;
+    if (isLoy || GB_ORDERS_N1.indexOf(vLower) !== -1) rows.push(raw.rows[i]);
   }
-  if (rows.length === 0) throw new Error(
+  if (loyCount === 0) throw new Error(
     'Cero filas "loyalty" en ' + filename + '. El filtro dejó de matchear — ' +
     'probablemente cambió el string del LOB en Inputs_Planning_PnL.');
   var result = { meta: raw.meta, cols: raw.cols, rows: rows };
