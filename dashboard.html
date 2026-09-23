@@ -1311,6 +1311,9 @@ function renderMetrics(country, m) {
              : 'Barras = ratio mensual del producto elegido (año fiscal ' + fyYears().cy + ') · barra clara = mismo mes del año fiscal ' + fyYears().ly)
         + '</div>'
         + '<div class="cc"><div class="cw"><canvas id="ch-ratio-' + suffix + '"></canvas></div></div>'
+        + (rView === 'producto' && getRatioProduct(suffix) !== 'Total'
+           ? '<div class="cc" style="margin-top:14px"><div class="ct">Total — puntos por $ de GB, todos los productos, por mes</div><div class="cw"><canvas id="ch-ratio-total-' + suffix + '"></canvas></div></div>'
+           : '')
         + '</div>';
     }
 
@@ -1665,25 +1668,39 @@ function renderMetrics(country, m) {
       if (getRatioView(suffix) === 'producto') {
         var rProduct = getRatioProduct(suffix);
         var rrowsP = ratioRows(country);
-        var ptsCyMap = {}, gbCyMap = {}, ptsLyMap = {}, gbLyMap = {};
-        rrowsP.forEach(function(r){
-          if (rProduct !== 'Total' && r.grupo_pnl !== rProduct) return;
-          var ym = (r.processing_date || '').slice(0, 7);
-          if (ym.length !== 7) return;
-          var fyy = fyStartYear(ym);
-          if (fyy === fy.cy) { ptsCyMap[ym] = (ptsCyMap[ym] || 0) + (+r.points || 0); gbCyMap[ym] = (gbCyMap[ym] || 0) + (+r.gb || 0); }
-          else if (fyy === fy.ly) { ptsLyMap[ym] = (ptsLyMap[ym] || 0) + (+r.points || 0); gbLyMap[ym] = (gbLyMap[ym] || 0) + (+r.gb || 0); }
-        });
-        var gCyArr = fiscalSeries(gbCyMap, gbCyMap, fy.cy, fy.ly, fy.cy);
-        var gLyArr = fiscalSeries(gbLyMap, gbLyMap, fy.cy, fy.ly, fy.ly);
-        var ratioCurrM = fiscalSeries(ptsCyMap, ptsCyMap, fy.cy, fy.ly, fy.cy).map(function(p, i){
-          return gCyArr[i] ? p / gCyArr[i] : 0;
-        });
-        var ratioPrevM = fiscalSeries(ptsLyMap, ptsLyMap, fy.cy, fy.ly, fy.ly).map(function(p, i){
-          return gLyArr[i] ? p / gLyArr[i] : 0;
-        });
+        // Serie mensual fiscal (12 meses, CY/LY) del ratio puntos/GB para un
+        // producto puntual o el agregado ("Total") — factorizado para poder
+        // armar tanto el chart del producto elegido como, debajo, el de Total
+        // (siempre visible salvo que el producto elegido YA sea Total, para no
+        // duplicar el mismo gráfico dos veces).
+        var ratioProductMonthlySeries = function(product) {
+          var ptsCyMap = {}, gbCyMap = {}, ptsLyMap = {}, gbLyMap = {};
+          rrowsP.forEach(function(r){
+            if (product !== 'Total' && r.grupo_pnl !== product) return;
+            var ym = (r.processing_date || '').slice(0, 7);
+            if (ym.length !== 7) return;
+            var fyy = fyStartYear(ym);
+            if (fyy === fy.cy) { ptsCyMap[ym] = (ptsCyMap[ym] || 0) + (+r.points || 0); gbCyMap[ym] = (gbCyMap[ym] || 0) + (+r.gb || 0); }
+            else if (fyy === fy.ly) { ptsLyMap[ym] = (ptsLyMap[ym] || 0) + (+r.points || 0); gbLyMap[ym] = (gbLyMap[ym] || 0) + (+r.gb || 0); }
+          });
+          var gCyArr = fiscalSeries(gbCyMap, gbCyMap, fy.cy, fy.ly, fy.cy);
+          var gLyArr = fiscalSeries(gbLyMap, gbLyMap, fy.cy, fy.ly, fy.ly);
+          var curr = fiscalSeries(ptsCyMap, ptsCyMap, fy.cy, fy.ly, fy.cy).map(function(p, i){
+            return gCyArr[i] ? p / gCyArr[i] : 0;
+          });
+          var prev = fiscalSeries(ptsLyMap, ptsLyMap, fy.cy, fy.ly, fy.ly).map(function(p, i){
+            return gLyArr[i] ? p / gLyArr[i] : 0;
+          });
+          return { curr: curr, prev: prev };
+        };
+        var rSeries = ratioProductMonthlySeries(rProduct);
         var ratioColor = rProduct === 'Total' ? 'rgba(30,41,59,.92)' : 'rgba(85,15,237,.75)';
-        buildBarChart(ratioCanvasId, ratioPrevM, ratioCurrM, fy.ly, fy.cy, ratioColor, function(v){ return v.toFixed(2); });
+        var ratioFmt = function(v){ return v.toFixed(2); };
+        buildBarChart(ratioCanvasId, rSeries.prev, rSeries.curr, fy.ly, fy.cy, ratioColor, ratioFmt);
+        if (rProduct !== 'Total') {
+          var totalSeries = ratioProductMonthlySeries('Total');
+          buildBarChart('ch-ratio-total-' + suffix, totalSeries.prev, totalSeries.curr, fy.ly, fy.cy, 'rgba(30,41,59,.92)', ratioFmt);
+        }
       } else {
         var rMode2 = getRatioMode(suffix);
         var curPeriod = RATIO_PERIOD[suffix];
