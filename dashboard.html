@@ -205,11 +205,6 @@ table.pnl tr.grand-total td.tc { background: #0f172a !important; }
 .ppr-ly { font-size: var(--fs-small); color: var(--muted); margin-bottom: 1px; }
 .ppr-cell .pos, .ppr-cell .neg, .ppr-cell .neu { font-size: var(--fs-md); }
 
-/* ---- Burbujas: puntos acumulados promedio por tier ---- */
-.tier-avg-row { display: flex; flex-wrap: wrap; gap: 8px; }
-.tier-avg-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border: 1px solid; border-radius: 999px; background: #f8fafc; font-size: var(--fs-small); color: var(--text); }
-.tier-avg-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
-
 /* ---- Segmented toggle (Redenciones Q/$) ---- */
 .seg { display: flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
 .seg-btn { padding: 5px 12px; font-size: var(--fs-md); font-weight: 700; background: #f8fafc; border: none; cursor: pointer; color: var(--muted); }
@@ -418,6 +413,9 @@ var CAT_SOLID = ['#550fed', '#029687', '#976cf6', '#fa503f', 'var(--muted)'];
 
 // ---- Miembros del programa (loyalty_miembros.json) ----
 var MB_TIERS = ['Viajero', 'Explorador', 'Global', 'Sin tier'];
+// Tiers "reales" sin el balde 'Sin tier' — usado por métricas que solo tienen
+// sentido para pasajeros ya categorizados (ej. ratio de acumulación por tier).
+var MB_TIER_ORDER_3 = ['Viajero', 'Explorador', 'Global'];
 var MB_TIER_COLOR       = { 'Viajero': CAT_FILL[0],  'Explorador': CAT_FILL[1],  'Global': CAT_FILL[2],  'Sin tier': CAT_FILL[4] };
 var MB_TIER_COLOR_SOLID  = { 'Viajero': CAT_SOLID[0], 'Explorador': CAT_SOLID[1], 'Global': CAT_SOLID[2], 'Sin tier': CAT_SOLID[4] };
 
@@ -577,9 +575,9 @@ function programsForCountry(countryKey) {
 var RAW = { acum_cy: null, acum_ly: null, reden_cy: null, reden_ly: null, breakage: null,
             miembros: null, club: null, ifood: null,
             baseline: null, budget: null, forecast: null, dict: null, ssp: null, ratio_acum: null,
-            acum_tier: null };
+            ratio_acum_tier: null, acum_tier: null };
 var LOADED = 0;
-var TOTAL  = 19;
+var TOTAL  = 20;
 var ACTIVE_COUNTRY = 'total';
 var CHARTS = {};
 
@@ -1272,7 +1270,7 @@ function renderMetrics(country, m) {
       + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-' + canvasId + '"></div></div>'
       + '</div>'
       + (prog === 'Pasaporte D!' && aView === 'tier' ? '<div class="cc" style="margin-bottom:14px"><div class="ct" style="font-size:12px;color:#64748b;margin-bottom:4px">Mix por tier (%)</div><div class="cw" style="height:160px"><canvas id="ch-mix-' + suffix + '"></canvas></div></div>' : '')
-      + (prog === 'Pasaporte D!' && aView === 'tier' ? '<div class="cc" style="margin-bottom:14px"><div class="ct" style="font-size:12px;color:#64748b;margin-bottom:8px">Puntos acumulados promedio por tier — año fiscal ' + fyYears().cy + ' (por miembro activo del tier)</div><div class="tier-avg-row" id="tier-avg-' + suffix + '"></div></div>' : '');
+      + (prog === 'Pasaporte D!' && aView === 'tier' ? '<div style="margin-bottom:14px"><div class="ct" style="font-size:12px;color:#64748b;margin-bottom:8px">Ratio de acumulación por tier — puntos por $ de GB, año fiscal ' + fyYears().cy + ' vs ' + fyYears().ly + '</div><div class="kpi-row" id="tier-avg-' + suffix + '"></div></div>' : '');
     html += '<div class="cc" style="margin-bottom:14px"><div class="ct">' + rdTitle + '</div><div class="cw"><canvas id="' + canvasRdId + '"></canvas></div>'
       + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-' + canvasRdId + '"></div></div>'
       + '<div class="dtable-row"><div class="dtable-label">Precio LY / YoY</div><div class="ppr-row" id="ppr-' + canvasRdId + '"></div></div>'
@@ -1582,27 +1580,31 @@ function renderMetrics(country, m) {
         buildMixChart('ch-mix-' + suffix, mixDatasets);
       }
       // Burbujas: puntos acumulados promedio por tier (anual, año fiscal CY vs LY) —
-      // siempre en puntos (independiente del toggle Q/$), mismo criterio que el mix.
-      // Denominador = miembros ACTIVOS HOY por tier (mb.byTier, foto actual — no hay
-      // conteo histórico de miembros por tier, ver gotcha de sesgo de supervivencia
-      // en CLAUDE.md), así que el "vs LY" refleja el cambio en puntos acumulados,
-      // no en cantidad de miembros del tier.
+      // Ratio de acumulación por tier (puntos por $ de GB) — burbujas KPI estándar
+      // (kpiHtml, mismo patrón que el resto del dashboard). Fuente:
+      // loyalty_ratio_acum_tier.json (ver ratioTierRows) — points/gb agregado sobre
+      // el año fiscal completo, por tier. Sin "Sin tier": el pipeline ya descarta
+      // las transacciones sin tier resuelto (aggregate_ratio_acum_tier).
       var tierAvgEl = document.getElementById('tier-avg-' + suffix);
       if (tierAvgEl) {
-        var tierAvgHtml = MB_TIERS.filter(function(t){ return Object.keys(tierPtsMap[t]).length && mb.byTier && mb.byTier[t]; })
+        var rtRows = ratioTierRows(country);
+        var tierRatioAgg = {};
+        MB_TIER_ORDER_3.forEach(function(t){ tierRatioAgg[t] = { cyP: 0, cyG: 0, lyP: 0, lyG: 0 }; });
+        rtRows.forEach(function(r){
+          var ym = (r.processing_date || '').slice(0, 7);
+          if (ym.length !== 7 || tierRatioAgg[r.tier] === undefined) return;
+          var a = tierRatioAgg[r.tier];
+          if (fyStartYear(ym) === fy.cy) { a.cyP += (+r.points || 0); a.cyG += (+r.gb || 0); }
+          else if (fyStartYear(ym) === fy.ly) { a.lyP += (+r.points || 0); a.lyG += (+r.gb || 0); }
+        });
+        var tierAvgHtml = MB_TIER_ORDER_3.filter(function(t){ return tierRatioAgg[t].cyG > 0; })
           .map(function(t){
-            var cySum = fiscalSeries(tierPtsMap[t], tierPtsMap[t], fy.cy, fy.ly, fy.cy).reduce(function(a,b){ return a+b; }, 0);
-            var lySum = fiscalSeries(tierPtsMap[t], tierPtsMap[t], fy.cy, fy.ly, fy.ly).reduce(function(a,b){ return a+b; }, 0);
-            var members = mb.byTier[t];
-            var avgCY = cySum / members;
-            var avgLY = lySum / members;
-            return '<span class="tier-avg-chip" style="border-color:' + MB_TIER_COLOR_SOLID[t] + '" title="Promedio sobre miembros activos hoy (foto actual del padrón, no un histórico por año) — ver gotcha de sesgo de supervivencia">'
-              + '<span class="tier-avg-dot" style="background:' + MB_TIER_COLOR_SOLID[t] + '"></span>'
-              + '<strong>' + t + '</strong> ' + fmtPts(avgCY) + ' pts/miembro'
-              + '<span style="color:var(--muted)"> · vs LY ' + fmtPct(avgCY, avgLY) + '</span>'
-              + '</span>';
+            var a = tierRatioAgg[t];
+            var ratioCY = a.cyG ? a.cyP / a.cyG : 0;
+            var ratioLY = a.lyG ? a.lyP / a.lyG : 0;
+            return kpiHtml(t, ratioCY.toFixed(2), 'vs LY ' + fmtPct(ratioCY, ratioLY), MB_TIER_COLOR_SOLID[t]);
           }).join('');
-        tierAvgEl.innerHTML = tierAvgHtml || '<div class="empty">Sin datos de miembros por tier</div>';
+        tierAvgEl.innerHTML = tierAvgHtml || '<div class="empty">Sin datos de ratio por tier — loyalty_ratio_acum_tier.json no disponible</div>';
       }
     } else if ((prog === 'Cobrand' || prog === 'Partners') && mode === 'USD' && getBrView(suffix, prog) === 'margen') {
       // Costo (SSP) + margen (Bank/Partner Revenue) apilados por mes — mismo total
@@ -2494,6 +2496,15 @@ function ratioRows(country) {
   return _ratioRowsCache.filter(function(r){ return matchCountryCode(r.country_code, country); });
 }
 
+// Ratio de acumulación por tier (puntos/GB, Viajero/Explorador/Global) —
+// loyalty_ratio_acum_tier.json, mismo patrón que ratioRows. Sin "Sin tier": el
+// pipeline descarta transacciones sin tier resuelto (ver aggregate_ratio_acum_tier).
+var _ratioTierRowsCache = null;
+function ratioTierRows(country) {
+  if (!_ratioTierRowsCache) _ratioTierRowsCache = expand(RAW.ratio_acum_tier);
+  return _ratioTierRowsCache.filter(function(r){ return matchCountryCode(r.country_code, country); });
+}
+
 // ============================================================
 // Toggle "Total / Por Tier" del gráfico de Acumulaciones (solo Pasaporte D!)
 // Fuente: loyalty_acum_tier.json (point_type='general', ambos años juntos en
@@ -2713,7 +2724,7 @@ function onLoaded(key, data) {
 // "carga incompleta" — hoy solo ratio_acum (loyalty_ratio_acumulacion.json aun
 // no se subio a Drive con una sync real; el resto del codigo ya degrada a "Sin
 // datos" sin romper nada, ver ratioRows/buildRatioBarChart).
-var RAW_OPTIONAL = { ratio_acum: 1, acum_tier: 1, penet: 1, acum_channel: 1, stock_ifood: 1, runrate: 1 };
+var RAW_OPTIONAL = { ratio_acum: 1, ratio_acum_tier: 1, acum_tier: 1, penet: 1, acum_channel: 1, stock_ifood: 1, runrate: 1 };
 function checkStale() {
   var el = document.getElementById('stale-banner');
   var txt = document.getElementById('stale-banner-text');

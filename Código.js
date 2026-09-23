@@ -22,6 +22,7 @@ var FILES = {
   dict:     'loyalty_dict.json',
   ssp:      'loyalty_ssp.json',
   ratio_acum: 'loyalty_ratio_acumulacion.json',
+  ratio_acum_tier: 'loyalty_ratio_acum_tier.json',
   acum_tier:  'loyalty_acum_tier.json',
   penet:      'loyalty_penetracion_gb.json',
   acum_channel: 'loyalty_acum_channel.json',
@@ -52,6 +53,7 @@ function getRawIfood()          { return _load(LOYALTY_FOLDER_ID,  FILES.ifood, 
 function getRawDict()           { return _load(LOYALTY_FOLDER_ID,  FILES.dict,       'dict');       }
 function getRawSsp()            { return _load(LOYALTY_FOLDER_ID,  FILES.ssp,        'ssp');        }
 function getRawRatioAcum()      { return _load(LOYALTY_FOLDER_ID,  FILES.ratio_acum, 'ratio_acum'); }
+function getRawRatioAcumTier()  { return _load(LOYALTY_FOLDER_ID,  FILES.ratio_acum_tier, 'ratio_acum_tier'); }
 function getRawAcumTier()       { return _load(LOYALTY_FOLDER_ID,  FILES.acum_tier,  'acum_tier');  }
 function getRawPenetracionGb()  { return _load(LOYALTY_FOLDER_ID,  FILES.penet,      'penet');      }
 function getRawAcumChannel()    { return _load(LOYALTY_FOLDER_ID,  FILES.acum_channel, 'acum_channel'); }
@@ -72,7 +74,7 @@ function getAllRaw() {
     breakage: getRawBreakage, miembros: getRawMiembros,
     club: getRawClub, ifood: getRawIfood,
     dict: getRawDict, ssp: getRawSsp,
-    ratio_acum: getRawRatioAcum, acum_tier: getRawAcumTier,
+    ratio_acum: getRawRatioAcum, ratio_acum_tier: getRawRatioAcumTier, acum_tier: getRawAcumTier,
     penet: getRawPenetracionGb, acum_channel: getRawAcumChannel,
     stock_ifood: getRawStockIfood,
     baseline: getLoyBaseline, budget: getLoyBudget, forecast: getLoyForecast,

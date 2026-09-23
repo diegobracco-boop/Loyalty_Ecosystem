@@ -38,6 +38,7 @@ MIEMBROS_FILE       = "loyalty_miembros.json"
 CLUB_DESPEGAR_FILE  = "loyalty_club_despegar.json"
 IFOOD_ENROLL_FILE   = "loyalty_ifood_enroll.json"
 RATIO_ACUM_FILE     = "loyalty_ratio_acumulacion.json"
+RATIO_ACUM_TIER_FILE = "loyalty_ratio_acum_tier.json"
 ACUM_TIER_FILE      = "loyalty_acum_tier.json"
 ACUM_CHANNEL_FILE   = "loyalty_acum_channel.json"
 STOCK_IFOOD_FILE    = "loyalty_stock_ifood.json"
@@ -2530,6 +2531,184 @@ def fetch_acum_tier(desde: str, hasta: str) -> pd.DataFrame:
 
 
 # ------------------------------------------------------------------------------
+# Ratio de acumulación por tier (puntos/GB, Viajero/Explorador/Global) — 22-sep
+# ------------------------------------------------------------------------------
+# Mismo GB que "Ratio de acumulación" por producto (gb_basebi_2, gate
+# net_pts_combo>0 desde el fix de 09-sep), pero agrupado por tier en vez de
+# grupo_pnl. NO puede reusar _acum_cy_pre/_acum_ly_pre en pandas como hace
+# aggregate_ratio_acum: esa tabla NO tiene dsp_transaction_id (el GROUP BY final
+# de _ACUM_SQL agrupa por processing_date/country_code/partner/point_type/
+# business/product..., pierde el grano de transacción) — a diferencia de
+# "producto", que sí sobrevive porque _ACUM_SQL agrupa por product. Tier nunca
+# fue columna de _ACUM_SQL.
+#
+# Por eso esta es una query APARTE que duplica SOLO la porción de _ACUM_SQL que
+# calcula GB (el join a bi_transactional_fact_products/transactions/charges,
+# rn_gb/net_pts_combo) — sin tipopunto/tp_agg/ratio_map/descuento_consumo_puntos_usd,
+# que en _ACUM_SQL solo existen para el pct_pagado_con_puntos en modo $ (acá no
+# hace falta, esta métrica es puntos/GB en modo Q, misma limitación conocida que
+# ya tiene loyalty_acum_tier.json). Recorte a Pasaporte D! genuino
+# (LOWER(point_type)='general') igual que _ACUM_TIER_SQL/aggregate_ratio_acum.
+#
+# OJO (22-sep, intentos previos fallidos): 1) sacar el tier_at_trx de
+# _ACUM_TIER_SQL como query aislada devuelve MILLONES de filas (todo
+# clm_transactions sin filtrar por programa) — el driver ODBC tira "Failure when
+# receiving data from the peer"/"Couldn't connect to server" al bajar ese volumen.
+# 2) mergear contra _acum_cy_pre por dsp_transaction_id falla porque esa columna
+# no existe ahí (ver arriba). Esta versión evita ambos: el INNER JOIN a
+# tier_at_trx acota el resultado al universo de comarch_accumulation_report/
+# cancellation_report filtrado a 'general' (mismo orden de magnitud que
+# _ACUM_TIER_SQL, no toda la tabla), y el GB se calcula acá mismo — sin volver a
+# pandas para nada de esto.
+_RATIO_ACUM_TIER_SQL = """
+WITH tier_at_trx AS (
+    SELECT CAST(t.ext_despegar_trn_id AS VARCHAR) AS dsp_transaction_id
+         , CASE MAX(arl.recognition_tier_id)
+               WHEN 2354 THEN 'Global'
+               WHEN 2353 THEN 'Explorador'
+               WHEN 2352 THEN 'Viajero'
+           END                                   AS tier
+    FROM data.lake.clm_transactions t
+    LEFT JOIN data.lake.clm_account_recognition_levels arl
+           ON arl.customer_id    = t.customer_id
+          AND t.processing_date >= arl.start_date
+          AND (arl.end_date IS NULL OR t.processing_date < arl.end_date)
+    WHERE t.processing_date >= {{Desde}}
+      AND t.processing_date <  {{Hasta}}
+    GROUP BY t.ext_despegar_trn_id
+),
+qr1 AS (
+    -- Mismo join de 3 tablas que usa _ACUM_SQL para GB (no se sabe con certeza de
+    -- cuál de las 3 sale cada columna sin prefijo — Presto las resuelve por join
+    -- implícito — así que se copia el join completo tal cual en vez de adivinar
+    -- y romper con "gross_booking" no resuelto si en realidad vive en b/c).
+    SELECT a.transaction_code
+         , CAST(a.transaction_code AS VARCHAR) AS transaction_code_2
+         , CASE
+             WHEN a.product_type = 'Seguros de Autos'      THEN 'INSURANCE'
+             WHEN a.product_type = 'Excursiones'           THEN 'TOUR'
+             WHEN a.product_type = 'Cruceros'              THEN 'ONA'
+             WHEN a.product_type = 'Universal'             THEN 'TICKET'
+             WHEN a.product_type = 'Alquileres'            THEN 'HOTEL'
+             WHEN a.product_type = 'SeaWorld'              THEN 'TICKET'
+             WHEN a.product_type = 'Disney'                THEN 'TICKET'
+             WHEN a.product_type = 'Circuito'              THEN 'TOUR'
+             WHEN a.product_type = 'Tickets'               THEN 'TICKET'
+             WHEN a.product_type = 'Vuelos'                THEN 'FLIGHT'
+             WHEN a.product_type = 'Busch Gardens'         THEN 'TICKET'
+             WHEN a.product_type = 'Hoteles'               THEN 'HOTEL'
+             WHEN a.product_type = 'EspectÃ¡culos'         THEN 'TOUR'
+             WHEN a.product_type = 'Traslados'             THEN 'TRANSFER'
+             WHEN a.product_type = 'Valijas'               THEN 'ONA'
+             WHEN a.product_type = 'Autos'                 THEN 'CAR'
+             WHEN a.product_type = 'Asistencia al viajero' THEN 'INSURANCE'
+             WHEN a.product_type = 'Buses'                 THEN 'ONA'
+             ELSE 'N/D'
+           END                                   AS product_type_qr1
+         , SUM(CAST(gross_booking AS DECIMAL(18,2))) AS gb_basebi_2
+    FROM data.analytics.bi_transactional_fact_products a
+    LEFT JOIN (
+        SELECT * FROM data.analytics.bi_transactional_fact_transactions
+        WHERE reservation_year_month >= CAST('2023-01-01' AS DATE)
+    ) b ON a.transaction_code = b.transaction_code
+    LEFT JOIN (
+        SELECT * FROM data.analytics.bi_transactional_fact_charges
+        WHERE reservation_year_month >= CAST('2023-01-01' AS DATE)
+    ) c ON CAST(a.transaction_code AS VARCHAR)||a.product_id
+         = CAST(c.transaction_code AS VARCHAR)||c.product_id
+    WHERE a.reservation_year_month >= CAST('2023-01-01' AS DATE)
+    GROUP BY a.transaction_code, CAST(a.transaction_code AS VARCHAR), CASE
+             WHEN a.product_type = 'Seguros de Autos'      THEN 'INSURANCE'
+             WHEN a.product_type = 'Excursiones'           THEN 'TOUR'
+             WHEN a.product_type = 'Cruceros'              THEN 'ONA'
+             WHEN a.product_type = 'Universal'             THEN 'TICKET'
+             WHEN a.product_type = 'Alquileres'            THEN 'HOTEL'
+             WHEN a.product_type = 'SeaWorld'              THEN 'TICKET'
+             WHEN a.product_type = 'Disney'                THEN 'TICKET'
+             WHEN a.product_type = 'Circuito'              THEN 'TOUR'
+             WHEN a.product_type = 'Tickets'               THEN 'TICKET'
+             WHEN a.product_type = 'Vuelos'                THEN 'FLIGHT'
+             WHEN a.product_type = 'Busch Gardens'         THEN 'TICKET'
+             WHEN a.product_type = 'Hoteles'               THEN 'HOTEL'
+             WHEN a.product_type = 'EspectÃ¡culos'         THEN 'TOUR'
+             WHEN a.product_type = 'Traslados'             THEN 'TRANSFER'
+             WHEN a.product_type = 'Valijas'               THEN 'ONA'
+             WHEN a.product_type = 'Autos'                 THEN 'CAR'
+             WHEN a.product_type = 'Asistencia al viajero' THEN 'INSURANCE'
+             WHEN a.product_type = 'Buses'                 THEN 'ONA'
+             ELSE 'N/D'
+           END
+),
+base AS (
+    -- Accrual
+    SELECT ar.dsp_transaction_id, ar.processing_date, ar.country_code, ar.product
+         , ar.points, qr1.gb_basebi_2, tat.tier
+    FROM (
+        SELECT ar1.dsp_transaction_id, ar1.country AS country_code, ar1.product
+             , SUM(ar1.points) AS points, CAST(ar1.processing_date AS DATE) AS processing_date
+        FROM data.lake.comarch_accumulation_report ar1
+        WHERE ar1.processing_date >= {{Desde}}
+          AND ar1.processing_date <  {{Hasta}}
+          AND COALESCE(ar1.dsp_transaction_type,'Nulo') <> 'REFUND'
+          AND LOWER(ar1.point_type) = 'general'
+        GROUP BY ar1.dsp_transaction_id, ar1.country, ar1.product, CAST(ar1.processing_date AS DATE)
+    ) ar
+    INNER JOIN tier_at_trx tat ON CAST(ar.dsp_transaction_id AS VARCHAR) = tat.dsp_transaction_id
+    LEFT JOIN qr1 ON CAST(ar.dsp_transaction_id AS VARCHAR)||ar.product = qr1.transaction_code_2||qr1.product_type_qr1
+
+    UNION ALL
+
+    -- Cancelaciones (negadas, netean contra el accrual)
+    SELECT cr.dsp_transaction_id, cr.processing_date, cr.country_code, cr.product
+         , (cr.points * -1) AS points, qr1.gb_basebi_2, tat.tier
+    FROM (
+        SELECT cr1.dsp_transaction_id, cr1.country AS country_code, cr1.product
+             , SUM(cr1.points) AS points, CAST(cr1.generation_date AS DATE) AS processing_date
+        FROM data.lake.comarch_cancellation_report cr1
+        WHERE cr1.generation_date >= {{Desde}}
+          AND cr1.generation_date <  {{Hasta}}
+          AND LOWER(cr1.point_type) = 'general'
+        GROUP BY cr1.dsp_transaction_id, cr1.country, cr1.product, CAST(cr1.generation_date AS DATE)
+    ) cr
+    INNER JOIN tier_at_trx tat ON CAST(cr.dsp_transaction_id AS VARCHAR) = tat.dsp_transaction_id
+    LEFT JOIN qr1 ON CAST(cr.dsp_transaction_id AS VARCHAR)||cr.product = qr1.transaction_code_2||qr1.product_type_qr1
+),
+gb_ranked AS (
+    SELECT *
+         , ROW_NUMBER() OVER (PARTITION BY dsp_transaction_id, product ORDER BY processing_date) AS rn_gb
+         , SUM(points) OVER (PARTITION BY dsp_transaction_id, product) AS net_pts_combo
+    FROM base
+    WHERE tier IS NOT NULL
+)
+SELECT processing_date, country_code, tier
+     , SUM(points) AS points
+     , SUM(CASE WHEN rn_gb = 1 AND net_pts_combo > 0 THEN gb_basebi_2 ELSE 0 END) AS gb
+FROM gb_ranked
+GROUP BY processing_date, country_code, tier
+"""
+
+
+def fetch_ratio_acum_tier(desde: str, hasta: str) -> pd.DataFrame:
+    cols = ["processing_date", "country_code", "tier", "points", "gb"]
+    df = fetch(_sub(_RATIO_ACUM_TIER_SQL, desde, hasta), "Ratio de acumulación por tier")
+    if df.empty:
+        return pd.DataFrame(columns=cols)
+    df["processing_date"] = df["processing_date"].apply(_fix_date)
+    df = df.dropna(subset=["processing_date"])
+    df["processing_date"] = df["processing_date"].str.slice(0, 7) + "-01"
+    df["country_code"] = df["country_code"].fillna("N/D").astype(str)
+    df["tier"] = df["tier"].astype(str).str.strip()
+    df = df[df["tier"].isin(["Viajero", "Explorador", "Global"])]
+    df["points"] = pd.to_numeric(df["points"], errors="coerce").fillna(0)
+    df["gb"] = pd.to_numeric(df["gb"], errors="coerce").fillna(0)
+    out = (df.groupby(["processing_date", "country_code", "tier"], as_index=False, dropna=False)
+             .agg(points=("points", "sum"), gb=("gb", "sum")))
+    out["points"] = out["points"].round(2)
+    out["gb"] = out["gb"].round(2)
+    return out[cols]
+
+
+# ------------------------------------------------------------------------------
 # Valuación USD de Cobrand / Partners por PRECIO DE FACTURACIÓN (Input_Precios.xlsx)
 # ------------------------------------------------------------------------------
 # Cobrand y Partners no generan `acum_usd_base` (no hay comisión/GB de viaje detrás),
@@ -2984,6 +3163,12 @@ df_acum_tier = pd.concat([
 ], ignore_index=True)
 df_acum_tier = enrich_acum_tier_usd(df_acum_tier, _acum_cy_pre, _acum_ly_pre)
 
+print("\n--- Ratio de acumulación por tier (puntos/GB, Viajero/Explorador/Global) ---")
+df_ratio_tier = pd.concat([
+    fetch_ratio_acum_tier(ACTUALS_DESDE, ACTUALS_HASTA),
+    fetch_ratio_acum_tier(LY_DESDE, LY_HASTA),
+], ignore_index=True)
+
 print("\n--- Acumulación por channel iFood (Pasaporte D!) ---")
 df_acum_channel = enrich_acum_channel_usd(
     pd.concat([
@@ -3076,6 +3261,20 @@ META_ACUM_TIER = {
 }
 acum_tier_bytes = json.dumps({"meta": META_ACUM_TIER, "data": to_compact(df_acum_tier)}, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
 
+META_RATIO_TIER = {
+    "generated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+    "fuente": "comarch_accumulation_report + comarch_cancellation_report, point_type='general' "
+              "(Pasaporte D! genuino) — mismo universo que _ACUM_TIER_SQL. gb = gb_basebi_2 "
+              "(gross_booking, join a bi_transactional_fact_products, gate net_pts_combo>0 "
+              "desde el fix 09-sep), calculado en una query APARTE de _ACUM_SQL (no comparte "
+              "tipopunto/ratio_map/descuento_consumo_puntos_usd — no hacen falta para esta "
+              "métrica en modo Q). tier = clm_account_recognition_levels vigente al momento de "
+              "la transacción (_RATIO_ACUM_TIER_SQL). Transacciones sin tier resuelto se "
+              "descartan (no hay balde 'Sin tier' — es una métrica de pasajeros ya "
+              "categorizados). ratio de acumulación = points / gb",
+}
+ratio_tier_bytes = json.dumps({"meta": META_RATIO_TIER, "data": to_compact(df_ratio_tier)}, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+
 _stk = df_club[df_club["serie"] == "stock"]
 _club_act = int(_stk[_stk["ym"] == _stk["ym"].max()]["n"].sum()) if len(_stk) else 0
 print(f"  Acum {CY_YEAR}:  {len(acum_cy_bytes)//1024:.0f} KB  ({len(df_acum_cy):,} filas)")
@@ -3088,6 +3287,7 @@ print(f"  Club Despegar:  {len(club_bytes)//1024:.0f} KB  ({len(df_club):,} fila
 print(f"  iFood enrol:    {len(ifood_bytes)//1024:.0f} KB  ({len(df_ifood):,} filas · {int(df_ifood['n'].sum()):,} altas)")
 print(f"  Ratio acum.:    {len(ratio_bytes)//1024:.0f} KB  ({len(df_ratio):,} filas)")
 print(f"  Acum x tier:    {len(acum_tier_bytes)//1024:.0f} KB  ({len(df_acum_tier):,} filas)")
+print(f"  Ratio x tier:   {len(ratio_tier_bytes)//1024:.0f} KB  ({len(df_ratio_tier):,} filas)")
 
 META_PENET = {
     "generated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
@@ -3157,6 +3357,7 @@ _OUT = [
     (miembros_bytes, MIEMBROS_FILE),
     (club_bytes, CLUB_DESPEGAR_FILE), (ifood_bytes, IFOOD_ENROLL_FILE),
     (ratio_bytes, RATIO_ACUM_FILE), (acum_tier_bytes, ACUM_TIER_FILE),
+    (ratio_tier_bytes, RATIO_ACUM_TIER_FILE),
     (penet_bytes, PENET_FILE),
     (acum_channel_bytes, ACUM_CHANNEL_FILE),
     (stock_ifood_bytes, STOCK_IFOOD_FILE),
