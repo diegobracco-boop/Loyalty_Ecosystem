@@ -1277,20 +1277,39 @@ function renderMetrics(country, m) {
       + '</div>';
 
     // ---- Ratio de acumulacion (pts/GB por producto): va DENTRO de "Pasaporte D!" ----
+    // Vista "Por Período" (original): Mes/Año + selector de período, barras de
+    // todos los productos comparando el período elegido vs el inmediato anterior.
+    // Vista "Por Producto" (22-sep, diseño validado con ux-designer): elegís un
+    // producto (o "Total") y ves su evolución mensual en el año fiscal completo,
+    // mismo patrón CY/LY que el resto de gráficos evolutivos (buildBarChart) — el
+    // toggle Mes/Año y el período puntual no aplican acá (siempre año fiscal
+    // completo), así que se ocultan y el <select> pasa a ser de producto.
     if (prog === 'Pasaporte D!') {
+      var rView = getRatioView(suffix);
       var rMode = getRatioMode(suffix);
       html += '<div class="sub-block"><div class="sub-title-row">'
         + '<div class="sub-title">Ratio de acumulación — puntos por $ de GB, por producto</div>'
         + '<div class="ratio-controls">'
-        +   '<span class="ratio-controls-lbl">Ver por</span>'
+        +   '<span class="ratio-controls-lbl">Vista</span>'
         +   '<div class="seg seg-sm">'
-        +     '<button class="seg-btn' + (rMode === 'month' ? ' active' : '') + '" type="button" onclick="setRatioMode(\'' + suffix + '\',\'month\')">Mes</button>'
-        +     '<button class="seg-btn' + (rMode === 'year'  ? ' active' : '') + '" type="button" onclick="setRatioMode(\'' + suffix + '\',\'year\')">Año</button>'
+        +     '<button class="seg-btn' + (rView === 'periodo'  ? ' active' : '') + '" type="button" onclick="setRatioView(\'' + suffix + '\',\'periodo\')">Por Período</button>'
+        +     '<button class="seg-btn' + (rView === 'producto' ? ' active' : '') + '" type="button" onclick="setRatioView(\'' + suffix + '\',\'producto\')">Por Producto</button>'
         +   '</div>'
-        +   '<span class="ratio-controls-lbl">Período</span>'
-        +   '<select class="ratio-sel" title="Mes o año fiscal a graficar en color; el período inmediato anterior se muestra en gris" onchange="setRatioPeriod(\'' + suffix + '\', this.value)">' + ratioPeriodOptionsHtml(suffix, country) + '</select>'
+        +   (rView === 'periodo'
+             ? '<span class="ratio-controls-lbl">Ver por</span>'
+               + '<div class="seg seg-sm">'
+               +   '<button class="seg-btn' + (rMode === 'month' ? ' active' : '') + '" type="button" onclick="setRatioMode(\'' + suffix + '\',\'month\')">Mes</button>'
+               +   '<button class="seg-btn' + (rMode === 'year'  ? ' active' : '') + '" type="button" onclick="setRatioMode(\'' + suffix + '\',\'year\')">Año</button>'
+               + '</div>'
+               + '<span class="ratio-controls-lbl">Período</span>'
+               + '<select class="ratio-sel" title="Mes o año fiscal a graficar en color; el período inmediato anterior se muestra en gris" onchange="setRatioPeriod(\'' + suffix + '\', this.value)">' + ratioPeriodOptionsHtml(suffix, country) + '</select>'
+             : '<span class="ratio-controls-lbl">Producto</span>'
+               + '<select class="ratio-sel" title="Elegí un producto o \'Total\' para ver el agregado de los 7" onchange="setRatioProduct(\'' + suffix + '\', this.value)">' + ratioProductOptionsHtml(suffix) + '</select>')
         + '</div></div>'
-        + '<div class="ratio-hint">Barra clara = período anterior · Barra de color = período elegido · "Total" = ratio agregado de los 7 productos</div>'
+        + '<div class="ratio-hint">' + (rView === 'periodo'
+             ? 'Barra clara = período anterior · Barra de color = período elegido · "Total" = ratio agregado de los 7 productos'
+             : 'Barras = ratio mensual del producto elegido (año fiscal ' + fyYears().cy + ') · barra clara = mismo mes del año fiscal ' + fyYears().ly)
+        + '</div>'
         + '<div class="cc"><div class="cw"><canvas id="ch-ratio-' + suffix + '"></canvas></div></div>'
         + '</div>';
     }
@@ -1634,30 +1653,58 @@ function renderMetrics(country, m) {
     }
     buildBarChart(canvasRdId, rdPrev, rdCurr, fy.ly, fy.cy, 'rgba(250,80,63,.78)', fmtFn, { prev: pricePrev, curr: priceCurr });
 
-    // Ratio de acumulacion (pts/GB por producto) — periodo elegido (mes o anio
-    // fiscal) vs el inmediato anterior. RATIO_PERIOD[suffix] ya quedo resuelto a
-    // un default valido por ratioPeriodOptionsHtml en la 1ra pasada (arriba).
+    // Ratio de acumulacion (pts/GB por producto) — 2 vistas (getRatioView):
+    // 'periodo' (original): periodo elegido (mes o anio fiscal) vs el inmediato
+    // anterior, todos los productos comparados (buildRatioBarChart). RATIO_PERIOD
+    // ya quedo resuelto a un default valido por ratioPeriodOptionsHtml (arriba).
+    // 'producto' (22-sep): evolucion mensual del producto elegido (o "Total", el
+    // agregado de los 7) en el anio fiscal completo, mismo patron CY/LY que el
+    // resto de graficos evolutivos (buildBarChart) — sin periodo puntual.
     if (prog === 'Pasaporte D!') {
       var ratioCanvasId = 'ch-ratio-' + suffix;
-      var rMode2 = getRatioMode(suffix);
-      var curPeriod = RATIO_PERIOD[suffix];
-      var ratioCats = RATIO_PRODUCTS.concat(['Total']);
-      var ratioCurr = ratioCats.map(function(){ return 0; });
-      var ratioPrev = ratioCats.map(function(){ return 0; });
-      var ratioCurLbl = 'Actual', ratioPrevLbl = 'Anterior';
-      if (curPeriod !== undefined && curPeriod !== null && curPeriod !== '') {
-        var rrows = ratioRows(country);
-        var prevPeriod = ratioPrevPeriod(rMode2, curPeriod);
-        var curAgg  = ratioAggByProduct(rrows, rMode2, curPeriod);
-        var prevAgg = ratioAggByProduct(rrows, rMode2, prevPeriod);
-        ratioCurr = RATIO_PRODUCTS.map(function(c){ var a = curAgg[c];  return a && a.gb ? a.points / a.gb : 0; });
-        ratioPrev = RATIO_PRODUCTS.map(function(c){ var a = prevAgg[c]; return a && a.gb ? a.points / a.gb : 0; });
-        ratioCurr.push(ratioTotal(curAgg));
-        ratioPrev.push(ratioTotal(prevAgg));
-        ratioCurLbl  = ratioLabel(rMode2, curPeriod);
-        ratioPrevLbl = ratioLabel(rMode2, prevPeriod);
+      if (getRatioView(suffix) === 'producto') {
+        var rProduct = getRatioProduct(suffix);
+        var rrowsP = ratioRows(country);
+        var ptsCyMap = {}, gbCyMap = {}, ptsLyMap = {}, gbLyMap = {};
+        rrowsP.forEach(function(r){
+          if (rProduct !== 'Total' && r.grupo_pnl !== rProduct) return;
+          var ym = (r.processing_date || '').slice(0, 7);
+          if (ym.length !== 7) return;
+          var fyy = fyStartYear(ym);
+          if (fyy === fy.cy) { ptsCyMap[ym] = (ptsCyMap[ym] || 0) + (+r.points || 0); gbCyMap[ym] = (gbCyMap[ym] || 0) + (+r.gb || 0); }
+          else if (fyy === fy.ly) { ptsLyMap[ym] = (ptsLyMap[ym] || 0) + (+r.points || 0); gbLyMap[ym] = (gbLyMap[ym] || 0) + (+r.gb || 0); }
+        });
+        var gCyArr = fiscalSeries(gbCyMap, gbCyMap, fy.cy, fy.ly, fy.cy);
+        var gLyArr = fiscalSeries(gbLyMap, gbLyMap, fy.cy, fy.ly, fy.ly);
+        var ratioCurrM = fiscalSeries(ptsCyMap, ptsCyMap, fy.cy, fy.ly, fy.cy).map(function(p, i){
+          return gCyArr[i] ? p / gCyArr[i] : 0;
+        });
+        var ratioPrevM = fiscalSeries(ptsLyMap, ptsLyMap, fy.cy, fy.ly, fy.ly).map(function(p, i){
+          return gLyArr[i] ? p / gLyArr[i] : 0;
+        });
+        var ratioColor = rProduct === 'Total' ? 'rgba(30,41,59,.92)' : 'rgba(85,15,237,.75)';
+        buildBarChart(ratioCanvasId, ratioPrevM, ratioCurrM, fy.ly, fy.cy, ratioColor, function(v){ return v.toFixed(2); });
+      } else {
+        var rMode2 = getRatioMode(suffix);
+        var curPeriod = RATIO_PERIOD[suffix];
+        var ratioCats = RATIO_PRODUCTS.concat(['Total']);
+        var ratioCurr = ratioCats.map(function(){ return 0; });
+        var ratioPrev = ratioCats.map(function(){ return 0; });
+        var ratioCurLbl = 'Actual', ratioPrevLbl = 'Anterior';
+        if (curPeriod !== undefined && curPeriod !== null && curPeriod !== '') {
+          var rrows = ratioRows(country);
+          var prevPeriod = ratioPrevPeriod(rMode2, curPeriod);
+          var curAgg  = ratioAggByProduct(rrows, rMode2, curPeriod);
+          var prevAgg = ratioAggByProduct(rrows, rMode2, prevPeriod);
+          ratioCurr = RATIO_PRODUCTS.map(function(c){ var a = curAgg[c];  return a && a.gb ? a.points / a.gb : 0; });
+          ratioPrev = RATIO_PRODUCTS.map(function(c){ var a = prevAgg[c]; return a && a.gb ? a.points / a.gb : 0; });
+          ratioCurr.push(ratioTotal(curAgg));
+          ratioPrev.push(ratioTotal(prevAgg));
+          ratioCurLbl  = ratioLabel(rMode2, curPeriod);
+          ratioPrevLbl = ratioLabel(rMode2, prevPeriod);
+        }
+        buildRatioBarChart(ratioCanvasId, ratioCats, ratioPrev, ratioCurr, ratioPrevLbl, ratioCurLbl);
       }
-      buildRatioBarChart(ratioCanvasId, ratioCats, ratioPrev, ratioCurr, ratioPrevLbl, ratioCurLbl);
     }
 
     // Pasaporte D! vía canal iFood — participación % de iFood sobre el total (100% stacked).
@@ -2477,6 +2524,8 @@ function penetRows(country) {
 var RATIO_PRODUCTS = ['Hotels', 'Flights', 'Cars', 'Insurance', 'Dest. Serv.', 'Vacation Rentals', 'Packages General'];
 var RATIO_MODE = {};    // suffix -> 'month' | 'year'
 var RATIO_PERIOD = {};  // suffix -> 'YYYY-MM' (mode month) o anio fiscal, numero (mode year)
+var RATIO_VIEW = {};    // suffix -> 'periodo' | 'producto'
+var RATIO_PRODUCT = {}; // suffix -> 'Total' | uno de RATIO_PRODUCTS (solo vista 'producto')
 var _ratioRowsCache = null;
 
 function getRatioMode(suffix) { return RATIO_MODE[suffix] || 'month'; }
@@ -2488,6 +2537,22 @@ function setRatioMode(suffix, mode) {
 function setRatioPeriod(suffix, val) {
   RATIO_PERIOD[suffix] = getRatioMode(suffix) === 'month' ? val : +val;
   renderCountry(suffix);
+}
+function getRatioView(suffix) { return RATIO_VIEW[suffix] || 'periodo'; }
+function setRatioView(suffix, v) {
+  RATIO_VIEW[suffix] = v;
+  renderCountry(suffix);
+}
+function getRatioProduct(suffix) { return RATIO_PRODUCT[suffix] || 'Total'; }
+function setRatioProduct(suffix, v) {
+  RATIO_PRODUCT[suffix] = v;
+  renderCountry(suffix);
+}
+function ratioProductOptionsHtml(suffix) {
+  var sel = getRatioProduct(suffix);
+  return ['Total'].concat(RATIO_PRODUCTS).map(function(p){
+    return '<option value="' + p + '"' + (p === sel ? ' selected' : '') + '>' + p + '</option>';
+  }).join('');
 }
 
 // Filas del JSON (decodificadas 1 sola vez), filtradas por pais/TOTAL via country_code.
