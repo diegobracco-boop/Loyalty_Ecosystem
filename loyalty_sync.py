@@ -2246,7 +2246,7 @@ WITH tipopunto_raw AS (
         CAST(t.ext_despegar_trn_id AS VARCHAR) AS transaction_id,
         pt.code                                AS point_code,
         cm.ext_country_program                 AS country_code,
-        date_trunc('month', t.processing_date) AS mes,
+        date_trunc('month', CAST(t.processing_date AS DATE)) AS mes,
         SUM(-tp.points)                        AS puntosv2
     FROM data.lake.clm_transactions t
     JOIN data.lake.clm_transaction_points tp ON t.id = tp.source_transaction_id
@@ -2275,7 +2275,7 @@ WITH tipopunto_raw AS (
             CAST(t.ext_despegar_trn_id AS VARCHAR) AS transaction_id,
             pt.code                                AS point_code,
             cm.ext_country_program                 AS country_code,
-            date_trunc('month', t.processing_date) AS mes,
+            date_trunc('month', CAST(t.processing_date AS DATE)) AS mes,
             SUM(-tp.points)                        AS puntosv2
         FROM data.lake.clm_transactions t
         JOIN data.lake.clm_transaction_points tp ON t.id = tp.source_transaction_id
@@ -2319,7 +2319,7 @@ WITH tipopunto_raw AS (
     ) ar_ref ON tp_orig.transaction_id = ar_ref.dsp_transaction_id
     GROUP BY tp_orig.transaction_id, tp_orig.point_code, tp_orig.country_code, tp_orig.mes
 )
-SELECT date_trunc('month', ar1.processing_date) AS mes, cm.ext_country_program AS country_code,
+SELECT date_trunc('month', CAST(ar1.processing_date AS DATE)) AS mes, cm.ext_country_program AS country_code,
        'accum_neto' AS leg, SUM(ar1.points) AS puntos
 FROM data.lake.comarch_accumulation_report ar1
 JOIN data.lake.clm_transactions t ON t.id = ar1.clm_transaction_id
@@ -2332,7 +2332,7 @@ GROUP BY 1, 2
 
 UNION ALL
 
-SELECT date_trunc('month', cr1.generation_date) AS mes, cm.ext_country_program AS country_code,
+SELECT date_trunc('month', CAST(cr1.generation_date AS DATE)) AS mes, cm.ext_country_program AS country_code,
        'accum_neto' AS leg, SUM(cr1.points) * -1 AS puntos
 FROM data.lake.comarch_cancellation_report cr1
 JOIN data.lake.clm_transactions t ON t.id = cr1.clm_transaction_id
@@ -2358,7 +2358,7 @@ UNION ALL
 -- desalineamiento mensual) porque el stock es un saldo acumulado, no un
 -- flujo mensual — no netear la infla para siempre, no solo en el mes en
 -- que ocurre.
-SELECT date_trunc('month', t.processing_date) AS mes, 'BR' AS country_code,
+SELECT date_trunc('month', CAST(t.processing_date AS DATE)) AS mes, 'BR' AS country_code,
        'accum_neto' AS leg, SUM(tp.points) AS puntos
 FROM data.lake.clm_transactions t
 JOIN data.lake.clm_transaction_points tp ON t.id = tp.source_transaction_id
@@ -2378,7 +2378,7 @@ GROUP BY mes, country_code
 
 UNION ALL
 
-SELECT date_trunc('month', tp.expiration_date) AS mes, cm.ext_country_program AS country_code,
+SELECT date_trunc('month', CAST(tp.expiration_date AS DATE)) AS mes, cm.ext_country_program AS country_code,
        'vencido' AS leg, SUM(tp.points) AS puntos
 FROM data.lake.clm_transactions t
 JOIN data.lake.clm_transaction_points tp ON t.id = tp.source_transaction_id
