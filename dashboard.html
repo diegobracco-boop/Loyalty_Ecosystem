@@ -466,6 +466,14 @@ function getProgramFromReden(row) {
   return d[pt] || 'Otros';
 }
 
+// Redención: Cobrand y Partners son programas propios pero SUMAN también dentro de
+// Pasaporte D! (pedido de Rosario 01-oct). Solo aplica a redención — acumulación y lo
+// que deriva de ella (ratio, tier, channel, USD base) siguen sin incluirlos.
+function getProgramsFromReden(row) {
+  var p = getProgramFromReden(row);
+  return (p === 'Cobrand' || p === 'Partners') ? [p, 'Pasaporte D!'] : [p];
+}
+
 // Puntos. Los JSON agregados solo traen `points` (= SUM(points) de comarch).
 // `points_distribuidos` (el que usa el cierre de Loyalty, ~2-4% menos) NO viene:
 // la columna falla vía ODBC. Por eso el SSP calculado difiere ~1% del cierre.
@@ -1004,9 +1012,10 @@ function buildMetrics(country) {
     rows.forEach(function(row) {
       var p = getPts(row), u = Math.abs(+(row.descuento_consumo_puntos_usd) || 0);
       pts += p; usd += u;
-      var prog = getProgramFromReden(row);
-      if (!byProg[prog]) byProg[prog] = { pts: 0, usd: 0 };
-      byProg[prog].pts += p; byProg[prog].usd += u;
+      getProgramsFromReden(row).forEach(function(prog) {
+        if (!byProg[prog]) byProg[prog] = { pts: 0, usd: 0 };
+        byProg[prog].pts += p; byProg[prog].usd += u;
+      });
     });
     return { pts: pts, usd: usd, byProg: byProg };
   }
@@ -1860,7 +1869,8 @@ function monthlyMap(raw, country, prog, getProgFn, valueFn) {
   var agg = {};
   expand(raw).forEach(function(row){
     if (!matchCountryCode(row.country_code, country)) return;
-    if (getProgFn(row) !== prog) return;
+    var progs = getProgFn === getProgramFromReden ? getProgramsFromReden(row) : [getProgFn(row)];
+    if (progs.indexOf(prog) === -1) return;
     var ym = (row.processing_date||'').substring(0,7);
     agg[ym] = (agg[ym]||0) + valueFn(row);
   });
