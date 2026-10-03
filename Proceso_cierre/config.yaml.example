@@ -92,3 +92,11 @@ point_types:
   redenciones_general: ["general"]
   redenciones_subs: ["SUBSCRIPTION", "SUBSCRIPTION_INT"]
   # redenciones_otros: complemento de general + subs (ver pipeline/etapa1_redenciones.py)
+
+# Ultimo run rate para el comparativo de la solapa 'P&L Actuals vs RR' de Asientos
+# (pipeline/run_rate.py). Cada persona pone la ruta de SU copia de runrate.json
+# (Inputs_Planning_PnL del repo B2B_Ecosystem, o una copia en OneDrive/SharePoint).
+run_rate:
+  archivo: "<ruta>/runrate.json"
+  lob: "b2c"            # los asientos son todo B2C de Loyalty
+  rg_en_others: false   # true = suma 'rg' a la fila Others (en el RR 'rg' compensa el Deferred Revenue In de 'others countries')

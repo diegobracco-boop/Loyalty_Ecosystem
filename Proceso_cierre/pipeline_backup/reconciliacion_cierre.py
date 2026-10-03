@@ -174,6 +174,27 @@ def reconciliar(nombre_hoja: str, df_guardado: pd.DataFrame) -> pd.DataFrame:
         return df_guardado
 
     print(f"  -> Uso la version nueva del archivo de cierre para '{nombre_hoja}'.")
+    # La Tabla de 'Redenciones Otros' en el archivo de cierre trae `country` = CODIGO (BR, MX...)
+    # y no tiene `country_code`; el DataFrame de la corrida usa country_code = codigo y
+    # country = nombre. Sin este ajuste, country_code quedaba en None (y Asientos!country
+    # vacia -> filas de Control en 0) y el codigo terminaba en Asientos!pais.
+    if ("country_code" in df_guardado.columns and "country_code" not in df_archivo.columns
+            and "country" in df_archivo.columns):
+        codigo = df_archivo["country"]
+        nombres = dict(zip(df_guardado["country_code"], df_guardado["country"]))
+        df_archivo["country_code"] = codigo
+        df_archivo["country"] = codigo.map(nombres).fillna(codigo)
+    # Otras columnas con nombre distinto entre la Tabla del archivo de cierre (nombres de la
+    # query) y el DataFrame del pipeline. Sin esto quedaban en None y Asientos!Redenciones
+    # Otros salia sin tipopago / Descuento por Consumo de Puntos / Entidad Legal.
+    # (columna del DataFrame, nombre que trae la Tabla del archivo de cierre)
+    for destino, origen in (
+        ("payment_type", "tipopago"),
+        ("Descuento por Consumo de Puntos", "descuento_consumo_puntos_usd"),
+        ("Entidad Legal", "legal_entity"),
+    ):
+        if destino in df_guardado.columns and destino not in df_archivo.columns and origen in df_archivo.columns:
+            df_archivo[destino] = df_archivo[origen]
     for columna in df_guardado.columns:
         if columna not in df_archivo.columns:
             df_archivo[columna] = None

@@ -118,6 +118,8 @@ Este script:
 
 Si el número de filas leído no coincide con lo esperado (por ejemplo, si corriste el primer script de nuevo para otro mes sin correr este), el script frena con un error explícito en vez de pegar datos desalineados.
 
+Al final, `escribir_asientos.py` completa el bloque **Run Rate** de la solapa `P&L Actuals vs RR` de `Asientos Cierre Loyalty.xlsx` (por pais, mes de cierre, USD) con el ultimo `runrate.json` de `Inputs_Planning_PnL`, para compararlo contra lo que se manda a contabilizar. Configuracion en `config.yaml` -> `run_rate` (ruta de tu copia de `runrate.json`, `lob: b2c`, `rg_en_others`). Antes de cada cierre, que ese `runrate.json` sea el ultimo (se muestra su fecha en la solapa). Si falta el archivo, la solapa o el mes, avisa y sigue (no frena el cierre). Detalle: 'Rewards & Benefits' y 'Rewards & Benefits Cost' son lo mismo para el RR (todo va en "Cost"); 'rg' queda fuera de Others salvo `rg_en_others: true` (en el RR compensa el Deferred Revenue In de 'others countries', ~404k en sep-26).
+
 ### 4. Revisar
 
 - El resumen que imprime cada script al terminar — si dice "REVISAR" en algún control, no continuar sin entender por qué antes de mandarlo a Contabilidad.

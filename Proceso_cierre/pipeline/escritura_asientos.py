@@ -60,6 +60,8 @@ import pandas as pd
 from openpyxl import load_workbook
 
 from pipeline.config import cargar_config, ruta_cierre
+from pipeline.excel_utils import quitar_partes_trash, reparar_vinculos_externos
+from pipeline.run_rate import completar_run_rate
 
 
 def _mapeo_redenciones(header_channel="channel_condition",
@@ -313,6 +315,10 @@ def _pegar_hoja(wb, nombre_hoja: str, df: pd.DataFrame) -> int:
 
     # 5. Ajustar el rango de la Tabla al tamano exacto del mes nuevo.
     tabla.ref = f"{col_inicio_ref}:{letra_col_fin}{fila_nueva_max}"
+    # El autoFilter propio de la Tabla tiene que seguir el mismo rango: si queda en el rango
+    # viejo (mas grande), Excel abre con "problema con el contenido" (Bitacora seccion 35).
+    if tabla.autoFilter is not None:
+        tabla.autoFilter.ref = tabla.ref
 
     if filas_nuevas:
         print(f"  {nombre_hoja}: {filas_nuevas} fila(s) del mes (filas {FILA_TEMPLATE} a "
@@ -479,7 +485,17 @@ def pegar_todo(df_generacion: pd.DataFrame, df_redenciones: pd.DataFrame,
         resultado["Breakage"] = pegar_breakage(wb, df_breakage)
     if valores_accounting is not None:
         resultado["Accounting"] = pegar_accounting(wb, valores_accounting)
+    # Bloque "Run Rate" de la solapa 'P&L Actuals vs RR' (comparativo contra lo que se contabiliza).
+    # No frena el cierre si falta el archivo/solapa/mes: avisa y sigue (ver pipeline/run_rate.py).
+    resumen_rr = completar_run_rate(wb, cargar_config())
+    if resumen_rr:
+        print("  Run Rate completado en 'P&L Actuals vs RR' (USD, total por columna):")
+        for encabezado, total in resumen_rr.items():
+            if not encabezado.startswith("_") and total is not None:
+                print(f"    {encabezado}: {total:,.0f}")
     _validar_referencias_estructuradas(wb)
+    reparar_vinculos_externos(wb)  # sin esto Excel pide 'recuperar' (ver pipeline/excel_utils.py)
     wb.save(ruta)
+    quitar_partes_trash(ruta)
     print(f"  Guardado OK: {ruta}")
     return resultado
