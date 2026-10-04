@@ -9,8 +9,10 @@ Reglas (decididas por Diego el 2026-10-03):
   - 'Loyalty - Rewards & Benefits' y '... Cost' son lo mismo para el RR: el RR solo trae
     'loyalty - rewards & benefits cost'. Va en la columna "... Cost"; la columna sin sufijo
     queda vacia y "Suma Reward & Benefits" = suma de ambas.
-  - 'others countries' -> fila "Others". 'rg' queda FUERA salvo `run_rate.rg_en_others: true`
-    (ojo: en el RR 'rg' compensa el Deferred Revenue In de 'others countries' - ver INSTRUCCIONES).
+  - 'others countries' -> fila "Others". 'rg' queda FUERA salvo `run_rate.rg_en_others: true`.
+  - En la fila Others se descartan los productos de `run_rate.excluir_productos_en_others`
+    (hoy ["corporate"]: en el RR, 'others countries' trae +404k de Deferred Revenue In de
+    producto corporate que 'rg' compensa con -404k; decision de Diego 2026-10-03).
 
 Si algo falta (archivo, solapa, mes) NO frena el cierre: avisa y sigue.
 """
@@ -57,6 +59,7 @@ def agregar_run_rate(cfg: dict) -> dict:
         raise FileNotFoundError(f"no existe el archivo de run rate: {archivo}")
     lob = (rr.get("lob") or "b2c").lower()
     rg_en_others = bool(rr.get("rg_en_others", False))
+    excluir_en_others = {str(x).strip().lower() for x in (rr.get("excluir_productos_en_others") or [])}
     mes = f"{int(cfg['cierre']['anio']):04d}-{int(cfg['cierre']['mes']):02d}-01"
 
     with open(archivo, encoding="utf-8") as f:
@@ -64,6 +67,7 @@ def agregar_run_rate(cfg: dict) -> dict:
     cols = datos["cols"]
     i_lob, i_pais, i_n1 = cols.index("LoB"), cols.index("Pais"), cols.index("P&L N1")
     i_fecha, i_monto = cols.index("Fecha"), cols.index("Monto USD")
+    i_producto = cols.index("Producto")
 
     montos = {}
     n_filas = 0
@@ -77,13 +81,15 @@ def agregar_run_rate(cfg: dict) -> dict:
         n_filas += 1
         if fila is None:
             continue
+        if fila == "others" and (r[i_producto] or "").strip().lower() in excluir_en_others:
+            continue
         montos[(fila, n1)] = montos.get((fila, n1), 0.0) + float(r[i_monto])
     if n_filas == 0:
         raise ValueError(f"el run rate no tiene filas de Loyalty ({lob}) para {mes} "
                          f"(meses disponibles: {datos.get('meta', {}).get('fechas')})")
     return {
         "montos": montos, "mes": mes, "archivo": archivo, "lob": lob,
-        "rg_en_others": rg_en_others,
+        "rg_en_others": rg_en_others, "excluir_en_others": sorted(excluir_en_others),
         "archivo_fecha": datetime.fromtimestamp(os.path.getmtime(archivo)).strftime("%Y-%m-%d %H:%M"),
     }
 
@@ -141,14 +147,21 @@ def completar_run_rate(wb, cfg: dict) -> dict:
             a, b = ws.cell(fila, c_rb).coordinate, ws.cell(fila, c_cost).coordinate
             ws.cell(fila, c_suma).value = f"=SUM({a}:{b})"
 
-    # nota de trazabilidad, a la derecha del bloque (no pisa nada de la tabla)
+    # nota de trazabilidad, a la derecha del bloque (no pisa nada de la tabla). Primero se
+    # borran las notas de corridas anteriores (si cambio el ancho del bloque quedaban duplicadas).
     c_nota = (max(columnas.values()) + 2) if columnas else 11
+    for f_nota in (fila_enc, fila_enc + 1):
+        for c in range(max(columnas.values()) + 1 if columnas else 1, ws.max_column + 1):
+            v = ws.cell(f_nota, c).value
+            if isinstance(v, str) and v.startswith(("Fuente: runrate", "'rg' ")):
+                ws.cell(f_nota, c).value = None
     ws.cell(fila_enc, c_nota).value = (
         f"Fuente: {os.path.basename(rr['archivo'])} (archivo del {rr['archivo_fecha']}) | "
         f"LoB {rr['lob']} | mes {rr['mes'][:7]} | USD"
     )
     ws.cell(fila_enc + 1, c_nota).value = (
-        "'rg' incluido en Others" if rr["rg_en_others"] else "'rg' excluido de Others"
+        ("'rg' incluido en Others" if rr["rg_en_others"] else "'rg' excluido de Others")
+        + (f" | Others sin producto: {', '.join(rr['excluir_en_others'])}" if rr["excluir_en_others"] else "")
     )
 
     resumen = {}

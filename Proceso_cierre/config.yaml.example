@@ -100,3 +100,4 @@ run_rate:
   archivo: "<ruta>/runrate.json"
   lob: "b2c"            # los asientos son todo B2C de Loyalty
   rg_en_others: false   # true = suma 'rg' a la fila Others (en el RR 'rg' compensa el Deferred Revenue In de 'others countries')
+  excluir_productos_en_others: ["corporate"]   # productos que NO se cuentan en la fila Others (reclass +/-404k con rg)
