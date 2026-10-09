@@ -39,8 +39,8 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, 'S
 /* ---- Header ---- */
 .header { background: linear-gradient(90deg, #3d00d1 0%, #550fed 100%); color: #fff; padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .header-title { font-size: var(--fs-lg); font-weight: 800; }
-.header-sub   { font-size: var(--fs-small); color: #94a3b8; margin-top: 2px; }
-.header-sync  { font-size: var(--fs-small); color: #94a3b8; }
+.header-sub   { font-size: var(--fs-small); color: #e9e1ff; margin-top: 2px; }
+.header-sync  { font-size: var(--fs-small); color: #e9e1ff; }
 
 /* ---- Sticky topbar (barra de pais + filtros) ---- */
 .topbar { position: sticky; top: 0; z-index: 50; box-shadow: 0 2px 8px rgba(15,23,42,.08); }
@@ -250,7 +250,7 @@ table.bk tr:hover td { background: #f8fafc; }
 </head>
 <body>
 
-<div class="loading" id="loading">
+<div class="loading" id="loading" role="status" aria-live="polite">
   <div class="spinner"></div>
   <div class="lt" id="loading-text">Cargando datos...</div>
 </div>
@@ -258,7 +258,7 @@ table.bk tr:hover td { background: #f8fafc; }
 <div class="header">
   <div>
     <div class="header-title">Loyalty Dashboard — Despegar</div>
-    <div class="header-sub">P&amp;L Contable · Metricas de Negocio por Programa</div>
+    <div class="header-sub">P&amp;L Contable · Métricas de Negocio por Programa</div>
   </div>
   <div class="header-sync" id="last-sync">—</div>
 </div>
@@ -277,7 +277,7 @@ table.bk tr:hover td { background: #f8fafc; }
   </div>
   <div class="fsep"></div>
   <div class="fg">
-    <div class="fl">Formato numeros</div>
+    <div class="fl">Formato números</div>
     <select id="f-fmt">
       <option value="M" selected>Millones (M)</option>
       <option value="K">Miles (K)</option>
@@ -305,7 +305,7 @@ table.bk tr:hover td { background: #f8fafc; }
 </div>
 
 <div class="main" style="padding-bottom:0">
-  <div class="banner warning hidden" id="stale-banner">
+  <div class="banner warning hidden" id="stale-banner" role="status" aria-live="polite">
     <div class="bt" id="stale-banner-text"></div>
   </div>
 </div>
@@ -335,12 +335,12 @@ Chart.register({
 var COUNTRIES = [
   { key: 'total',     label: 'TOTAL',     dataKey: 'total'     },
   { key: 'brasil',    label: 'Brasil',    dataKey: 'brasil'    },
-  { key: 'mexico',    label: 'Mexico',    dataKey: 'mexico'    },
+  { key: 'mexico',    label: 'México',    dataKey: 'mexico'    },
   { key: 'argentina', label: 'Argentina', dataKey: 'argentina' },
   { key: 'colombia',  label: 'Colombia',  dataKey: 'colombia'  },
   { key: 'chile',     label: 'Chile',     dataKey: 'chile',
     banner: { type: 'warning', html: 'El programa <strong>Pasaporte D!</strong> aun no se encuentra activo en Chile.' } },
-  { key: 'peru',      label: 'Peru',      dataKey: 'peru'      },
+  { key: 'peru',      label: 'Perú',      dataKey: 'peru'      },
   { key: 'ecuador',   label: 'Ecuador',   dataKey: 'ecuador'   },
   { key: 'uruguay',   label: 'Uruguay',   dataKey: 'uruguay',
     banner: { type: 'wip', html: 'Seccion en desarrollo <strong>(WIP)</strong> — datos preliminares.' } }
@@ -858,7 +858,7 @@ function renderPnl(containerId, country) {
   if (!el) return;
   var d = buildPnl(country);
   if (!d || !d.lines.length) {
-    el.innerHTML = '<div class="empty">Sin datos de P&L Loyalty para ' + country.label + ' en el periodo seleccionado.</div>';
+    el.innerHTML = '<div class="empty">Sin datos de P&L Loyalty para ' + country.label + ' en el período seleccionado.</div>';
     return;
   }
 
@@ -920,7 +920,7 @@ function renderPnl(containerId, country) {
         + '<th class="bg-b" colspan="' + n + '">BASELINE</th><th class="sep"></th>'
         + '<th class="bg-g" colspan="' + n + '">GOAL · ' + scenarioLabel(GOAL) + '</th><th class="sep"></th>'
         + '<th class="bg-d" colspan="' + n + '">&Delta; BASELINE &minus; GOAL</th></tr>';
-  html += '<tr><th class="lc">Linea P&L</th>';
+  html += '<tr><th class="lc">Línea P&L</th>';
   for (var blk = 0; blk < 3; blk++) {
     cols.forEach(function(c){ html += '<th' + (c === 'TOT' ? ' class="tc"' : '') + '>' + pLabel(c) + '</th>'; });
     if (blk < 2) html += '<th class="sep"></th>';
@@ -1495,7 +1495,7 @@ function renderMetrics(country, m) {
   html += '<div class="prog-title" ' + progTitleAttrs(bkId, suffix, bkOpen) + '>'
     + '<span>Breakage (vencimiento de puntos)</span><span class="prog-caret" aria-hidden="true">&#9662;</span></div>';
   html += '<div class="prog-body" id="' + bkId + '-body">';
-  html += '<div class="kpi-row">' + kpiHtml('Puntos Vencidos', fmtPts(m.bkTotal), 'total periodo seleccionado', 'var(--muted)') + '</div>';
+  html += '<div class="kpi-row">' + kpiHtml('Puntos Vencidos', fmtPts(m.bkTotal), 'total período seleccionado', 'var(--muted)') + '</div>';
   html += '<div class="cc"><div class="ct">Breakage — Puntos vencidos por mes</div><div class="cw"><canvas id="' + bkCanvasId + '"></canvas></div>'
     + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-' + bkCanvasId + '"></div></div>'
     + '</div>';
@@ -2066,7 +2066,7 @@ function renderPasivo() {
   var h = '<div class="stitle">Pasivo — stock de puntos (roll-forward)</div>'
     + '<div class="ppl-bar"><label class="fl">Pais</label> '
     + '<select id="pasivo-country" onchange="PASIVO_COUNTRY=this.value;renderPasivo();">' + opts + '</select></div>'
-    + '<div class="proj-note"><strong>Saldo</strong> = stock de puntos vivos en clientes = saldo mes previo + Acumulacion &minus; Redencion &minus; Breakage. '
+    + '<div class="proj-note"><strong>Saldo</strong> = stock de puntos vivos en clientes = saldo mes previo + Acumulación &minus; Redención &minus; Breakage. '
     + 'Anclado al saldo real del cierre <strong>' + fmtMonthLbl(res.seedCol + '-01') + '</strong> ("Control de Pasivo ML") y propagado hacia atras y adelante. '
     + 'Se excluyen siempre <strong>IFOOD</strong> y <strong>Acciones Marketing</strong>. '
     + '2025 va colapsado en una columna (movimientos del año). Solo puntos — sin valuacion.</div>';
@@ -2101,8 +2101,8 @@ function renderPasivo() {
   }
 
   h += '<div class="bk-card"><div class="tbl-scroll"><table class="pnl"><thead><tr>' + hdr() + '</tr></thead><tbody>'
-    + row('Acumulacion',        function(d){ return d.acum; })
-    + row('(&minus;) Redencion', function(d){ return d.reden ? -d.reden : 0; })
+    + row('Acumulación',        function(d){ return d.acum; })
+    + row('(&minus;) Redención', function(d){ return d.reden ? -d.reden : 0; })
     + row('(&minus;) Breakage',  function(d){ return d.brk ? -d.brk : 0; })
     + row('Flujo neto',          function(d){ return d.neto; }, { rowClass: 'subtotal', color: true, signed: true })
     + row('Saldo',               function(d){ return d.saldo; }, { rowClass: 'grand-total' })
@@ -2712,6 +2712,13 @@ function ratioPeriodOptionsHtml(suffix, country) {
 }
 
 // ============================================================
+// aria-pressed en los toggles .seg-btn: se re-renderizan por innerHTML, asi que
+// se sincroniza desde la clase 'active' en un solo lugar.
+(function(){
+  function sync(root){ (root.querySelectorAll ? root : document).querySelectorAll('.seg-btn').forEach(function(b){ b.setAttribute('aria-pressed', b.classList.contains('active') ? 'true' : 'false'); }); }
+  new MutationObserver(function(){ sync(document); }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+})();
+
 // Build panels (once on load)
 // ============================================================
 function buildPanels() {
@@ -2723,8 +2730,10 @@ function buildPanels() {
     var btn = document.createElement('button');
     btn.className = 'ctab' + (idx === 0 ? ' active' : '');
     btn.dataset.key = c.key;
+    btn.setAttribute('role', 'tab');
     btn.textContent = c.label;
     btn.addEventListener('click', function(){ switchCountry(c.key); });
+    btn.setAttribute('aria-selected', idx === 0 ? 'true' : 'false');
     tabsEl.appendChild(btn);
 
     var div = document.createElement('div');
@@ -2737,7 +2746,7 @@ function buildPanels() {
     }
     inner += '<div class="stitle">P&amp;L Contable Loyalty</div>';
     inner += '<div class="pnl-wrap" id="pnl-' + c.key + '"></div>';
-    inner += '<div class="stitle">Metricas de Negocio</div>';
+    inner += '<div class="stitle">Métricas de Negocio</div>';
     inner += '<div id="metrics-' + c.key + '"></div>';
 
     div.innerHTML = inner;
@@ -2748,9 +2757,12 @@ function buildPanels() {
   var pbtn = document.createElement('button');
   pbtn.className = 'ctab';
   pbtn.dataset.key = 'pasivo';
+  pbtn.setAttribute('role', 'tab');
   pbtn.textContent = '🧮 Pasivo';
   pbtn.addEventListener('click', function(){ switchCountry('pasivo'); });
+  pbtn.setAttribute('aria-selected', 'false');
   tabsEl.appendChild(pbtn);
+  tabsEl.setAttribute('role', 'tablist');
 
   var pdiv = document.createElement('div');
   pdiv.id = 'panel-pasivo';
@@ -2772,7 +2784,7 @@ function buildPanels() {
 // ============================================================
 function switchCountry(key) {
   ACTIVE_COUNTRY = key;
-  document.querySelectorAll('.ctab').forEach(function(b){ b.classList.toggle('active', b.dataset.key === key); });
+  document.querySelectorAll('.ctab[role="tab"]').forEach(function(b){ var on = b.dataset.key === key; b.classList.toggle('active', on); b.setAttribute('aria-selected', on ? 'true' : 'false'); });
   COUNTRIES.forEach(function(c){
     var p = document.getElementById('panel-' + c.key);
     if (p) p.classList.toggle('hidden', c.key !== key);
@@ -2802,7 +2814,7 @@ function onLoaded(key, data) {
   if (LOADED >= TOTAL) {
     document.getElementById('loading').classList.add('hidden');
     var meta = (RAW.acum_cy || {}).meta || {};
-    document.getElementById('last-sync').textContent = 'Ultimo sync: ' + (meta.generated_at || '—');
+    document.getElementById('last-sync').textContent = 'Último sync: ' + (meta.generated_at || '—');
     checkStale();
     buildPanels();
     renderActive();
@@ -2826,7 +2838,8 @@ function checkStale() {
     if (g) { var t = Date.parse(String(g).replace(' ', 'T')); if (!isNaN(t)) tss.push(t); }
   });
   if (Object.keys(RAW).some(function(k){ return RAW[k] === null && !RAW_OPTIONAL[k]; })) {
-    txt.innerHTML = '<strong>Carga incompleta.</strong> Uno o más archivos de datos no cargaron ' +
+    var failed = Object.keys(RAW).filter(function(k){ return RAW[k] === null && !RAW_OPTIONAL[k]; });
+    txt.innerHTML = '<strong>Carga incompleta.</strong> No cargaron: ' + failed.join(', ') + ' ' +
       '(ver consola). Algunos números pueden faltar o quedar en cero.';
     el.classList.remove('hidden');
     return;
