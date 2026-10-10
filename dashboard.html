@@ -306,11 +306,11 @@ table.bk tr:hover td { background: #f8fafc; }
 <div class="filters">
   <div class="fg">
     <div class="fl">Desde</div>
-    <input type="month" id="f-from" value="2026-01">
+    <input type="month" id="f-from" value="2026-04">
   </div>
   <div class="fg">
     <div class="fl">Hasta</div>
-    <input type="month" id="f-to" value="2026-12">
+    <input type="month" id="f-to" value="2027-03">
   </div>
   <div class="fsep"></div>
   <div class="fg">
@@ -770,10 +770,13 @@ function getPeriodMode() {
 var PNL_Q = { '04':'Q1','05':'Q1','06':'Q1','07':'Q2','08':'Q2','09':'Q2',
               '10':'Q3','11':'Q3','12':'Q3','01':'Q4','02':'Q4','03':'Q4' };
 var PNL_H = { Q1: 'H1', Q2: 'H1', Q3: 'H2', Q4: 'H2' };
-function pnlPeriodKey(ym, mode) {
+// withFy: si el rango cruza mas de un año fiscal, Q1/H1 de FY distintos no deben
+// sumarse en la misma columna -> la clave lleva el FY (ej. 'Q1 FY26').
+function pnlPeriodKey(ym, mode, withFy) {
   if (mode === 'month') return ym;
   var q = PNL_Q[ym.substring(5, 7)];
-  return mode === 'quarter' ? q : PNL_H[q];
+  var k = mode === 'quarter' ? q : PNL_H[q];
+  return withFy ? k + ' FY' + String(fyStartYear(ym)).slice(2) : k;
 }
 
 function inRange(ym, from, to) {
@@ -904,12 +907,16 @@ function renderPnl(containerId, country) {
   var goalMaps = d.scn[GOAL];
 
   // Periodos presentes (segun los meses del baseline), + columna Total
-  var present = {};
-  d.months.forEach(function(ym){ present[pnlPeriodKey(ym, mode)] = 1; });
-  var periods;
-  if (mode === 'month')        periods = d.months.slice();
-  else if (mode === 'quarter') periods = ['Q1','Q2','Q3','Q4'].filter(function(p){ return present[p]; });
-  else                         periods = ['H1','H2'].filter(function(p){ return present[p]; });
+  // d.months viene en orden calendario; como el rango es continuo, ese orden ya es
+  // el fiscal (Abr->Mar) dentro de cada FY y entre FYs consecutivos.
+  var fys = {};
+  d.months.forEach(function(ym){ fys[fyStartYear(ym)] = 1; });
+  var withFy = Object.keys(fys).length > 1;
+  var periods = [];
+  d.months.forEach(function(ym){
+    var pk = pnlPeriodKey(ym, mode, withFy);
+    if (periods.indexOf(pk) === -1) periods.push(pk);
+  });
   var cols = periods.concat(['TOT']);
   var n = cols.length;
   function pLabel(p) { return p === 'TOT' ? 'Total' : (mode === 'month' ? fmtMonthLbl(p) : p); }
@@ -918,7 +925,7 @@ function renderPnl(containerId, country) {
   function toPeriods(monthMap) {
     var o = {}; cols.forEach(function(c){ o[c] = 0; });
     Object.keys(monthMap || {}).forEach(function(ym){
-      var v = monthMap[ym] || 0, pk = pnlPeriodKey(ym, mode);
+      var v = monthMap[ym] || 0, pk = pnlPeriodKey(ym, mode, withFy);
       if (o[pk] !== undefined) o[pk] += v;
       o.TOT += v;
     });
@@ -2916,6 +2923,13 @@ function onError(key, msg) {
     renderActive();
   }
 }
+
+// Rango por defecto = año fiscal en curso (Abr->Mar), igual que las metricas de negocio.
+(function(){
+  var now = new Date(), y = now.getFullYear(), fy = now.getMonth() >= 3 ? y : y - 1;
+  document.getElementById('f-from').value = fy + '-04';
+  document.getElementById('f-to').value = (fy + 1) + '-03';
+})();
 
 // Filter listeners
 document.getElementById('f-from').addEventListener('change', renderActive);
