@@ -325,9 +325,9 @@ table.bk tr:hover td { background: #f8fafc; }
   <div class="fg">
     <div class="fl">Escenario Goal</div>
     <select id="f-scenario">
-      <option value="forecast" selected>Forecast</option>
-      <option value="budget">Budget</option>
+      <option value="budget" selected>Budget</option>
       <option value="runrate">Run Rate</option>
+      <option value="forecast">Forecast</option>
     </select>
   </div>
   <div class="fg">
@@ -754,10 +754,10 @@ function getRange() {
   return { from: document.getElementById('f-from').value, to: document.getElementById('f-to').value };
 }
 
-// Escenario "goal" para el P&L Contable comparativo: 'forecast' | 'budget'
+// Escenario "goal" para el P&L Contable comparativo: 'budget' (default) | 'runrate' | 'forecast'
 function getScenario() {
   var el = document.getElementById('f-scenario');
-  return el ? el.value : 'forecast';
+  return el ? el.value : 'budget';
 }
 function scenarioLabel(s) { return s === 'budget' ? 'Budget' : s === 'runrate' ? 'Run Rate' : 'Forecast'; }
 
@@ -903,7 +903,7 @@ function renderPnl(containerId, country) {
   }
 
   var mode = getPeriodMode();          // 'month' | 'quarter' | 'half'
-  var GOAL = getScenario();            // 'budget' | 'forecast'
+  var GOAL = getScenario();            // 'budget' | 'runrate' | 'forecast'
   var goalMaps = d.scn[GOAL];
 
   // Periodos presentes (segun los meses del baseline), + columna Total
