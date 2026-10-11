@@ -156,7 +156,7 @@ table.pnl th, table.pnl td { border: none; border-bottom: 1px solid #f1eef7; }
 table.pnl td { padding: 9px 14px; }
 table.pnl td.lc { padding-left: 24px; min-width: 260px; box-shadow: 1px 0 0 #ece7f6, 6px 0 8px -6px rgba(76,29,149,.18); }
 table.pnl th.lc { background: #fff; box-shadow: 1px 0 0 #ece7f6, 6px 0 8px -6px rgba(76,29,149,.18); z-index: 4; }
-table.pnl tr:hover td:not(.sep), table.pnl tr:hover td.lc { background: #faf8fe; }
+table.pnl tbody tr:not(.subtotal):not(.grp-hdr):not(.grand-total):hover td:not(.sep) { background: #faf8fe; }
 /* fila de escenarios: color solido */
 table.pnl tr.bg-scen th { padding: 9px 8px; font-size: 11px; letter-spacing: .1em; border-bottom: none; color: #fff; border-radius: 8px 8px 0 0; }
 table.pnl tr.bg-scen th.bg-b { background: #6d3fc0; color: #fff; }
@@ -181,7 +181,7 @@ table.pnl tr.subtotal td.lc { background: #fbfaff; }
 table.pnl tr.grand-total td { background: #1b1533; border-top: none; }
 table.pnl tr.grand-total td.lc { background: #1b1533; }
 table.pnl tr.grand-total td.tc { background: #2b2150 !important; }
-table.pnl tr.grand-total:hover td, table.pnl tr.grand-total:hover td.lc { background: #1b1533; }
+table.pnl tr.grand-total td.sep { background: #1b1533 !important; border-bottom-color: #1b1533; }
 
 /* ---- KPI row ---- */
 .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 16px; }
@@ -2760,11 +2760,13 @@ function ratioPeriodOptionsHtml(suffix, country) {
 
 // ============================================================
 // aria-pressed en los toggles .seg-btn: se re-renderizan por innerHTML, asi que
-// se sincroniza desde la clase 'active' en un solo lugar.
-(function(){
-  function sync(root){ (root.querySelectorAll ? root : document).querySelectorAll('.seg-btn').forEach(function(b){ b.setAttribute('aria-pressed', b.classList.contains('active') ? 'true' : 'false'); }); }
-  new MutationObserver(function(){ sync(document); }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
-})();
+// se sincroniza desde la clase 'active' al final de cada renderCountry (todos los
+// set*View/Mode pasan por ahi). Solo recorre el panel que se acaba de pintar.
+function syncSegPressed(root) {
+  (root || document).querySelectorAll('.seg-btn').forEach(function(b){
+    b.setAttribute('aria-pressed', b.classList.contains('active') ? 'true' : 'false');
+  });
+}
 
 // Build panels (once on load)
 // ============================================================
@@ -2847,6 +2849,7 @@ function renderCountry(key) {
   if (!c) return;
   renderPnl('pnl-' + key, c);
   renderMetrics(c, buildMetrics(c));
+  syncSegPressed(document.getElementById('panel-' + key));
 }
 
 function renderActive() { renderCountry(ACTIVE_COUNTRY); }
