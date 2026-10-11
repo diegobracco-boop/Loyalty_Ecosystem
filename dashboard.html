@@ -771,12 +771,14 @@ var PNL_Q = { '04':'Q1','05':'Q1','06':'Q1','07':'Q2','08':'Q2','09':'Q2',
               '10':'Q3','11':'Q3','12':'Q3','01':'Q4','02':'Q4','03':'Q4' };
 var PNL_H = { Q1: 'H1', Q2: 'H1', Q3: 'H2', Q4: 'H2' };
 // withFy: si el rango cruza mas de un año fiscal, Q1/H1 de FY distintos no deben
-// sumarse en la misma columna -> la clave lleva el FY (ej. 'Q1 FY26').
+// sumarse en la misma columna -> la clave lleva el FY (ej. 'Q1 FY27' = abr-jun 2026).
 function pnlPeriodKey(ym, mode, withFy) {
   if (mode === 'month') return ym;
   var q = PNL_Q[ym.substring(5, 7)];
   var k = mode === 'quarter' ? q : PNL_H[q];
-  return withFy ? k + ' FY' + String(fyStartYear(ym)).slice(2) : k;
+  // FY se nombra por el año en que TERMINA (convención de Control de Gestión/B2B):
+  // abr-2026..mar-2027 = FY27.
+  return withFy ? k + ' FY' + String(fyStartYear(ym) + 1).slice(2) : k;
 }
 
 function inRange(ym, from, to) {
