@@ -78,6 +78,7 @@ from openpyxl.utils import get_column_letter
 
 from pipeline.config import cargar_config, ruta_absoluta, ruta_cierre
 from pipeline.conexion import fetch
+from pipeline.excel_utils import quitar_partes_trash, reparar_vinculos_externos
 from pipeline.escritura_asientos import (
     _ajustar_filas_formula, _set_cell, _tablas_reales, _TABLE_REF_RE, FORMATOS_FIJOS,
 )
@@ -273,6 +274,10 @@ def _pegar_hoja(ws, config_hoja: dict, df: pd.DataFrame) -> int:
                 _set_cell(ws, fila_excel, col_idx, None)
 
     tabla.ref = f"{col_inicio_ref}:{letra_col_fin}{fila_nueva_max}"
+    # El autoFilter propio de la Tabla tiene que seguir el mismo rango: si queda en el rango
+    # viejo (mas grande), Excel abre con "problema con el contenido" (Bitacora seccion 35).
+    if tabla.autoFilter is not None:
+        tabla.autoFilter.ref = tabla.ref
     return filas_nuevas
 
 
@@ -464,6 +469,8 @@ def pegar_todo_manual(df_acumulaciones: pd.DataFrame, df_redenciones: pd.DataFra
     if df_diccionario_excl is not None:
         resultado["Diccionario"] = pegar_diccionario(wb, df_diccionario_excl)
     _validar_referencias_estructuradas(wb)
+    reparar_vinculos_externos(wb)  # sin esto Excel pide 'recuperar' (ver pipeline/excel_utils.py)
     wb.save(ruta)
+    quitar_partes_trash(ruta)
     print(f"  Guardado OK: {ruta}")
     return resultado

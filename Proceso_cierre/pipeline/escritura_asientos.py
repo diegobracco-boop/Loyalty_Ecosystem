@@ -60,6 +60,8 @@ import pandas as pd
 from openpyxl import load_workbook
 
 from pipeline.config import cargar_config, ruta_cierre
+from pipeline.excel_utils import quitar_partes_trash, reparar_vinculos_externos
+from pipeline.run_rate import completar_run_rate
 
 
 def _mapeo_redenciones(header_channel="channel_condition",
@@ -313,6 +315,10 @@ def _pegar_hoja(wb, nombre_hoja: str, df: pd.DataFrame) -> int:
 
     # 5. Ajustar el rango de la Tabla al tamano exacto del mes nuevo.
     tabla.ref = f"{col_inicio_ref}:{letra_col_fin}{fila_nueva_max}"
+    # El autoFilter propio de la Tabla tiene que seguir el mismo rango: si queda en el rango
+    # viejo (mas grande), Excel abre con "problema con el contenido" (Bitacora seccion 35).
+    if tabla.autoFilter is not None:
+        tabla.autoFilter.ref = tabla.ref
 
     if filas_nuevas:
         print(f"  {nombre_hoja}: {filas_nuevas} fila(s) del mes (filas {FILA_TEMPLATE} a "
@@ -404,12 +410,30 @@ def pegar_accounting(wb, valores: list) -> int:
     Bitacora seccion 31 - decision de Rosario: Accounting es una copia exacta de la
     del archivo de cierre.
 
-    IMPORTANTE: la fuente (archivo de cierre) tiene mas columnas que el destino
-    (confirmado: A:L en el pesado vs A:E en Asientos - las columnas de mas en la
-    fuente son ayudas/referencias tipo "partner"/"point_type", no forman parte del
-    asiento). Por eso NO se copia el ancho de la fuente - se respeta el ancho
-    EXISTENTE de Asientos!Accounting (`ws.max_column`, tomado ANTES de escribir) y
-    se recorta cualquier fila de la fuente que tenga mas columnas que eso.
+    Ancho de pegado (CORREGIDO 2026-09-24, ver Bitacora seccion 49): se usa el ancho
+    de la FUENTE (`valores`, columnas A:E siempre - confirmado leyendo
+    'Cierre 2026 09.xlsx'!Accounting: las 120 filas tienen uniformemente 5 columnas),
+    NO `ws.max_column` del destino como antes. Motivo del cambio: Rosario agrego un
+    bloque de verificacion cruzada ("Check", ej. Accounting!R2:S19 - formulas tipo
+    `=[Cierre].Partners!P5`) al costado de esta misma hoja en Asientos, mantenido a
+    mano y ajeno a lo que viene del archivo de cierre. Con el ancho viejo
+    (`ws.max_column`, que ahora incluye esas columnas R:S por culpa de ese bloque),
+    cada corrida pisaba ese bloque con `None` - bug real detectado y reportado por
+    Rosario (el bloque quedaba completamente vacio). Con el ancho de la fuente en vez
+    del destino, `pegar_accounting` nunca toca ninguna columna mas alla de las que
+    trae el archivo de cierre, sin importar que se agregue a mano al costado en
+    Asientos - y tampoco importa si la fuente crece o se achica de mes a mes (ver
+    Bitacora seccion 49: Colombia sumo un sub-bloque "Cobrand" en septiembre, +5
+    filas contra agosto - eso ya lo maneja bien `filas_nuevas = len(valores)`, sin
+    cambios, porque nunca dependio del ancho).
+
+    Motivo original de recortar el ancho (sigue vigente, aunque ya no aplica con los
+    datos actuales): en versiones viejas del archivo de cierre la fuente tenia MAS
+    columnas que el asiento (A:L, con columnas de ayuda tipo "partner"/"point_type"
+    que no debian pegarse) - por eso se recortaba. Ahora la fuente es angosta (A:E)
+    y el problema es el opuesto (el destino es mas ancho por el bloque Check), pero
+    el criterio correcto en ambos casos es el mismo: el ancho de pegado lo define
+    SIEMPRE la fuente, nunca el destino.
 
     `valores` es una lista de filas (cada una una lista de valores), tal como la
     devuelve pipeline_backup.lectura_etapa2.leer_accounting()."""
@@ -423,7 +447,7 @@ def pegar_accounting(wb, valores: list) -> int:
         ws.unmerge_cells(str(rango))
 
     fila_vieja_max = ws.max_row
-    columnas_destino = ws.max_column
+    columnas_destino = max((len(fila) for fila in valores), default=0)
 
     filas_nuevas = len(valores)
 
@@ -461,7 +485,17 @@ def pegar_todo(df_generacion: pd.DataFrame, df_redenciones: pd.DataFrame,
         resultado["Breakage"] = pegar_breakage(wb, df_breakage)
     if valores_accounting is not None:
         resultado["Accounting"] = pegar_accounting(wb, valores_accounting)
+    # Bloque "Run Rate" de la solapa 'P&L Actuals vs RR' (comparativo contra lo que se contabiliza).
+    # No frena el cierre si falta el archivo/solapa/mes: avisa y sigue (ver pipeline/run_rate.py).
+    resumen_rr = completar_run_rate(wb, cargar_config())
+    if resumen_rr:
+        print("  Run Rate completado en 'P&L Actuals vs RR' (USD, total por columna):")
+        for encabezado, total in resumen_rr.items():
+            if not encabezado.startswith("_") and total is not None:
+                print(f"    {encabezado}: {total:,.0f}")
     _validar_referencias_estructuradas(wb)
+    reparar_vinculos_externos(wb)  # sin esto Excel pide 'recuperar' (ver pipeline/excel_utils.py)
     wb.save(ruta)
+    quitar_partes_trash(ruta)
     print(f"  Guardado OK: {ruta}")
     return resultado

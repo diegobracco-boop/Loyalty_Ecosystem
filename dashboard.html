@@ -39,8 +39,8 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, 'S
 /* ---- Header ---- */
 .header { background: linear-gradient(90deg, #3d00d1 0%, #550fed 100%); color: #fff; padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .header-title { font-size: var(--fs-lg); font-weight: 800; }
-.header-sub   { font-size: var(--fs-small); color: #94a3b8; margin-top: 2px; }
-.header-sync  { font-size: var(--fs-small); color: #94a3b8; }
+.header-sub   { font-size: var(--fs-small); color: #e9e1ff; margin-top: 2px; }
+.header-sync  { font-size: var(--fs-small); color: #e9e1ff; }
 
 /* ---- Sticky topbar (barra de pais + filtros) ---- */
 .topbar { position: sticky; top: 0; z-index: 50; box-shadow: 0 2px 8px rgba(15,23,42,.08); }
@@ -146,6 +146,43 @@ table.pnl tr.grand-total td.tc { background: #0f172a !important; }
 /* Proj note */
 .proj-note { font-size: var(--fs-small); color: var(--muted); padding: 6px 18px 10px; }
 
+/* ---- P&L: formato de P&L Accounting de B2B (tema ejecutivo, 2026-10) ----
+   Tabla sin grilla, escenarios en color solido con fila de periodos en tono suave,
+   separadores blancos, columna de conceptos fija con sombra, cifras tabulares.
+   Override sobre table.pnl: borrar este bloque (y las clases ph-* del JS) revierte. */
+.pnl-wrap { border-radius: 14px; border-color: #ece8f4; box-shadow: 0 1px 2px rgba(27,21,51,.05), 0 8px 24px rgba(27,21,51,.05); }
+table.pnl { border-collapse: separate; border-spacing: 0; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+table.pnl th, table.pnl td { border: none; border-bottom: 1px solid #f1eef7; }
+table.pnl td { padding: 9px 14px; }
+table.pnl td.lc { padding-left: 24px; min-width: 260px; box-shadow: 1px 0 0 #ece7f6, 6px 0 8px -6px rgba(76,29,149,.18); }
+table.pnl th.lc { background: #fff; box-shadow: 1px 0 0 #ece7f6, 6px 0 8px -6px rgba(76,29,149,.18); z-index: 4; }
+table.pnl tbody tr:not(.subtotal):not(.grp-hdr):not(.grand-total):hover td:not(.sep) { background: #faf8fe; }
+/* fila de escenarios: color solido */
+table.pnl tr.bg-scen th { padding: 9px 8px; font-size: 11px; letter-spacing: .1em; border-bottom: none; color: #fff; border-radius: 8px 8px 0 0; }
+table.pnl tr.bg-scen th.bg-b { background: #6d3fc0; color: #fff; }
+table.pnl tr.bg-scen th.bg-g { background: #3f72b4; color: #fff; }
+table.pnl tr.bg-scen th.bg-d { background: #2a7d55; color: #fff; }   /* un tono mas oscuro que B2B (#2e8b5e) para pasar AA con texto blanco */
+table.pnl tr.bg-scen th.lc { background: #fff; }
+/* fila de periodos: tono suave del escenario */
+table.pnl thead tr:nth-child(2) th { padding: 9px 14px; font-size: 11.5px; font-weight: 800; letter-spacing: 0; text-transform: none; border-bottom: 2px solid #ddd6ea; background: #fff; color: #1b1533; }
+table.pnl thead tr:nth-child(2) th.ph-b { background: #efe9fc; color: #4c1d95; }
+table.pnl thead tr:nth-child(2) th.ph-g { background: #e6eef8; color: #1e4f86; }
+table.pnl thead tr:nth-child(2) th.ph-d { background: #e3f3ea; color: #14663f; }
+table.pnl thead tr:nth-child(2) th.ph-b.tc { background: #ddd2f7; }
+table.pnl thead tr:nth-child(2) th.ph-g.tc { background: #cfe0f3; }
+table.pnl thead tr:nth-child(2) th.ph-d.tc { background: #c9e8d6; }
+table.pnl th.sep, table.pnl td.sep { width: 14px; min-width: 14px; background: #fff !important; border-bottom-color: #fff; }
+/* totales y encabezados de grupo: sutiles */
+table.pnl td.tc { background: #f8f6fd !important; }
+table.pnl tr.grp-hdr td { background: #faf8fe; color: #4c1d95; border-top: none; border-bottom: 1px solid #ece8f4; letter-spacing: .08em; }
+table.pnl tr.grp-hdr td.lc { background: #faf8fe; }
+table.pnl tr.subtotal td { background: #fbfaff; color: #1b1533; font-weight: 800; border-top: none; border-bottom: 1px solid #ece8f4; }
+table.pnl tr.subtotal td.lc { background: #fbfaff; }
+table.pnl tr.grand-total td { background: #1b1533; border-top: none; }
+table.pnl tr.grand-total td.lc { background: #1b1533; }
+table.pnl tr.grand-total td.tc { background: #2b2150 !important; }
+table.pnl tr.grand-total td.sep { background: #1b1533 !important; border-bottom-color: #1b1533; }
+
 /* ---- KPI row ---- */
 .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 16px; }
 .kc { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; border-top: 3px solid var(--accent); box-shadow: var(--shadow); transition: box-shadow .15s ease, transform .15s ease; }
@@ -250,7 +287,7 @@ table.bk tr:hover td { background: #f8fafc; }
 </head>
 <body>
 
-<div class="loading" id="loading">
+<div class="loading" id="loading" role="status" aria-live="polite">
   <div class="spinner"></div>
   <div class="lt" id="loading-text">Cargando datos...</div>
 </div>
@@ -258,7 +295,7 @@ table.bk tr:hover td { background: #f8fafc; }
 <div class="header">
   <div>
     <div class="header-title">Loyalty Dashboard — Despegar</div>
-    <div class="header-sub">P&amp;L Contable · Metricas de Negocio por Programa</div>
+    <div class="header-sub">P&amp;L Contable · Métricas de Negocio por Programa</div>
   </div>
   <div class="header-sync" id="last-sync">—</div>
 </div>
@@ -269,15 +306,15 @@ table.bk tr:hover td { background: #f8fafc; }
 <div class="filters">
   <div class="fg">
     <div class="fl">Desde</div>
-    <input type="month" id="f-from" value="2026-01">
+    <input type="month" id="f-from" value="2026-04">
   </div>
   <div class="fg">
     <div class="fl">Hasta</div>
-    <input type="month" id="f-to" value="2026-12">
+    <input type="month" id="f-to" value="2027-03">
   </div>
   <div class="fsep"></div>
   <div class="fg">
-    <div class="fl">Formato numeros</div>
+    <div class="fl">Formato números</div>
     <select id="f-fmt">
       <option value="M" selected>Millones (M)</option>
       <option value="K">Miles (K)</option>
@@ -288,9 +325,9 @@ table.bk tr:hover td { background: #f8fafc; }
   <div class="fg">
     <div class="fl">Escenario Goal</div>
     <select id="f-scenario">
-      <option value="forecast" selected>Forecast</option>
-      <option value="budget">Budget</option>
+      <option value="budget" selected>Budget</option>
       <option value="runrate">Run Rate</option>
+      <option value="forecast">Forecast</option>
     </select>
   </div>
   <div class="fg">
@@ -305,7 +342,7 @@ table.bk tr:hover td { background: #f8fafc; }
 </div>
 
 <div class="main" style="padding-bottom:0">
-  <div class="banner warning hidden" id="stale-banner">
+  <div class="banner warning hidden" id="stale-banner" role="status" aria-live="polite">
     <div class="bt" id="stale-banner-text"></div>
   </div>
 </div>
@@ -335,12 +372,12 @@ Chart.register({
 var COUNTRIES = [
   { key: 'total',     label: 'TOTAL',     dataKey: 'total'     },
   { key: 'brasil',    label: 'Brasil',    dataKey: 'brasil'    },
-  { key: 'mexico',    label: 'Mexico',    dataKey: 'mexico'    },
+  { key: 'mexico',    label: 'México',    dataKey: 'mexico'    },
   { key: 'argentina', label: 'Argentina', dataKey: 'argentina' },
   { key: 'colombia',  label: 'Colombia',  dataKey: 'colombia'  },
   { key: 'chile',     label: 'Chile',     dataKey: 'chile',
     banner: { type: 'warning', html: 'El programa <strong>Pasaporte D!</strong> aun no se encuentra activo en Chile.' } },
-  { key: 'peru',      label: 'Peru',      dataKey: 'peru'      },
+  { key: 'peru',      label: 'Perú',      dataKey: 'peru'      },
   { key: 'ecuador',   label: 'Ecuador',   dataKey: 'ecuador'   },
   { key: 'uruguay',   label: 'Uruguay',   dataKey: 'uruguay',
     banner: { type: 'wip', html: 'Seccion en desarrollo <strong>(WIP)</strong> — datos preliminares.' } }
@@ -717,10 +754,10 @@ function getRange() {
   return { from: document.getElementById('f-from').value, to: document.getElementById('f-to').value };
 }
 
-// Escenario "goal" para el P&L Contable comparativo: 'forecast' | 'budget'
+// Escenario "goal" para el P&L Contable comparativo: 'budget' (default) | 'runrate' | 'forecast'
 function getScenario() {
   var el = document.getElementById('f-scenario');
-  return el ? el.value : 'forecast';
+  return el ? el.value : 'budget';
 }
 function scenarioLabel(s) { return s === 'budget' ? 'Budget' : s === 'runrate' ? 'Run Rate' : 'Forecast'; }
 
@@ -733,10 +770,15 @@ function getPeriodMode() {
 var PNL_Q = { '04':'Q1','05':'Q1','06':'Q1','07':'Q2','08':'Q2','09':'Q2',
               '10':'Q3','11':'Q3','12':'Q3','01':'Q4','02':'Q4','03':'Q4' };
 var PNL_H = { Q1: 'H1', Q2: 'H1', Q3: 'H2', Q4: 'H2' };
-function pnlPeriodKey(ym, mode) {
+// withFy: si el rango cruza mas de un año fiscal, Q1/H1 de FY distintos no deben
+// sumarse en la misma columna -> la clave lleva el FY (ej. 'Q1 FY27' = abr-jun 2026).
+function pnlPeriodKey(ym, mode, withFy) {
   if (mode === 'month') return ym;
   var q = PNL_Q[ym.substring(5, 7)];
-  return mode === 'quarter' ? q : PNL_H[q];
+  var k = mode === 'quarter' ? q : PNL_H[q];
+  // FY se nombra por el año en que TERMINA (convención de Control de Gestión/B2B):
+  // abr-2026..mar-2027 = FY27.
+  return withFy ? k + ' FY' + String(fyStartYear(ym) + 1).slice(2) : k;
 }
 
 function inRange(ym, from, to) {
@@ -858,21 +900,25 @@ function renderPnl(containerId, country) {
   if (!el) return;
   var d = buildPnl(country);
   if (!d || !d.lines.length) {
-    el.innerHTML = '<div class="empty">Sin datos de P&L Loyalty para ' + country.label + ' en el periodo seleccionado.</div>';
+    el.innerHTML = '<div class="empty">Sin datos de P&L Loyalty para ' + country.label + ' en el período seleccionado.</div>';
     return;
   }
 
   var mode = getPeriodMode();          // 'month' | 'quarter' | 'half'
-  var GOAL = getScenario();            // 'budget' | 'forecast'
+  var GOAL = getScenario();            // 'budget' | 'runrate' | 'forecast'
   var goalMaps = d.scn[GOAL];
 
   // Periodos presentes (segun los meses del baseline), + columna Total
-  var present = {};
-  d.months.forEach(function(ym){ present[pnlPeriodKey(ym, mode)] = 1; });
-  var periods;
-  if (mode === 'month')        periods = d.months.slice();
-  else if (mode === 'quarter') periods = ['Q1','Q2','Q3','Q4'].filter(function(p){ return present[p]; });
-  else                         periods = ['H1','H2'].filter(function(p){ return present[p]; });
+  // d.months viene en orden calendario; como el rango es continuo, ese orden ya es
+  // el fiscal (Abr->Mar) dentro de cada FY y entre FYs consecutivos.
+  var fys = {};
+  d.months.forEach(function(ym){ fys[fyStartYear(ym)] = 1; });
+  var withFy = Object.keys(fys).length > 1;
+  var periods = [];
+  d.months.forEach(function(ym){
+    var pk = pnlPeriodKey(ym, mode, withFy);
+    if (periods.indexOf(pk) === -1) periods.push(pk);
+  });
   var cols = periods.concat(['TOT']);
   var n = cols.length;
   function pLabel(p) { return p === 'TOT' ? 'Total' : (mode === 'month' ? fmtMonthLbl(p) : p); }
@@ -881,7 +927,7 @@ function renderPnl(containerId, country) {
   function toPeriods(monthMap) {
     var o = {}; cols.forEach(function(c){ o[c] = 0; });
     Object.keys(monthMap || {}).forEach(function(ym){
-      var v = monthMap[ym] || 0, pk = pnlPeriodKey(ym, mode);
+      var v = monthMap[ym] || 0, pk = pnlPeriodKey(ym, mode, withFy);
       if (o[pk] !== undefined) o[pk] += v;
       o.TOT += v;
     });
@@ -920,9 +966,10 @@ function renderPnl(containerId, country) {
         + '<th class="bg-b" colspan="' + n + '">BASELINE</th><th class="sep"></th>'
         + '<th class="bg-g" colspan="' + n + '">GOAL · ' + scenarioLabel(GOAL) + '</th><th class="sep"></th>'
         + '<th class="bg-d" colspan="' + n + '">&Delta; BASELINE &minus; GOAL</th></tr>';
-  html += '<tr><th class="lc">Linea P&L</th>';
+  html += '<tr><th class="lc">Línea P&L</th>';
   for (var blk = 0; blk < 3; blk++) {
-    cols.forEach(function(c){ html += '<th' + (c === 'TOT' ? ' class="tc"' : '') + '>' + pLabel(c) + '</th>'; });
+    var phCls = ['ph-b', 'ph-g', 'ph-d'][blk];
+    cols.forEach(function(c){ html += '<th class="' + phCls + (c === 'TOT' ? ' tc' : '') + '">' + pLabel(c) + '</th>'; });
     if (blk < 2) html += '<th class="sep"></th>';
   }
   html += '</tr></thead><tbody>';
@@ -1495,7 +1542,7 @@ function renderMetrics(country, m) {
   html += '<div class="prog-title" ' + progTitleAttrs(bkId, suffix, bkOpen) + '>'
     + '<span>Breakage (vencimiento de puntos)</span><span class="prog-caret" aria-hidden="true">&#9662;</span></div>';
   html += '<div class="prog-body" id="' + bkId + '-body">';
-  html += '<div class="kpi-row">' + kpiHtml('Puntos Vencidos', fmtPts(m.bkTotal), 'total periodo seleccionado', 'var(--muted)') + '</div>';
+  html += '<div class="kpi-row">' + kpiHtml('Puntos Vencidos', fmtPts(m.bkTotal), 'total período seleccionado', 'var(--muted)') + '</div>';
   html += '<div class="cc"><div class="ct">Breakage — Puntos vencidos por mes</div><div class="cw"><canvas id="' + bkCanvasId + '"></canvas></div>'
     + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-' + bkCanvasId + '"></div></div>'
     + '</div>';
@@ -2066,7 +2113,7 @@ function renderPasivo() {
   var h = '<div class="stitle">Pasivo — stock de puntos (roll-forward)</div>'
     + '<div class="ppl-bar"><label class="fl">Pais</label> '
     + '<select id="pasivo-country" onchange="PASIVO_COUNTRY=this.value;renderPasivo();">' + opts + '</select></div>'
-    + '<div class="proj-note"><strong>Saldo</strong> = stock de puntos vivos en clientes = saldo mes previo + Acumulacion &minus; Redencion &minus; Breakage. '
+    + '<div class="proj-note"><strong>Saldo</strong> = stock de puntos vivos en clientes = saldo mes previo + Acumulación &minus; Redención &minus; Breakage. '
     + 'Anclado al saldo real del cierre <strong>' + fmtMonthLbl(res.seedCol + '-01') + '</strong> ("Control de Pasivo ML") y propagado hacia atras y adelante. '
     + 'Se excluyen siempre <strong>IFOOD</strong> y <strong>Acciones Marketing</strong>. '
     + '2025 va colapsado en una columna (movimientos del año). Solo puntos — sin valuacion.</div>';
@@ -2101,8 +2148,8 @@ function renderPasivo() {
   }
 
   h += '<div class="bk-card"><div class="tbl-scroll"><table class="pnl"><thead><tr>' + hdr() + '</tr></thead><tbody>'
-    + row('Acumulacion',        function(d){ return d.acum; })
-    + row('(&minus;) Redencion', function(d){ return d.reden ? -d.reden : 0; })
+    + row('Acumulación',        function(d){ return d.acum; })
+    + row('(&minus;) Redención', function(d){ return d.reden ? -d.reden : 0; })
     + row('(&minus;) Breakage',  function(d){ return d.brk ? -d.brk : 0; })
     + row('Flujo neto',          function(d){ return d.neto; }, { rowClass: 'subtotal', color: true, signed: true })
     + row('Saldo',               function(d){ return d.saldo; }, { rowClass: 'grand-total' })
@@ -2712,6 +2759,15 @@ function ratioPeriodOptionsHtml(suffix, country) {
 }
 
 // ============================================================
+// aria-pressed en los toggles .seg-btn: se re-renderizan por innerHTML, asi que
+// se sincroniza desde la clase 'active' al final de cada renderCountry (todos los
+// set*View/Mode pasan por ahi). Solo recorre el panel que se acaba de pintar.
+function syncSegPressed(root) {
+  (root || document).querySelectorAll('.seg-btn').forEach(function(b){
+    b.setAttribute('aria-pressed', b.classList.contains('active') ? 'true' : 'false');
+  });
+}
+
 // Build panels (once on load)
 // ============================================================
 function buildPanels() {
@@ -2723,8 +2779,10 @@ function buildPanels() {
     var btn = document.createElement('button');
     btn.className = 'ctab' + (idx === 0 ? ' active' : '');
     btn.dataset.key = c.key;
+    btn.setAttribute('role', 'tab');
     btn.textContent = c.label;
     btn.addEventListener('click', function(){ switchCountry(c.key); });
+    btn.setAttribute('aria-selected', idx === 0 ? 'true' : 'false');
     tabsEl.appendChild(btn);
 
     var div = document.createElement('div');
@@ -2737,7 +2795,7 @@ function buildPanels() {
     }
     inner += '<div class="stitle">P&amp;L Contable Loyalty</div>';
     inner += '<div class="pnl-wrap" id="pnl-' + c.key + '"></div>';
-    inner += '<div class="stitle">Metricas de Negocio</div>';
+    inner += '<div class="stitle">Métricas de Negocio</div>';
     inner += '<div id="metrics-' + c.key + '"></div>';
 
     div.innerHTML = inner;
@@ -2748,9 +2806,12 @@ function buildPanels() {
   var pbtn = document.createElement('button');
   pbtn.className = 'ctab';
   pbtn.dataset.key = 'pasivo';
+  pbtn.setAttribute('role', 'tab');
   pbtn.textContent = '🧮 Pasivo';
   pbtn.addEventListener('click', function(){ switchCountry('pasivo'); });
+  pbtn.setAttribute('aria-selected', 'false');
   tabsEl.appendChild(pbtn);
+  tabsEl.setAttribute('role', 'tablist');
 
   var pdiv = document.createElement('div');
   pdiv.id = 'panel-pasivo';
@@ -2772,7 +2833,7 @@ function buildPanels() {
 // ============================================================
 function switchCountry(key) {
   ACTIVE_COUNTRY = key;
-  document.querySelectorAll('.ctab').forEach(function(b){ b.classList.toggle('active', b.dataset.key === key); });
+  document.querySelectorAll('.ctab[role="tab"]').forEach(function(b){ var on = b.dataset.key === key; b.classList.toggle('active', on); b.setAttribute('aria-selected', on ? 'true' : 'false'); });
   COUNTRIES.forEach(function(c){
     var p = document.getElementById('panel-' + c.key);
     if (p) p.classList.toggle('hidden', c.key !== key);
@@ -2788,6 +2849,7 @@ function renderCountry(key) {
   if (!c) return;
   renderPnl('pnl-' + key, c);
   renderMetrics(c, buildMetrics(c));
+  syncSegPressed(document.getElementById('panel-' + key));
 }
 
 function renderActive() { renderCountry(ACTIVE_COUNTRY); }
@@ -2802,7 +2864,7 @@ function onLoaded(key, data) {
   if (LOADED >= TOTAL) {
     document.getElementById('loading').classList.add('hidden');
     var meta = (RAW.acum_cy || {}).meta || {};
-    document.getElementById('last-sync').textContent = 'Ultimo sync: ' + (meta.generated_at || '—');
+    document.getElementById('last-sync').textContent = 'Último sync: ' + (meta.generated_at || '—');
     checkStale();
     buildPanels();
     renderActive();
@@ -2826,7 +2888,8 @@ function checkStale() {
     if (g) { var t = Date.parse(String(g).replace(' ', 'T')); if (!isNaN(t)) tss.push(t); }
   });
   if (Object.keys(RAW).some(function(k){ return RAW[k] === null && !RAW_OPTIONAL[k]; })) {
-    txt.innerHTML = '<strong>Carga incompleta.</strong> Uno o más archivos de datos no cargaron ' +
+    var failed = Object.keys(RAW).filter(function(k){ return RAW[k] === null && !RAW_OPTIONAL[k]; });
+    txt.innerHTML = '<strong>Carga incompleta.</strong> No cargaron: ' + failed.join(', ') + ' ' +
       '(ver consola). Algunos números pueden faltar o quedar en cero.';
     el.classList.remove('hidden');
     return;
@@ -2865,6 +2928,13 @@ function onError(key, msg) {
     renderActive();
   }
 }
+
+// Rango por defecto = año fiscal en curso (Abr->Mar), igual que las metricas de negocio.
+(function(){
+  var now = new Date(), y = now.getFullYear(), fy = now.getMonth() >= 3 ? y : y - 1;
+  document.getElementById('f-from').value = fy + '-04';
+  document.getElementById('f-to').value = (fy + 1) + '-03';
+})();
 
 // Filter listeners
 document.getElementById('f-from').addEventListener('change', renderActive);

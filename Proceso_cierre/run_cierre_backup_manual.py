@@ -146,10 +146,10 @@ def main():
 
     print("\n[gate] Evaluando controles antes de tocar el archivo de cierre...")
     todo_ok = validaciones.resumen_final(resultados_chequeos)
+    # Los controles REVISAR NO frenan la corrida: son un control post-corrida (se
+    # re-listan al final, antes de mandar a Contabilidad). Decision 2026-10-02.
     if not todo_ok:
-        print("\nHay controles marcados REVISAR - no continuar sin revisar antes.")
-        print("(No se modifico el archivo de cierre ni el estado intermedio - nada quedo pegado.)")
-        sys.exit(1)
+        print("\nHay controles marcados REVISAR - la corrida sigue; se re-listan al final para revisar post-corrida.")
 
     print("\n[5] Pegando bajadas + filtros crudos + Diccionario en el archivo de cierre...")
     resultado_pegado_manual = escritura_cierre_manual.pegar_todo_manual(
@@ -177,6 +177,13 @@ def main():
     print("2. Abri el archivo de cierre en Excel, refresca con Ctrl+Alt+F9, y guardalo.")
     print("3. Corre: py escribir_asientos.py")
     print("=" * 60)
+
+    pendientes = [r for r in resultados_chequeos if not r["ok"]]
+    if pendientes:
+        print("\nCONTROLES A REVISAR (post-corrida, antes de mandar a Contabilidad):")
+        for r in pendientes:
+            detalle = {k: v for k, v in r.items() if k not in ("nombre", "ok")}
+            print(f"  [REVISAR] {r['nombre']}: {detalle}")
 
 
 if __name__ == "__main__":
