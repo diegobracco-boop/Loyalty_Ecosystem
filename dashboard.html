@@ -2454,10 +2454,13 @@ function buildBarChart(canvasId, prevValues, currValues, prevLabel, currLabel, c
     { label: String(currLabel), data: currValues, backgroundColor: color, borderRadius: 3, datalabels: dataLabelCfg }
   ];
   if (goal) {
-    // Proyección: mismo tono que la serie actual pero claro + borde, sin datalabel
-    // (3 barras con número por mes no se leen).
+    // Proyección: mismo tono que la serie actual pero claro + borde. Con 3 barras
+    // por mes, las etiquetas de las tres van en 10px (si no, se pisan).
+    var smallLbl = function(c){ return Object.assign({}, dataLabelCfg, { font: { size: 10, weight: '700' }, color: c || dataLabelCfg.color }); };
+    datasets[0].datalabels = smallLbl();
+    datasets[1].datalabels = smallLbl();
     datasets.splice(1, 0, { label: String(goal.label), data: goal.data, backgroundColor: lightenColor(color),
-      borderColor: color, borderWidth: 1.5, borderRadius: 3, datalabels: { display: false } });
+      borderColor: color, borderWidth: 1.5, borderRadius: 3, datalabels: smallLbl(color.replace(/[\d.]+\)$/, '1)')) });
   }
   var scales = {
     x: { grid: { display: false }, ticks: { font: { size: 12 } } },
