@@ -643,7 +643,7 @@ var RAW = { acum_cy: null, acum_ly: null, reden_cy: null, reden_ly: null, breaka
             baseline: null, budget: null, forecast: null, dict: null, ssp: null, ratio_acum: null,
             ratio_acum_tier: null, acum_tier: null };
 var LOADED = 0;
-var TOTAL  = 20;
+var TOTAL  = 21;  // = cantidad de claves que devuelve getAllRaw() en Código.js
 var ACTIVE_COUNTRY = 'total';
 var CHARTS = {};
 
@@ -1061,6 +1061,275 @@ function renderPnl(containerId, country) {
            + 'viene cargado en los meses proyectados.' : '')
         + '<br><strong>Drivers B2C</strong> (GB, Orders, Up Front + Fees = Up Front Incentives + Fees '
         + '+ Commercial Discounts): total B2C del país, contexto del negocio — no suman al Total Loyalty.'
+        + '</div>';
+  el.innerHTML = html;
+}
+
+// ============================================================
+// Real vs Proyección (puntos) — loyalty_proyecciones.json (proyecciones.py, desde
+// Input_budget.xlsx / Input_runrate.xlsx de Control de Gestión) contra los reales
+// de los JSON que ya carga el dashboard. Mismo layout que el P&L: Real | Goal | Δ,
+// mismo selector Mes/Q/Half y mismo selector de Goal (Forecast no tiene proyección).
+// ============================================================
+
+// Partner del Excel -> partners del datalake, por país. '*' = "resto del país":
+// todo partner Cobrand/Partners del país que no esté listado explícitamente.
+var PROY_PARTNERS = {
+  argentina: { 'ICBC': ['ICBCAR'], 'FOCO': ['FOCOAR'], 'Bonda': ['BONDAAR'] },
+  brasil:    { 'C6': ['C6BANKBR'], 'BRB': ['BRBBR'], 'New partner': '*' },
+  mexico:    { 'INVEX': ['INVEXMX'], 'BBVA': ['BBVAMX'], 'Otros': '*' }
+};
+// Tipo_punto del Excel -> filtro sobre filas de redención. 'Pasaporte D!' =
+// general + COBRAND + PARTNERS (el mismo criterio que getProgramsFromReden; sin
+// Club Despegar) — validado contra el budget de AR abr-sep (diferencias < 10%).
+var PROY_REDEN = {
+  'Pasaporte D!': function(r){ return getProgramsFromReden(r).indexOf('Pasaporte D!') !== -1; },
+  'IFOOD':        function(r){ return getProgramFromReden(r) === 'IFOOD'; },
+  'Puntos R&B':   function(r){ return r.point_type === 'Puntos R&B'; },
+  'PONTOSBR':     function(r){ return r.point_type === 'PONTOSBR'; },
+  'FORTUNE':      function(r){ return r.point_type === 'FORTUNE'; }
+};
+var PROY_SSP = [
+  { clave: 'SSP_Red', label: 'SSP (redención)',   real: 'ssp_calculado' },
+  { clave: 'SSP',     label: 'SSP (facturación)', real: 'ssp_facturacion' }
+];
+
+// Último mes CERRADO de reales (el mes en curso está incompleto y daría un Δ falso).
+function proyLastClosedYm() {
+  var ld = ((RAW.acum_cy || {}).meta || {}).last_date;
+  if (!ld) return '';
+  var d = new Date(ld + 'T00:00:00');
+  var next = new Date(d.getTime() + 864e5);
+  if (next.getMonth() !== d.getMonth()) return ld.substring(0, 7);   // last_date = fin de mes
+  var p = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+  return p.getFullYear() + '-' + ('0' + (p.getMonth() + 1)).slice(-2);
+}
+
+function buildProy(country, goal) {
+  var r = getRange(), tot = isTotal(country);
+  var keys = tot ? COUNTRY_DATAKEYS : [country.dataKey];
+  function add(m, ym, v) { m[ym] = (m[ym] || 0) + v; }
+  function inR(ym) { return ym && inRange(ym, r.from, r.to); }
+  function lbl(k, dk) { return tot ? k + ' · ' + (COUNTRY_ISO[dk] || dk).toUpperCase() : k; }
+
+  // Proyección: proj[bloque][dk][clave] = {ym: v}
+  var proj = {};
+  expand(RAW.proy).forEach(function(p) {
+    if (p.escenario !== goal || keys.indexOf(p.pais) === -1 || !inR(p.ym)) return;
+    var b = proj[p.bloque] = proj[p.bloque] || {};
+    var c = b[p.pais] = b[p.pais] || {};
+    c[p.clave] = c[p.clave] || {};
+    add(c[p.clave], p.ym, +p.valor || 0);
+  });
+  function pj(bloque, dk, clave) { return ((proj[bloque] || {})[dk] || {})[clave] || {}; }
+
+  // Reales: CY + LY juntos (el FY abr->mar cruza el año calendario de los archivos).
+  var acum = expand(RAW.acum_cy).concat(expand(RAW.acum_ly));
+  var reden = expand(RAW.reden_cy).concat(expand(RAW.reden_ly));
+  var out = { acum: [], reden: [], breakage: [], ssp: [], ratio: [] };
+
+  keys.forEach(function(dk) {
+    var iso = (COUNTRY_ISO[dk] || '').toUpperCase();
+    // --- Acumulación Cobrand / Partners
+    var pmap = PROY_PARTNERS[dk] || {}, listed = [];
+    Object.keys(pmap).forEach(function(k){ if (pmap[k] !== '*') listed = listed.concat(pmap[k]); });
+    Object.keys(pmap).forEach(function(k) {
+      var real = {};
+      acum.forEach(function(a) {
+        var ym = (a.processing_date || '').substring(0, 7);
+        if (a.country_code !== iso || !inR(ym)) return;
+        var prog = getProgramFromAcum(a);
+        if (prog !== 'Cobrand' && prog !== 'Partners') return;
+        var hit = pmap[k] === '*' ? listed.indexOf(a.partner) === -1 : pmap[k].indexOf(a.partner) !== -1;
+        if (hit) add(real, ym, +a.points || 0);
+      });
+      out.acum.push({ label: lbl(k, dk), real: real, goal: pj('acum_partner', dk, k) });
+    });
+    // --- Redenciones por tipo
+    Object.keys(PROY_REDEN).forEach(function(k) {
+      var real = {};
+      reden.forEach(function(x) {
+        var ym = (x.processing_date || '').substring(0, 7);
+        if (x.country_code !== iso || !inR(ym) || !PROY_REDEN[k](x)) return;
+        add(real, ym, Math.abs(+x.points || 0));
+      });
+      out.reden.push({ label: k, real: real, goal: pj('reden', dk, k) });
+    });
+    // --- Breakage (vencimientos por mes de vencimiento 'MM-YYYY')
+    var bk = {};
+    (Array.isArray((RAW.breakage || {}).data) ? RAW.breakage.data : expand(RAW.breakage)).forEach(function(b) {
+      if ((b.country || '').toLowerCase() !== iso.toLowerCase()) return;
+      var e = b.expiration_date || '', ym = e.substring(3) + '-' + e.substring(0, 2);
+      if (inR(ym)) add(bk, ym, Math.abs(+b.points || 0));
+    });
+    out.breakage.push({ label: 'Puntos vencidos', real: bk, goal: pj('breakage', dk, '') });
+
+    if (tot) return;   // precios y ratios no se suman entre países
+    // --- SSP
+    var ssp = ((RAW.ssp || {}).data || {})[dk] || {};
+    PROY_SSP.forEach(function(s) {
+      var real = {};
+      Object.keys(ssp).forEach(function(ym){ if (inR(ym) && ssp[ym][s.real] != null) real[ym] = Math.abs(+ssp[ym][s.real]); });
+      out.ssp.push({ label: s.label, real: real, goal: pj('ssp', dk, s.clave), avg: true });
+    });
+    // --- Ratio de acumulación por producto (real = puntos/GB; se agrega como suma/suma)
+    var prods = Object.keys((proj.ratio || {})[dk] || {});
+    prods.forEach(function(k) {
+      var pts = {}, gb = {};
+      expand(RAW.ratio_acum).forEach(function(x) {
+        var ym = (x.processing_date || '').substring(0, 7);
+        if (x.country_code !== iso || x.grupo_pnl !== k || !inR(ym)) return;
+        add(pts, ym, +x.points || 0); add(gb, ym, +x.gb || 0);
+      });
+      out.ratio.push({ label: k, pts: pts, gb: gb, goal: pj('ratio', dk, k), ratio: true });
+    });
+  });
+  // Redenciones y breakage: una fila por tipo (en TOTAL, suma de los países).
+  // Los partners NO se fusionan: cada uno es de un país (el label lleva el ISO).
+  ['reden', 'breakage'].forEach(function(b) {
+    var byLbl = {}, order = [];
+    out[b].forEach(function(it) {
+      if (!byLbl[it.label]) { byLbl[it.label] = { label: it.label, real: {}, goal: {} }; order.push(it.label); }
+      byLbl[it.label].real = mergeMonthly([byLbl[it.label].real, it.real]);
+      byLbl[it.label].goal = mergeMonthly([byLbl[it.label].goal, it.goal]);
+    });
+    out[b] = order.map(function(l){ return byLbl[l]; });
+  });
+  return out;
+}
+
+function renderProy(containerId, country) {
+  var el = document.getElementById(containerId);
+  if (!el) return;
+  var GOAL = getScenario();
+  if (!RAW.proy) { el.innerHTML = '<div class="empty">loyalty_proyecciones.json no disponible.</div>'; return; }
+  var hasGoal = expand(RAW.proy).some(function(p){ return p.escenario === GOAL; });
+  if (!hasGoal) {
+    el.innerHTML = '<div class="empty">No hay proyección de puntos cargada para ' + scenarioLabel(GOAL)
+      + (GOAL === 'runrate' ? ' (falta Input_runrate.xlsx en OneDrive).' : '.') + '</div>';
+    return;
+  }
+  var d = buildProy(country, GOAL);
+  var lastClosed = proyLastClosedYm();
+  var r = getRange(), mode = getPeriodMode();
+
+  // Meses del rango (eje fijo, aunque no haya real todavía)
+  var months = [];
+  if (r.from && r.to) {
+    var y = +r.from.substring(0, 4), m = +r.from.substring(5, 7);
+    while (true) {
+      var ym = y + '-' + ('0' + m).slice(-2);
+      if (ym > r.to || months.length > 60) break;
+      months.push(ym); m++; if (m > 12) { m = 1; y++; }
+    }
+  }
+  var fys = {}; months.forEach(function(ym){ fys[fyStartYear(ym)] = 1; });
+  var withFy = Object.keys(fys).length > 1;
+  var periods = [];
+  months.forEach(function(ym){ var pk = pnlPeriodKey(ym, mode, withFy); if (periods.indexOf(pk) === -1) periods.push(pk); });
+  var cols = periods.concat(['TOT']), n = cols.length;
+  // Un periodo tiene real "completo" solo si todos sus meses están cerrados.
+  var closedP = {};
+  periods.forEach(function(p) {
+    closedP[p] = months.filter(function(ym){ return pnlPeriodKey(ym, mode, withFy) === p; })
+                       .every(function(ym){ return ym <= lastClosed; });
+  });
+  closedP.TOT = true;
+  var ytdLbl = 'YTD' + (lastClosed ? ' a ' + fmtMonthLbl(lastClosed) : '');
+  function pLabel(p) { return p === 'TOT' ? ytdLbl : (mode === 'month' ? fmtMonthLbl(p) : p); }
+
+  // {ym:v} -> {periodo:v}. TOT = solo meses cerrados (Real y Goal comparables).
+  // avg: promedio simple de los meses con dato (precios).
+  function toP(mm, avg) {
+    var s = {}, c = {};
+    Object.keys(mm || {}).forEach(function(ym) {
+      if (months.indexOf(ym) === -1) return;
+      var v = mm[ym], ks = [pnlPeriodKey(ym, mode, withFy)];
+      if (ym <= lastClosed) ks.push('TOT');
+      ks.forEach(function(k){ s[k] = (s[k] || 0) + v; c[k] = (c[k] || 0) + 1; });
+    });
+    if (avg) Object.keys(s).forEach(function(k){ s[k] = s[k] / c[k]; });
+    return s;
+  }
+  function ratioP(pts, gb) {
+    var p = toP(pts), g = toP(gb), o = {};
+    Object.keys(p).forEach(function(k){ if (g[k]) o[k] = p[k] / g[k]; });
+    return o;
+  }
+  var fPts = function(v, signed){ return fmtCount(v, signed); };
+  var fSsp = function(v, signed){ return (v < 0 ? '-' : (signed && v > 0 ? '+' : '')) + '$' + Math.abs(v).toFixed(4); };
+  var fRat = function(v, signed){ return (v < 0 ? '-' : (signed && v > 0 ? '+' : '')) + Math.abs(v).toFixed(3); };
+
+  function cells(pm, fmt, signed, onlyClosed) {
+    var s = '';
+    cols.forEach(function(c) {
+      var v = pm[c];
+      var show = v !== undefined && v !== 0 && (!onlyClosed || closedP[c]);
+      s += '<td class="' + (c === 'TOT' ? 'tc ' : '') + (show ? 'vf' : 'vz') + '">' + (show ? fmt(v, signed) : '—') + '</td>';
+    });
+    return s;
+  }
+  function row(label, realP, goalP, fmt, cls) {
+    var dP = {};
+    cols.forEach(function(c){ if (realP[c] !== undefined && goalP[c] !== undefined) dP[c] = realP[c] - goalP[c]; });
+    return '<tr' + (cls ? ' class="' + cls + '"' : '') + '><td class="lc">' + label + '</td>'
+      + cells(realP, fmt, false, true) + '<td class="sep"></td>' + cells(goalP, fmt, false, false)
+      + '<td class="sep"></td>' + cells(dP, fmt, true, true) + '</tr>';
+  }
+  function emptyRow() {
+    var s = '';
+    for (var b = 0; b < 3; b++) { for (var i = 0; i < n; i++) s += '<td></td>'; if (b < 2) s += '<td class="sep"></td>'; }
+    return s;
+  }
+  function nonEmpty(it) {
+    var any = function(m){ return Object.keys(m || {}).some(function(k){ return m[k]; }); };
+    return any(it.goal) || any(it.real) || any(it.pts);
+  }
+
+  var html = '<div class="tbl-scroll"><table class="pnl"><thead>';
+  html += '<tr class="bg-scen"><th class="lc"></th>'
+        + '<th class="bg-b" colspan="' + n + '">REAL</th><th class="sep"></th>'
+        + '<th class="bg-g" colspan="' + n + '">GOAL · ' + scenarioLabel(GOAL) + '</th><th class="sep"></th>'
+        + '<th class="bg-d" colspan="' + n + '">&Delta; REAL &minus; GOAL</th></tr>';
+  html += '<tr><th class="lc">Métrica</th>';
+  for (var blk = 0; blk < 3; blk++) {
+    var phCls = ['ph-b', 'ph-g', 'ph-d'][blk];
+    cols.forEach(function(c){ html += '<th class="' + phCls + (c === 'TOT' ? ' tc' : '') + '">' + pLabel(c) + '</th>'; });
+    if (blk < 2) html += '<th class="sep"></th>';
+  }
+  html += '</tr></thead><tbody>';
+
+  function sumBlock(title, items) {
+    items = items.filter(nonEmpty);
+    if (!items.length) return;
+    html += '<tr class="grp-hdr"><td class="lc">' + title + '</td>' + emptyRow() + '</tr>';
+    items.forEach(function(it){ html += row(it.label, toP(it.real), toP(it.goal), fPts); });
+    if (items.length > 1) {
+      html += row('Subtotal ' + title, toP(mergeMonthly(items.map(function(i){ return i.real; }))),
+                  toP(mergeMonthly(items.map(function(i){ return i.goal; }))), fPts, 'subtotal');
+    }
+  }
+  sumBlock('Acumulación Cobrand / Partners (pts)', d.acum);
+  sumBlock('Redenciones (pts)', d.reden);
+  sumBlock('Breakage (pts)', d.breakage);
+  var ssp = d.ssp.filter(nonEmpty);
+  if (ssp.length) {
+    html += '<tr class="grp-hdr"><td class="lc">Precio del punto (USD)</td>' + emptyRow() + '</tr>';
+    ssp.forEach(function(it){ html += row(it.label, toP(it.real, true), toP(it.goal, true), fSsp); });
+  }
+  var rat = d.ratio.filter(nonEmpty);
+  if (rat.length) {
+    html += '<tr class="grp-hdr"><td class="lc">Ratio de acumulación Pasaporte D! (pts / USD GB)</td>' + emptyRow() + '</tr>';
+    rat.forEach(function(it){ html += row(it.label, ratioP(it.pts, it.gb), toP(it.goal, true), fRat); });
+  }
+  html += '</tbody></table></div>';
+  var pm = (RAW.proy.meta || {});
+  html += '<div class="proj-note">Real hasta el último mes cerrado (' + (lastClosed ? fmtMonthLbl(lastClosed) : '—')
+        + '); el mes en curso no se compara. <strong>' + ytdLbl + '</strong> suma solo los meses cerrados, en Real y en Goal. '
+        + 'Precio y ratio: promedio de los meses (el ratio real es puntos/GB del período).'
+        + (isTotal(country) ? ' En TOTAL no se muestran precio ni ratio (no se suman entre países).' : '')
+        + '<br>Fuente Goal: Input_' + (GOAL === 'runrate' ? 'runrate' : 'budget') + '.xlsx (Control de Gestión), '
+        + 'subido ' + (pm.generated_at || '—') + '. Redenciones "Pasaporte D!" = general + Cobrand + Partners (sin Club Despegar).'
         + '</div>';
   el.innerHTML = html;
 }
@@ -2849,6 +3118,8 @@ function buildPanels() {
     }
     inner += '<div class="stitle">P&amp;L Contable Loyalty</div>';
     inner += '<div class="pnl-wrap" id="pnl-' + c.key + '"></div>';
+    inner += '<div class="stitle">Real vs Proyección · Puntos</div>';
+    inner += '<div class="pnl-wrap" id="proy-' + c.key + '"></div>';
     inner += '<div class="stitle">Métricas de Negocio</div>';
     inner += '<div id="metrics-' + c.key + '"></div>';
 
@@ -2902,6 +3173,7 @@ function renderCountry(key) {
   var c = COUNTRIES.filter(function(x){ return x.key === key; })[0];
   if (!c) return;
   renderPnl('pnl-' + key, c);
+  renderProy('proy-' + key, c);
   renderMetrics(c, buildMetrics(c));
   syncSegPressed(document.getElementById('panel-' + key));
 }
@@ -2932,7 +3204,7 @@ function onLoaded(key, data) {
 // "carga incompleta" — hoy solo ratio_acum (loyalty_ratio_acumulacion.json aun
 // no se subio a Drive con una sync real; el resto del codigo ya degrada a "Sin
 // datos" sin romper nada, ver ratioRows/buildRatioBarChart).
-var RAW_OPTIONAL = { ratio_acum: 1, ratio_acum_tier: 1, acum_tier: 1, penet: 1, acum_channel: 1, stock_ifood: 1, runrate: 1 };
+var RAW_OPTIONAL = { ratio_acum: 1, ratio_acum_tier: 1, acum_tier: 1, penet: 1, acum_channel: 1, stock_ifood: 1, runrate: 1, proy: 1 };
 function checkStale() {
   var el = document.getElementById('stale-banner');
   var txt = document.getElementById('stale-banner-text');
