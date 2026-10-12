@@ -179,8 +179,9 @@ a.ext-link:hover { text-decoration: underline; }
     <div class="card">
       <div class="card-title">🎯 Qué preguntas responde</div>
       <table class="doc-table"><tbody>
-        <tr><td>¿Cómo viene el P&amp;L de Loyalty vs Budget / Forecast?</td><td>Por país, mes / trimestre / semestre. → pestaña de país, sección <strong>P&amp;L Contable</strong></td></tr>
-        <tr><td>¿Cuántos puntos se acumulan y se redimen por mes?</td><td>Por programa (Pasaporte D!, iFood, Cobrand, Partners, etc.), CY vs LY. → <strong>Métricas de negocio</strong></td></tr>
+        <tr><td>¿Cómo viene el P&amp;L de Loyalty vs Budget / Run Rate / Forecast?</td><td>Por país, mes / trimestre / semestre, solo marca Despegar, con los Drivers B2C (Orders, GB, Up Front + Fees) y el % sobre GB de cada línea. → pestaña de país, sección <strong>P&amp;L Contable</strong></td></tr>
+        <tr><td>¿Cuántos puntos se acumulan y se redimen por mes?</td><td>Por programa (Pasaporte D!, iFood, Cobrand, Partners, etc.), año fiscal FY27 vs FY26. → <strong>Métricas de negocio</strong></td></tr>
+        <tr><td>¿Cómo vienen los puntos contra el Budget?</td><td>Tercera barra "Budget FY27" en los gráficos de Métricas (acumulación, redención, breakage, ratio), en puntos y en $, + KPIs "vs Budget" YTD a mes cerrado. Fuente: <code>Input_budget.xlsx</code> de Control de Gestión.</td></tr>
         <tr><td>¿Cuánto breakage hay (puntos que expiran sin usarse)?</td><td>Por país y tier. → <strong>Métricas → Breakage</strong></td></tr>
         <tr><td>¿Cuánto vale un punto (SSP) por país y mes?</td><td>SSP Facturación = SSP Calculado × (1 − breakage esperado). → alimenta la valuación USD de la acumulación</td></tr>
         <tr><td>¿Cuántos miembros activos hay, por tier?</td><td>Padrón actual (foto de hoy). → <strong>Miembros del programa</strong></td></tr>
@@ -193,7 +194,7 @@ a.ext-link:hover { text-decoration: underline; }
       <table class="doc-table"><tbody>
         <tr><td><strong>Para dirección</strong></td><td>Panorama + "Cómo se conecta todo". Qué es, qué resuelve, sin comandos.</td></tr>
         <tr><td><strong>Guía del equipo</strong></td><td>Onboarding: empezá por acá, glosario, qué vista uso, recetas por tarea, quién hace qué.</td></tr>
-        <tr><td><strong>Referencia operativa</strong></td><td>El detalle: el pipeline `loyalty_sync.py`, los 11 JSON, el P&amp;L que viene de otro repo, deploy, archivos.</td></tr>
+        <tr><td><strong>Referencia operativa</strong></td><td>El detalle: el pipeline <code>loyalty_sync.py</code>, los JSON, el P&amp;L (vista Despegar sobre las planas de B2B), las proyecciones de puntos, deploy, archivos.</td></tr>
       </tbody></table>
     </div>
 
@@ -201,7 +202,7 @@ a.ext-link:hover { text-decoration: underline; }
       <div class="proj-card" onclick="showSection('pipeline')">
         <div class="proj-card-icon">🐍</div>
         <div class="proj-card-name">loyalty_sync.py</div>
-        <div class="proj-card-desc">El pipeline. ~10 queries al Datalake + la planilla de config, agrega por mes+país+programa, sube 11 JSON a Drive. Corre agendado.</div>
+        <div class="proj-card-desc">El pipeline. ~10 queries al Datalake + la planilla de config + el Budget de puntos (<code>Input_budget.xlsx</code>), agrega por mes+país+programa, sube ~17 JSON a Drive. Corre agendado.</div>
         <div style="margin-top:12px"><span class="badge badge-manual">🐍 Python</span></div>
       </div>
       <div class="proj-card" onclick="showSection('datos')">
@@ -212,8 +213,8 @@ a.ext-link:hover { text-decoration: underline; }
       </div>
       <div class="proj-card" onclick="showSection('datos')">
         <div class="proj-card-icon">📋</div>
-        <div class="proj-card-name">P&amp;L Contable (fuente externa)</div>
-        <div class="proj-card-desc">Los JSON canónicos del P&amp;L NO los genera Loyalty — vienen de <code>Inputs_Planning_PnL</code> (repo B2B_Ecosystem). La landing filtra las líneas "loyalty".</div>
+        <div class="proj-card-name">P&amp;L Contable (inputs contables)</div>
+        <div class="proj-card-desc">La homologación contable la hace <code>Inputs_Planning_PnL</code> (repo B2B_Ecosystem). <code>inputs_contables_loyalty.py</code> lee sus planas (que traen la marca) y arma la vista de Loyalty: <strong>solo Despegar</strong>, líneas loyalty + Drivers B2C. No se toca el repo de B2B.</div>
         <div style="margin-top:12px"><span class="badge badge-auto">↗ Cross-repo</span></div>
       </div>
       <div class="proj-card" onclick="showSection('cierre')">
@@ -236,7 +237,7 @@ a.ext-link:hover { text-decoration: underline; }
     <div class="card">
       <div class="card-title">📊 Mapa</div>
       <figure class="arch-fig">
-        <svg viewBox="0 0 1120 560" role="img" aria-label="Diagrama: el Datalake (ODBC) y la planilla de configuración pasan por loyalty_sync.py, que agrega y publica ~11 JSON en Google Drive; el P&amp;L Contable entra aparte, desde los JSON canónicos que genera Inputs_Planning_PnL en el repo B2B_Ecosystem; el dashboard GAS lee todo de Drive y muestra P&amp;L, métricas de negocio, miembros y los programas Club Despegar e iFood.">
+        <svg viewBox="0 0 1120 560" role="img" aria-label="Diagrama: el Datalake (ODBC) y la planilla de configuración pasan por loyalty_sync.py, que agrega y publica ~17 JSON en Google Drive (incluido el Budget de puntos de Input_budget.xlsx); el P&amp;L Contable entra aparte: inputs_contables_loyalty.py lee las planas que genera Inputs_Planning_PnL en el repo B2B_Ecosystem y publica la vista solo Despegar; el dashboard GAS lee todo de Drive y muestra P&amp;L, métricas de negocio, miembros y los programas Club Despegar e iFood.">
           <text class="svg-band" x="20"  y="34">De dónde salen los datos</text>
           <text class="svg-band" x="506" y="34" text-anchor="middle">El motor y los datos en Drive</text>
           <text class="svg-band" x="770" y="34">El dashboard</text>
@@ -253,13 +254,13 @@ a.ext-link:hover { text-decoration: underline; }
 
           <rect class="svg-box" x="20" y="238" width="230" height="80" rx="7"></rect>
           <text class="svg-title" x="36" y="266">Planilla "Config"</text>
-          <text class="svg-sub"   x="36" y="286">Breakage esperado + mapeo de</text>
-          <text class="svg-sub"   x="36" y="303">programas. La edita el analista.</text>
+          <text class="svg-sub"   x="36" y="286">Breakage esperado + mapeo. Y el</text>
+          <text class="svg-sub"   x="36" y="303">Budget de puntos (Input_budget.xlsx).</text>
 
           <rect class="svg-box" x="20" y="398" width="230" height="80" rx="7"></rect>
-          <text class="svg-title" x="36" y="426">P&amp;L canónico</text>
-          <text class="svg-sub"   x="36" y="446">De <tspan font-style="italic">Inputs_Planning_PnL</tspan> (repo B2B).</text>
-          <text class="svg-sub"   x="36" y="463">Baseline / Budget / Forecast.</text>
+          <text class="svg-title" x="36" y="426">P&amp;L (planas de B2B)</text>
+          <text class="svg-sub"   x="36" y="446">inputs_contables_loyalty.py:</text>
+          <text class="svg-sub"   x="36" y="463">solo Despegar, loyalty + drivers.</text>
 
           <path class="flowline" d="M250,118 H358" marker-end="url(#ah)"></path>
           <path class="flowline" d="M250,278 H358" marker-end="url(#ah)"></path>
@@ -269,7 +270,7 @@ a.ext-link:hover { text-decoration: underline; }
           <text class="svg-title-key" x="506" y="112" text-anchor="middle">loyalty_sync.py</text>
           <text class="svg-sub-key"   x="506" y="134" text-anchor="middle">Agrega por mes + país + programa</text>
           <line x1="388" y1="158" x2="624" y2="158" stroke="var(--accent)" stroke-width="1" stroke-dasharray="3 3" opacity="0.45"></line>
-          <text class="svg-title-key" x="506" y="190" text-anchor="middle">~11 JSON en Google Drive</text>
+          <text class="svg-title-key" x="506" y="190" text-anchor="middle">~17 JSON en Google Drive</text>
           <text class="svg-sub-key"   x="506" y="212" text-anchor="middle">Acum / reden / breakage / SSP /</text>
           <text class="svg-sub-key"   x="506" y="229" text-anchor="middle">miembros / club / ifood / dict</text>
           <text class="svg-sub-key"   x="506" y="255" text-anchor="middle">Agregado por mes: el límite de</text>
@@ -288,19 +289,19 @@ a.ext-link:hover { text-decoration: underline; }
           <rect class="svg-box" x="760" y="82"  width="340" height="76" rx="7"></rect>
           <text class="svg-title" x="778" y="108">P&amp;L Contable</text>
           <text class="svg-q"     x="778" y="128">Baseline vs Goal vs Δ, por país.</text>
-          <text class="svg-q"     x="778" y="145">Filtra las líneas "loyalty" del canónico.</text>
+          <text class="svg-q"     x="778" y="145">+ Drivers B2C y % sobre GB.</text>
 
           <rect class="svg-box" x="760" y="222" width="340" height="76" rx="7"></rect>
           <text class="svg-title" x="778" y="248">Métricas de negocio</text>
           <text class="svg-q"     x="778" y="268">Acumulación / redención / breakage</text>
-          <text class="svg-q"     x="778" y="285">por programa, CY vs LY.</text>
+          <text class="svg-q"     x="778" y="285">por programa, FY27 vs FY26 vs Budget.</text>
 
           <rect class="svg-box" x="760" y="362" width="340" height="76" rx="7"></rect>
           <text class="svg-title" x="778" y="388">Miembros · Club Despegar · iFood</text>
           <text class="svg-q"     x="778" y="408">Padrón por tier, suscripciones AR,</text>
           <text class="svg-q"     x="778" y="425">enrollment BR.</text>
         </svg>
-        <figcaption class="arch-cap"><b>Lo que muestra:</b> un solo pipeline (<code>loyalty_sync.py</code>) alimenta todo lo de negocio; el <b>P&amp;L Contable entra aparte</b>, desde los JSON canónicos que genera <code>Inputs_Planning_PnL</code> en el repo <b>B2B_Ecosystem</b> — Loyalty solo los lee y filtra las líneas "loyalty". Todo pasa por Google Drive; el dashboard lee de ahí. Pestaña <b>TOTAL</b> = suma de los 8 países; pestañas de país = el detalle.</figcaption>
+        <figcaption class="arch-cap"><b>Lo que muestra:</b> un solo pipeline (<code>loyalty_sync.py</code>) alimenta todo lo de negocio (incluido el Budget de puntos de <code>Input_budget.xlsx</code>); el <b>P&amp;L Contable entra aparte</b>: <code>inputs_contables_loyalty.py</code> lee las planas que genera <code>Inputs_Planning_PnL</code> en el repo <b>B2B_Ecosystem</b> (sin tocarlo) y sube la vista de Loyalty solo Despegar. Todo pasa por Google Drive; el dashboard lee de ahí. Pestaña <b>TOTAL</b> = suma de los 8 países; pestañas de país = el detalle.</figcaption>
       </figure>
     </div>
   </div>
@@ -336,10 +337,12 @@ a.ext-link:hover { text-decoration: underline; }
     <div class="card">
       <div class="card-title">💰 P&amp;L y escenarios</div>
       <table class="doc-table"><tbody>
-        <tr><td><strong>P&amp;L Contable</strong></td><td>El P&amp;L de Loyalty con líneas de accounting. Fuente: los JSON canónicos de <code>Inputs_Planning_PnL</code> (repo B2B); la landing filtra <code>P&amp;L N1</code> que contiene "loyalty".</td></tr>
+        <tr><td><strong>P&amp;L Contable</strong></td><td>El P&amp;L de Loyalty con líneas de accounting, <strong>solo marca Despegar</strong>. Fuente: las planas de <code>Inputs_Planning_PnL</code> (repo B2B), recortadas por <code>inputs_contables_loyalty.py</code> a las líneas <code>loyalty - *</code> + los Drivers B2C. Los JSON canónicos de B2B suman todas las marcas (Despegar + Best Day + Viajanet + Viajes Falabella) — en el TOTAL LOYALTY no cambia nada (las otras marcas no tienen líneas loyalty), pero sí en los Drivers: Best Day es ~44% del GB B2C de México.</td></tr>
+        <tr><td><strong>Drivers B2C</strong></td><td>Bloque arriba del P&amp;L: <strong>Orders</strong>, <strong>Gross Bookings</strong> (domestic + international) y <strong>Up Front + Fees</strong> (= Up Front Incentives + Fees + Commercial Discounts), del B2C Despegar del país. Son contexto: <strong>no suman al TOTAL LOYALTY</strong>.</td></tr>
+        <tr><td><strong>% GB</strong></td><td>Debajo de cada monto del P&amp;L: monto / Gross Bookings B2C del mismo escenario y período. En el bloque Δ, la diferencia en puntos porcentuales (pp).</td></tr>
         <tr><td><strong>Baseline</strong></td><td>La foto realista: actuals de meses cerrados + run-rate + forecast para los abiertos. Es contra lo que se compara.</td></tr>
         <tr><td><strong>Goal</strong></td><td>El objetivo elegido en el selector: <strong>Budget</strong> (presupuesto oficial), <strong>Forecast</strong> (última proyección) o <strong>Run Rate</strong> (proyección de 3 meses).</td></tr>
-        <tr><td><strong>Run Rate</strong></td><td>A diferencia de Budget/Forecast (año fiscal completo, de <code>Inputs_Planning_PnL</code>), Run Rate es un archivo aparte armado a mano desde el CSV crudo de Legal Entity NA, y solo cubre <strong>Sep-Mar</strong> — los meses sin dato muestran "—" y el Total/Δ compara ese tramo parcial contra el Baseline completo (aviso en pantalla al elegirlo).</td></tr>
+        <tr><td><strong>Run Rate</strong></td><td>Año fiscal completo, de la misma fuente que Budget/Forecast (desde 12-oct; antes era un archivo armado a mano, solo Sep-Mar). Ojo: en los meses proyectados el Baseline <strong>se arma con este mismo Run Rate</strong>, así que ahí el Δ da 0 por construcción; y Orders del Run Rate solo viene cargado en los meses proyectados (aviso en pantalla).</td></tr>
         <tr><td><strong>Δ (Baseline − Goal)</strong></td><td>La diferencia. Verde/rojo según sea mejor o peor que el Goal.</td></tr>
         <tr><td colspan="2" class="note">El P&amp;L de Loyalty usa el mismo color-coding que el P&amp;L Accounting de B2B: BASELINE lila · GOAL azul · Δ verde.</td></tr>
       </tbody></table>
@@ -352,7 +355,7 @@ a.ext-link:hover { text-decoration: underline; }
         <tr><td><strong>Redención</strong></td><td>Puntos que el cliente usa. Fuente: <code>comarch_redemption_report</code>.</td></tr>
         <tr><td><strong>Breakage</strong></td><td>Puntos que <strong>expiran sin usarse</strong>. Fuente: transacciones tipo <code>PE</code> de <code>clm_transactions</code>.</td></tr>
         <tr><td><strong>points</strong> vs <strong>points_distribuidos</strong></td><td>La query trae <code>SUM(puntos)</code> como <code>points</code>. El cierre de Loyalty usa <code>points_distribuidos</code> (~2-4% menos), que falla vía ODBC. El SSP calculado difiere ~1% del cierre por esto.</td></tr>
-        <tr><td>Agregación con <code>abs()</code></td><td>Acum y reden se suman en valor absoluto por fila (preserva el criterio del dashboard). Cambiarlo mueve todos los totales.</td></tr>
+        <tr><td>Agregación con <code>abs()</code></td><td>Solo las <strong>redenciones</strong> se suman en valor absoluto por fila. Las acumulaciones van con signo (la cancelación resta del accrual, fix 07-sep).</td></tr>
       </tbody></table>
     </div>
 
@@ -383,8 +386,10 @@ a.ext-link:hover { text-decoration: underline; }
     <div class="card">
       <div class="card-title">⚙️ Términos técnicos</div>
       <table class="doc-table"><tbody>
-        <tr><td><strong>CY / LY</strong></td><td>Año calendario actual / anterior. El pipeline trae los dos para las comparaciones YoY. LY = 2025 no cambia.</td></tr>
-        <tr><td>JSON <strong>canónico</strong></td><td>Los archivos del P&amp;L (`baseline_actuals+projections.json`, `budget.json`, `forecast.json`) que genera <code>Inputs_Planning_PnL</code>. Loyalty los consume, no los produce.</td></tr>
+        <tr><td><strong>FY27 / FY26</strong></td><td>Las Métricas de negocio trabajan por <strong>año fiscal</strong> (abril → marzo): <strong>FY27</strong> = abr-2026 a mar-2027 (el en curso), <strong>FY26</strong> = abr-2025 a mar-2026 (el anterior). El FY se nombra por el año en que termina. Los archivos del pipeline siguen siendo por año calendario (acum_2026 / acum_2025); el dashboard junta los dos para armar cada FY.</td></tr>
+        <tr><td><strong>YTD a mes cerrado</strong></td><td>Los KPIs "vs FY26" y "vs Budget" comparan los <strong>mismos meses cerrados</strong> del FY (ej. abr–sep), nunca un año a medio camino contra uno completo ni el mes en curso a medio cargar.</td></tr>
+        <tr><td><strong>Budget de puntos</strong></td><td>Proyección de Control de Gestión en <code>Input_budget.xlsx</code> (OneDrive): puntos de Cobrand/Partners con su precio de facturación, redenciones por tipo, breakage, SSP (<code>SSP_Red</code>, <code>SSP</code>, <code>Precio Punto Pasivo</code>), regla de acumulación y penetración de GB (por producto y Domestic/International, se usa B2C-SITE). Un archivo igual <code>Input_runrate.xlsx</code> habilita la opción Run Rate.</td></tr>
+        <tr><td>JSON <strong>canónico</strong> vs <strong>planas</strong></td><td>Canónicos = los archivos del P&amp;L (<code>baseline_actuals+projections.json</code>, <code>budget.json</code>, <code>forecast.json</code>, <code>runrate.json</code>) que publica <code>Inputs_Planning_PnL</code>, todas las marcas sumadas. Planas = sus CSV intermedios (<code>plana_*.csv</code>, <code>actuals_fy*.csv</code>), con la columna <code>Marca</code>. Loyalty lee las planas para su vista Despegar y usa los canónicos solo para validar (y como fallback).</td></tr>
         <tr><td>Planilla <strong>Config</strong> vs fallback</td><td>La fuente real de breakage esperado y el diccionario de programas es el Google Sheet "Loyalty Ecosystem - Config". <code>breakage_esperado.csv</code> / <code>Diccionario.xlsx</code> son solo <strong>fallback</strong> — no editarlos.</td></tr>
         <tr><td><strong>@HEAD</strong> vs deployment publicado</td><td><code>clasp push</code> sube a <code>@HEAD</code> (la URL <code>/dev</code>). La URL <code>/exec</code> que ve el negocio queda <strong>congelada</strong> hasta un <code>clasp deploy -i &lt;id&gt;</code>.</td></tr>
         <tr><td><code>--dry-run</code></td><td>Corre las queries y arma los JSON en <code>_out/</code> sin subir a Drive ni leer la planilla. Para validar cambios de query con solo Datalake + DSN.</td></tr>
@@ -404,8 +409,9 @@ a.ext-link:hover { text-decoration: underline; }
       <table class="doc-table">
         <thead><tr><th>Necesito…</th><th>Sección</th><th>Nota</th></tr></thead>
         <tbody>
-          <tr><td>El P&amp;L de Loyalty vs Budget / Forecast / Run Rate</td><td><strong>P&amp;L Contable</strong></td><td>Selector Goal (Budget/Forecast/Run Rate) y período (Mes/Q/Half). El default de fechas es Ene-Dic → para el FY completo poner Hasta = Marzo del año siguiente. Run Rate solo cubre Sep-Mar (Legal Entity NA) — el resto de los meses muestra "—".</td></tr>
-          <tr><td>Detalle de acumulación / redención / breakage por programa</td><td><strong>Métricas de negocio</strong></td><td>Chips de programa arriba. Cada uno: 4 KPIs + 2 charts mensuales CY vs LY.</td></tr>
+          <tr><td>El P&amp;L de Loyalty vs Budget / Run Rate / Forecast</td><td><strong>P&amp;L Contable</strong></td><td>Selector Goal (Budget por default) y período (Mes/Q/Half). El rango por default es el año fiscal en curso (abr → mar). Arriba, el bloque <strong>Drivers B2C</strong> (Orders, GB, Up Front + Fees, no suman al total); debajo de cada monto, su % sobre GB.</td></tr>
+          <tr><td>Detalle de acumulación / redención / breakage por programa</td><td><strong>Métricas de negocio</strong></td><td>Chips de programa arriba. Cada uno: KPIs (vs FY26 y vs Budget, YTD a mes cerrado) + charts mensuales del año fiscal, toggle <strong>$ / Q</strong>.</td></tr>
+          <tr><td>Real vs Budget (o Run Rate) de puntos</td><td><strong>Métricas de negocio</strong> → tercera barra</td><td>En los gráficos con proyección aparece la barra <strong>"Budget FY27"</strong> entre FY26 y FY27; clic en la leyenda la oculta (o la de FY26). Selector Budget / Run Rate dentro de la tarjeta. Fila "vs Budget %" debajo. Aplica a acumulación Cobrand/Partners y Pasaporte D!, redenciones (Pasaporte D!, IFOOD, Puntos Manuales, Acciones Marketing), breakage y ratio por producto.</td></tr>
           <tr><td>Cuántos miembros activos, por tier</td><td><strong>Miembros del programa</strong></td><td>Foto actual (no serie histórica). KPIs por tier + altas por mes + stock acumulado.</td></tr>
           <tr><td>Suscriptos a Club Despegar (AR)</td><td>Sección de programa <strong>"Club Despegar"</strong></td><td>Solo pestaña Argentina + TOTAL. Stock por plan + altas/bajas.</td></tr>
           <tr><td>Enrolados en iFood (BR)</td><td>Sección de programa <strong>"IFOOD"</strong></td><td>Solo pestaña Brasil + TOTAL.</td></tr>
@@ -430,7 +436,7 @@ a.ext-link:hover { text-decoration: underline; }
       <div class="card-title">📅 Hay datos nuevos (cerró un mes)</div>
       <div class="step-desc">La corrida real la hace el <strong>scheduler</strong> (o Diego de backup). Manual, con VPN, desde la carpeta del repo:</div>
       <div class="code-block">python loyalty_sync.py</div>
-      <div class="step-desc" style="margin-top:8px">Al final tiene que decir <code>OK Drive: actualizado (...)</code> para los <strong>11 archivos</strong> y NO terminar con <code>[WARN] La planilla ... no estuvo accesible</code>. El dashboard toma los datos nuevos solo (cache auto-invalidante por <code>lastUpdated</code>). Si un JSON pasa 45 MB, el script avisa <code>[WARN]</code> — el límite de Apps Script son 50.</div>
+      <div class="step-desc" style="margin-top:8px">Al final tiene que decir <code>OK Drive: actualizado (...)</code> para <strong>todos los archivos (~17)</strong> y NO terminar con <code>[WARN] La planilla ... no estuvo accesible</code>. El dashboard toma los datos nuevos solo (cache auto-invalidante por <code>lastUpdated</code>). Si un JSON pasa 45 MB, el script avisa <code>[WARN]</code> — el límite de Apps Script son 50.</div>
     </div>
 
     <div class="card">
@@ -439,16 +445,30 @@ a.ext-link:hover { text-decoration: underline; }
     </div>
 
     <div class="card">
+      <div class="card-title">📒 Planning publicó inputs contables nuevos (Budget, Run Rate, Forecast o cierre de mes)</div>
+      <div class="step-desc">Después de que <code>Inputs_Planning_PnL</code> (repo B2B) regenere sus planas, desde la carpeta del repo de Loyalty:</div>
+      <div class="code-block">py inputs_contables_loyalty.py --upload</div>
+      <div class="step-desc" style="margin-top:8px">Lee las planas de <code>../B2B_Ecosystem/Inputs_Planning_PnL</code> (sin modificarlas), valida la reconstrucción contra los JSON que B2B publicó en Drive (<code>[OK]</code> por escenario) y sube los 4 <code>loyalty_pnl_*.json</code>. No se toca nada del repo de B2B. Si el <strong>baseline</strong> no valida, casi siempre es que el CSV de actuals local no tiene el último mes cerrado (B2B lo genera y lo borra): correr <code>py plana_actuals_builder.py 2027</code> en esa carpeta (solo escribe ese CSV local) y repetir. Sin <code>--upload</code> solo arma y valida en <code>_out_pnl/</code>.</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🎯 Cambió el Budget (o Run Rate) de puntos</div>
+      <div class="step-desc">Editar <code>Input_budget.xlsx</code> (o <code>Input_runrate.xlsx</code>, mismas solapas) en OneDrive <code>Control de Gestión - Loyalty/Loyalty_Ecosystem/</code>. Para verlo sin esperar el sync:</div>
+      <div class="code-block">py proyecciones.py --upload</div>
+      <div class="step-desc" style="margin-top:8px">Tarda segundos y no necesita Datalake. Después copiar el Excel al repo (<code>cp</code> + commit) para mantener el fallback. Las columnas se leen por nombre (Pais, Metrica, Partner, Tipo_punto, Producto, Viaje, LOB-Canal); las celdas <code>#Missing</code> se ignoran. Si no sale ninguna fila, no sube nada (queda el archivo anterior en Drive).</div>
+    </div>
+
+    <div class="card">
       <div class="card-title">🔬 Validar un cambio de query antes del PR</div>
       <div class="code-block">python loyalty_sync.py --dry-run</div>
-      <div class="step-desc" style="margin-top:8px">Corre las queries, arma los 11 JSON en <code>_out/</code>, NO sube a Drive ni lee la planilla. Imprime redenciones por point_type + SSP por país + miembros por tier para chequear a ojo. Necesita solo Datalake + DSN (no credenciales de Drive).</div>
+      <div class="step-desc" style="margin-top:8px">Corre las queries, arma los JSON en <code>_out/</code>, NO sube a Drive ni lee la planilla. Imprime redenciones por point_type + SSP por país + miembros por tier para chequear a ojo. Necesita solo Datalake + DSN (no credenciales de Drive).</div>
     </div>
 
     <div class="card">
       <div class="card-title">🎨 Cambiar el dashboard (visual o lógica)</div>
       <div class="steps">
         <div class="step"><div class="step-num">1</div><div><div class="step-title">branch → editar → commit → push → PR</div><div class="step-desc"><code>dashboard.html</code> / <code>Código.js</code> están en la raíz del repo.</div></div></div>
-        <div class="step"><div class="step-num">2</div><div><div class="step-title">Al mergear a <code>main</code></div><div class="step-desc">La GitHub Action hace <code>clasp push</code> + <code>clasp deploy</code> sola. <strong>Hoy la Action está rota</strong> (falta el secret <code>CLASP_CREDENTIALS</code>) — deploy manual con <code>/publicar</code>.</div></div></div>
+        <div class="step"><div class="step-num">2</div><div><div class="step-title">Probar en <code>/dev</code> y publicar</div><div class="step-desc"><code>clasp push -f</code> sube a HEAD (URL <code>/dev</code>) sin tocar lo que ve el negocio. Cuando está OK, deploy manual con <code>/publicar</code>. La GitHub Action quedó solo manual (<code>workflow_dispatch</code>): no corre al mergear.</div></div></div>
         <div class="step"><div class="step-num">3</div><div><div class="step-title">Verificar</div><div class="step-desc"><code>clasp deployments</code> → confirmar que el deployment estable muestra la versión nueva. Después abrir la webapp (Ctrl+F5).</div></div></div>
       </div>
     </div>
@@ -459,7 +479,8 @@ a.ext-link:hover { text-decoration: underline; }
         <tr><td>¿Está viejo el dato?</td><td>El dashboard muestra un <strong>banner rojo</strong> si los datos tienen más de 48h o si están desparejos (una subida a medias). También revisá "Ultimo sync" en el header.</td></tr>
         <tr><td>¿El P&amp;L Contable está vacío?</td><td>Si <code>Inputs_Planning_PnL</code> (repo B2B) renombró una columna, la landing tira un error claro (guard en <code>_loyPnl</code>). Revisar la consola.</td></tr>
         <tr><td>¿Miembros / Club se ven "raros" en meses viejos?</td><td>Es el sesgo de supervivencia (foto actual). El KPI del total es correcto; la serie histórica de altas no.</td></tr>
-        <tr><td>¿Error de conexión al correr el sync?</td><td>Casi siempre es la <strong>VPN</strong>. <code>conectar()</code> ya reintenta 4× con backoff.</td></tr>
+        <tr><td>¿Error de conexión al correr el sync?</td><td><code>errorCode member not found</code> al conectar lo tira tanto la <strong>VPN</strong> caída como una <strong>contraseña mal cargada</strong>. <code>conectar()</code> reintenta solo 2× a propósito: <strong>no reintentar a mano en loop</strong> — con la contraseña mal, la cuenta del Datalake se bloquea por intentos fallidos (pasó el 12-oct). Primero confirmar entrando a Metabase.</td></tr>
+        <tr><td>¿El Budget de México (o el TOTAL) se ve inflado?</td><td>Revisar que el P&amp;L esté leyendo la vista Despegar (<code>loyalty_pnl_*.json</code>): con los canónicos de B2B (todas las marcas) Best Day infla el GB y la acumulación de Budget de Pasaporte D!.</td></tr>
         <tr><td>¿Un programa nuevo cae en "Otros"?</td><td>Falta agregarlo al diccionario en la planilla Config.</td></tr>
       </tbody></table>
     </div>
@@ -500,7 +521,7 @@ a.ext-link:hover { text-decoration: underline; }
     <div class="page-header">
       <div class="page-tag">Referencia operativa</div>
       <div class="page-title">El <span>pipeline</span></div>
-      <div class="page-sub"><code>loyalty_sync.py</code> — ~10 queries al Datalake + la planilla Config, agrega, sube 11 JSON a Drive.</div>
+      <div class="page-sub"><code>loyalty_sync.py</code> — ~10 queries al Datalake + la planilla Config + el Budget de puntos, agrega, sube ~17 JSON a Drive.</div>
     </div>
 
     <div class="two-col">
@@ -510,7 +531,8 @@ a.ext-link:hover { text-decoration: underline; }
           <tr><td>Carpeta local</td><td>Loyalty_Ecosystem (raíz del repo)</td></tr>
           <tr><td>Apps Script (dashboard)</td><td class="mono-id">1SXEXXwM9CromNRqhwiFFg34-rnO9Q3a85d3oMHsM9mgMS_NmpP2OrNLk</td></tr>
           <tr><td>Drive folder (JSON loyalty)</td><td class="mono-id">1yCPp6hTusYmhhb17WiB6EuhFmsx7tlxb</td></tr>
-          <tr><td>Drive folder (P&amp;L canónico)</td><td class="mono-id">1XqQPL_rlS0NRIPUnPfj5nALBTn7kAOQV (lo llena Inputs_Planning_PnL, repo B2B)</td></tr>
+          <tr><td>Drive folder (P&amp;L canónico)</td><td class="mono-id">1XqQPL_rlS0NRIPUnPfj5nALBTn7kAOQV (lo llena Inputs_Planning_PnL, repo B2B; Loyalty lo usa para validar y de fallback)</td></tr>
+          <tr><td>Inputs de Control de Gestión</td><td>OneDrive <code>Control de Gestión - Loyalty/Loyalty_Ecosystem/</code>: <code>Input_Precios.xlsx</code>, <code>Input_budget.xlsx</code> (y <code>Input_runrate.xlsx</code> cuando exista). Copia en el repo como fallback.</td></tr>
           <tr><td>Planilla Config</td><td class="mono-id">1M48FXIAFvyKpP9RSLLSuWh9DgetFPovYfWAM3lQNASI</td></tr>
           <tr><td>Credenciales</td><td><code>envs/.env.&lt;usuario&gt;</code> (Datalake) · <code>credentials_drive.json</code> + <code>token_drive.json</code> (Drive, OAuth de usuario). Nunca en el repo.</td></tr>
         </tbody></table>
@@ -521,7 +543,7 @@ a.ext-link:hover { text-decoration: underline; }
           <tr><td><code>data.lake.*</code></td><td>Comarch (accrual/redemption/cancellation), <code>clm_*</code>. Números OK.</td></tr>
           <tr><td><code>data.analytics.*</code></td><td>Facts transaccionales. Un <code>SELECT</code> de una columna <code>DECIMAL</code> cruda falla por ODBC — hay que envolver en <code>SUM(CAST(... AS DECIMAL))</code> (las queries centrales ya lo hacen).</td></tr>
           <tr><td><code>data.raw.*</code> · <code>analytics.ifood_dim_users</code></td><td>Catálogos nuevos: Club Despegar, iFood. Funcionan OK.</td></tr>
-          <tr><td class="note" colspan="2">Si el ODBC tira <code>errorCode member not found</code> al <em>conectar</em> (no al correr la query), es la VPN/driver — <code>conectar()</code> ya reintenta 4×.</td></tr>
+          <tr><td class="note" colspan="2">Si el ODBC tira <code>errorCode member not found</code> al <em>conectar</em> (no al correr la query), es la VPN/driver <strong>o la contraseña</strong> — <code>conectar()</code> reintenta solo 2× para no bloquear la cuenta. Verificar en Metabase antes de reintentar.</td></tr>
         </tbody></table>
       </div>
     </div>
@@ -542,11 +564,11 @@ a.ext-link:hover { text-decoration: underline; }
     <div class="page-header">
       <div class="page-tag">Referencia operativa</div>
       <div class="page-title">Los datos <span>(JSON)</span></div>
-      <div class="page-sub">Los 11 JSON que sube el pipeline, más los del P&amp;L que vienen de otro repo. Esquema común: <code>{meta, data}</code>.</div>
+      <div class="page-sub">Los JSON que sube el pipeline, las proyecciones de puntos y la vista del P&amp;L. Esquema común: <code>{meta, data}</code> o <code>{meta, cols, rows}</code>.</div>
     </div>
 
     <div class="card">
-      <div class="card-title">📦 Los 11 JSON de <code>loyalty_sync.py</code></div>
+      <div class="card-title">📦 Los JSON de <code>loyalty_sync.py</code> (principales)</div>
       <table class="doc-table">
         <thead><tr><th>Archivo</th><th>Query / fuente</th><th>Sección del dashboard</th></tr></thead>
         <tbody>
@@ -560,15 +582,22 @@ a.ext-link:hover { text-decoration: underline; }
           <tr><td>loyalty_ifood_enroll.json</td><td><code>_IFOOD_ENROLL_SQL</code> — <code>ifood_dim_users</code>. Altas por mes por tipo.</td><td>Programa "IFOOD" (BR + TOTAL)</td></tr>
           <tr><td>loyalty_ratio_acumulacion.json</td><td>Mismo <code>_ACUM_SQL</code> que acumulaciones (cero SQL nuevo) — <code>SUM(points)/SUM(gb)</code>, solo <code>point_type='general'</code>, por mes × país × <code>grupo_pnl</code> (7 productos + Total). "Producto" viene de la pestaña <code>regla producto</code> del Sheet Config, matcheada por <code>purchase_type</code> → <code>product_type</code> → código Comarch, en ese orden.</td><td>Dentro de "Pasaporte D!": gráfico de barras con selector Mes/Año (período elegido vs. el inmediato anterior)</td></tr>
           <tr><td>loyalty_penetracion_gb.json</td><td><code>_PENET_SQL</code>/<code>fetch_penet</code> — % GB de reservas con evento de <strong>acumulación</strong> (<code>clm_transactions</code> tipo <code>GA</code>/<code>B</code>), por mes × país × producto. Renombrada "Penetración GB Acum" (22-sep) para no confundir con % pagado con puntos.</td><td>Dentro de "Pasaporte D!": heatmap producto × mes fiscal</td></tr>
-          <tr><td class="note" colspan="3">⚠️ <code>loyalty_runrate.json</code> (Goal "Run Rate" del P&amp;L Contable) <strong>NO sale de este pipeline</strong> — es un archivo aparte, armado a mano desde el CSV crudo de <code>Inputs_Planning_PnL</code> (repo B2B, Legal Entity NA), solo Sep-Mar. Ver sección P&amp;L y escenarios.</td></tr>
+          <tr><td>loyalty_proyecciones.json</td><td><code>proyecciones.py</code> — lee <code>Input_budget.xlsx</code> / <code>Input_runrate.xlsx</code> (sin Datalake). Escenario × bloque (acum_partner, precio_partner, reden, breakage, ssp, ratio, penet) × país × clave × mes. Lo sube el sync o <code>py proyecciones.py --upload</code>.</td><td>Métricas → tercera barra "Budget FY27" / "Run Rate FY27" y KPIs "vs Budget"</td></tr>
+          <tr><td class="note" colspan="3">Valuación del Budget en $ (definida por Control de Gestión): Cobrand/Partners = puntos × precio de facturación (Bank/Partner Revenue = puntos × (precio − SSP)) · Redenciones = puntos × SSP_Red · Pasaporte D! acumulación: puntos = regla × penetración × GB por producto y viaje; $ = (pts × SSP) / (pts × SSP + GB × pen × take) × (GB × pen × take), con take = (Up Front + Fees + Commercial Discounts) / GB del P&amp;L de Budget (vista Despegar). Breakage en $: pendiente (falta definir el precio pasivo del real).</td></tr>
+          <tr><td class="note" colspan="3">ℹ️ <code>loyalty_runrate.json</code> (Run Rate armado a mano el 22-sep, solo Sep-Mar) quedó <strong>en desuso</strong>: el Goal "Run Rate" sale ahora de la misma fuente que Budget/Forecast.</td></tr>
         </tbody>
       </table>
     </div>
 
     <div class="card">
-      <div class="card-title">📋 P&amp;L Contable — fuente externa</div>
-      <div class="step-desc">La landing lee <code>baseline_actuals+projections.json</code> / <code>budget.json</code> / <code>forecast.json</code> del folder Drive <code>1XqQPL…</code>, que genera <strong><code>Inputs_Planning_PnL</code> (repo B2B_Ecosystem)</strong> — NO <code>loyalty_sync.py</code>. <code>Código.js</code> (<code>_loyPnl</code>) filtra server-side las filas cuya columna <code>P&amp;L N1</code> contiene "loyalty" (~4k de ~70k) y las cachea.</div>
-      <div class="alert-box info" style="margin-top:12px">⚠️ Acople cross-repo: si <code>Inputs_Planning_PnL</code> renombra <code>P&amp;L N1</code> / <code>Pais</code> / <code>Fecha</code> / <code>Monto USD</code>, o cambia el string del LOB, el P&amp;L de Loyalty se rompe. Hay un guard en <code>_loyPnl</code> que tira un error claro (no queda vacío en silencio).</div>
+      <div class="card-title">📋 P&amp;L Contable — vista de Loyalty sobre los inputs contables de B2B</div>
+      <div class="step-desc">La homologación contable (Glosario, exclusiones, Reverso AxI) la sigue haciendo <strong><code>Inputs_Planning_PnL</code> (repo B2B_Ecosystem)</strong> — Loyalty no la duplica ni toca ese repo. <code>inputs_contables_loyalty.py</code> lee sus <strong>planas</strong> (<code>plana_budget/runrate/forecast.csv</code>, <code>actuals_fy27_*.csv</code>, que traen <code>Marca</code>), replica lo que hace su <code>json_builder.py</code> (regla RG, colapso de canal no-B2B, suma, sin ceros) y la composición del forecast / baseline de su <code>config.py</code>, filtra <strong>Marca = despegar</strong> + líneas <code>loyalty</code> + Drivers B2C, y sube <code>loyalty_pnl_{baseline,budget,forecast,runrate}.json</code> al folder de Loyalty.</div>
+      <table class="doc-table" style="margin-top:10px"><tbody>
+        <tr><td>Validación</td><td>Antes de filtrar, reconstruye todas las marcas y compara (país × línea × mes) contra los canónicos <strong>publicados en Drive</strong>. Los 4 escenarios coinciden exacto (12-oct).</td></tr>
+        <tr><td>Lectura en el dashboard</td><td><code>Código.js</code> → <code>_loyPnlDespegar()</code> lee <code>loyalty_pnl_*.json</code>; si alguno falta, cae al canónico de B2B (todas las marcas) filtrado por <code>_loyPnl</code> — degradado, no roto.</td></tr>
+        <tr><td>Requisito</td><td>El repo B2B_Ecosystem al lado de este (o env <code>INPUTS_PNL_DIR</code>). Se corre a mano cuando B2B publica (ver Recetas).</td></tr>
+      </tbody></table>
+      <div class="alert-box info" style="margin-top:12px">⚠️ Acople cross-repo: si <code>Inputs_Planning_PnL</code> cambia el formato de las planas (columnas <code>Marca</code>, <code>P&amp;L N1</code>, <code>Pais</code>, <code>Fecha</code>, <code>Monto USD</code>) o su <code>config.py</code>, el script lo detecta en la validación (<code>[WARN]</code>) antes de subir.</div>
     </div>
 
     <div class="card">
@@ -593,8 +622,8 @@ a.ext-link:hover { text-decoration: underline; }
     <div class="card">
       <div class="card-title">🚀 Cómo se publica</div>
       <table class="doc-table"><tbody>
-        <tr><td>Automático</td><td>GitHub Action (<code>deploy-gas.yml</code>) al mergear a <code>main</code> algo que toque <code>dashboard.html</code> / <code>Código.js</code> / <code>appsscript.json</code>. Necesita el secret <code>CLASP_CREDENTIALS</code>.</td></tr>
-        <tr><td><strong>Hoy: manual</strong></td><td>El secret <code>CLASP_CREDENTIALS</code> no está cargado → la Action falla en cada merge. Usar <code>/publicar</code> hasta que Diego lo cargue.</td></tr>
+        <tr><td><strong>Manual</strong></td><td><code>/publicar</code> (o los comandos de abajo). La GitHub Action (<code>deploy-gas.yml</code>) quedó solo <code>workflow_dispatch</code>: no corre al mergear, porque el secret <code>CLASP_CREDENTIALS</code> nunca se cargó.</td></tr>
+        <tr><td>Probar antes</td><td><code>clasp push -f</code> solo → URL <code>/dev</code> (HEAD). Revisar ahí y recién después <code>clasp deploy -i</code>.</td></tr>
         <tr><td>Comando manual</td><td class="cmd">clasp push -f<br>clasp deploy -i AKfycbzyHV8nz_AppIX81qn8QJ9dyPT77i75lBz9nerKfsjhLEk8SfSdGPXeGk52oLpXvI2Fig -d "desc"</td></tr>
         <tr><td>Verificar</td><td><code>clasp deployments</code> → la versión del deployment estable avanzó. Después abrir la webapp (Ctrl+F5).</td></tr>
       </tbody></table>
@@ -618,7 +647,9 @@ a.ext-link:hover { text-decoration: underline; }
     <div class="card">
       <div class="card-title">📂 Repo Loyalty_Ecosystem</div>
       <div class="code-block">Loyalty_Ecosystem/
-  ├── loyalty_sync.py              ← Pipeline: ~10 queries → agrega → 11 JSON a Drive
+  ├── loyalty_sync.py              ← Pipeline: ~10 queries → agrega → ~17 JSON a Drive
+  ├── proyecciones.py              ← Budget / Run Rate de puntos (Input_budget.xlsx) → loyalty_proyecciones.json
+  ├── inputs_contables_loyalty.py  ← P&amp;L solo Despegar desde las planas de B2B → loyalty_pnl_*.json
   ├── Código.js                    ← Backend GAS: sirve los JSON crudos + filtra el P&L loyalty
   ├── dashboard.html               ← SPA frontend (Chart.js)
   ├── auth_drive.py                ← OAuth de Drive (1 vez por persona)
@@ -626,6 +657,8 @@ a.ext-link:hover { text-decoration: underline; }
   ├── configurar_datalake.py       ← Carga credenciales Datalake a envs/.env.&lt;user&gt;
   ├── breakage_esperado.csv        ← ⚠️ Fallback de la planilla — NO editar (la fuente es el Sheet)
   ├── Diccionario.xlsx             ← ⚠️ Fallback del mapeo de programas — NO editar
+  ├── Input_Precios.xlsx           ← Fallback de precios Cobrand/Partners + FX (fuente: OneDrive)
+  ├── Input_budget.xlsx            ← Fallback del Budget de puntos (fuente: OneDrive)
   ├── .github/workflows/deploy-gas.yml  ← CI de deploy (necesita secret CLASP_CREDENTIALS)
   ├── CLAUDE.md / SETUP.md         ← Guía + runbook
   ├── docs/PENDIENTE-DIEGO.md      ← Pasos manuales que faltan (auth Drive, secret CLASP, scheduler…)
@@ -648,6 +681,8 @@ a.ext-link:hover { text-decoration: underline; }
       <table class="doc-table"><tbody>
         <tr><td>Correr el sync real</td><td class="cmd">python loyalty_sync.py (con VPN)</td></tr>
         <tr><td>Validar un cambio de query</td><td class="cmd">python loyalty_sync.py --dry-run</td></tr>
+        <tr><td>Actualizar el P&amp;L (vista Despegar)</td><td class="cmd">py inputs_contables_loyalty.py --upload</td></tr>
+        <tr><td>Actualizar el Budget de puntos</td><td class="cmd">py proyecciones.py --upload</td></tr>
         <tr><td>Auth de Drive (1 vez)</td><td class="cmd">python auth_drive.py</td></tr>
         <tr><td>Diagnóstico de entorno</td><td class="cmd">python setup_check.py</td></tr>
         <tr><td>Deploy manual del dashboard</td><td class="cmd">clasp push -f + clasp deploy -i AKfycbzyHV8nz_App… -d "desc"</td></tr>
