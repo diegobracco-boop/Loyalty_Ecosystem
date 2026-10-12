@@ -199,6 +199,12 @@ table.pnl tr.grand-total td.sep { background: #1b1533 !important; border-bottom-
 
 /* ---- Program index chips (saltos rapidos a cada programa) ---- */
 .prog-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+.var-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-bottom: 10px; }
+.var-months { display: flex; flex-wrap: wrap; gap: 4px; }
+.var-chip { border: 1px solid var(--border); border-radius: 999px; }
+.var-rr { font-size: 9.5px; color: var(--muted); font-weight: 700; }
+.var-tbl td.lc { white-space: normal; min-width: 320px; }
+.var-detail { font-size: 10.5px; font-weight: 400; color: var(--muted); margin-top: 3px; line-height: 1.3; }
 .goal-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0 0 8px; }
 .goal-hint { font-size: var(--fs-small); color: var(--muted); }
 .seg-btn[disabled] { opacity: .45; cursor: not-allowed; }
@@ -2520,6 +2526,231 @@ function renderPasivo() {
   el.innerHTML = h;
 }
 
+
+// ============================================================
+// Análisis de variaciones — Actual (Baseline del P&L) vs Budget, Loyalty, solo Despegar.
+// Arriba: waterfall Budget -> Δ por línea -> Actual. Abajo: el "por qué" de cada línea
+// con las métricas de negocio, en los meses CERRADOS del período:
+//   Δ explicado = Δ $ de la métrica (real − budget, con el signo de la línea en el P&L)
+//               = efecto volumen (Pts real − Pts budget) × $/pt budget
+//               + efecto precio  ($/pt real − $/pt budget) × Pts real
+//   No explicado = Δ P&L (meses cerrados) − Δ explicado (el P&L es contable, las métricas
+//                  son del Datalake; también líneas sin métrica de negocio detrás).
+// Meses abiertos del período: el "Actual" es Run Rate (Baseline) — su Δ va aparte, sin apertura.
+// ============================================================
+var VAR_STATE = { mode: 'fy', months: [], q: 'Q1', h: 'H1', country: 'total' };
+// línea del P&L (P&L N1 en minúscula) -> métrica que la explica
+var VAR_METRIC = {
+  'loyalty - deferred revenue in':  { key: 'acum',    desc: 'Puntos acumulados Pasaporte D! + Cobrand + Partners · $ = valor diferido (Pasaporte: reparto con SSP; Cobrand/Partners: pts × SSP)' },
+  'loyalty - deferred revenue out': { key: 'reden',   desc: 'Puntos redimidos (Pasaporte D! con Cobrand/Partners, Puntos Manuales, Acciones Marketing) · $ = valor redimido (budget: pts × SSP_Red)' },
+  // iFood: su redención se registra en Rewards & Benefits cost, no en Deferred revenue out
+  // (12-oct: BR H1 real ≈ $5,9M redimido iFood vs R&B cost -$6,2M; budget $2,0M vs -$2,1M).
+  'loyalty - rewards & benefits cost': { key: 'rb',   desc: 'Puntos redimidos IFOOD · $ = valor redimido (budget: pts × SSP_Red)' },
+  'loyalty - breakage revenue':     { key: 'bk',      desc: 'Puntos vencidos · $ = pts × Precio Punto Pasivo del Budget (precio pasivo real pendiente: sin efecto precio)' },
+  'loyalty - bank revenue':         { key: 'bank',    desc: 'Puntos Cobrand · $ = pts × (precio de facturación − SSP)' },
+  'loyalty - partner revenue':      { key: 'partner', desc: 'Puntos Partners · $ = pts × (precio de facturación − SSP)' }
+};
+function varFyMonths() { var fy = fyYears(); return FISCAL_MONTHS.map(function(mm){ return fiscalCalYear(mm, fy.cy) + '-' + mm; }); }
+function varSelMonths() {
+  var all = varFyMonths();
+  if (VAR_STATE.mode === 'mes') return all.filter(function(ym){ return VAR_STATE.months.indexOf(ym) !== -1; });
+  if (VAR_STATE.mode === 'q') return all.filter(function(ym){ return PNL_Q[ym.substring(5, 7)] === VAR_STATE.q; });
+  if (VAR_STATE.mode === 'h') return all.filter(function(ym){ return PNL_H[PNL_Q[ym.substring(5, 7)]] === VAR_STATE.h; });
+  return all;
+}
+function varSet(k, v) {
+  if (k === 'month') {
+    var i = VAR_STATE.months.indexOf(v);
+    if (i === -1) VAR_STATE.months.push(v); else VAR_STATE.months.splice(i, 1);
+  } else {
+    VAR_STATE[k] = v;
+    if (k === 'mode' && v === 'mes' && !VAR_STATE.months.length) VAR_STATE.months = [proyLastClosedYm()];
+  }
+  renderVariaciones();
+}
+function varCountryObj(dk) { return COUNTRIES.filter(function(c){ return c.dataKey === dk; })[0] || { key: dk, dataKey: dk, label: dk }; }
+// {línea N1: monto} del P&L (loyalty) para el país y los meses
+function varPnl(raw, country, months) {
+  var o = {};
+  expandBaseline(raw).forEach(function(r) {
+    var n1 = (r['P&L N1'] || '').toLowerCase();
+    if (n1.indexOf('loyalty') === -1 || !matchCountryRow(r['Pais'], country)) return;
+    if (months.indexOf((r['Fecha'] || '').substring(0, 7)) === -1) return;
+    o[n1] = (o[n1] || 0) + (parseFloat(r['Monto USD']) || 0);
+  });
+  return o;
+}
+function sumMap(m, months) { var t = 0; months.forEach(function(ym){ t += (m && m[ym]) || 0; }); return t; }
+// Métrica real y budget {pts, usd} por línea, sobre los meses dados (cerrados).
+function varMetrics(country, months) {
+  var prevCmp = METRICS_CMP;
+  METRICS_CMP = 'budget';
+  try {
+    var m = buildMetrics(country), out = {};
+    function acm(prog, f) { var o = {}; Object.keys(m.acM[prog] || {}).forEach(function(ym){ o[ym] = m.acM[prog][ym][f]; }); return o; }
+    function rdm(prog, f) { var o = {}; Object.keys(m.rdM[prog] || {}).forEach(function(ym){ o[ym] = m.rdM[prog][ym][f]; }); return o; }
+    var pd = goalPdAcum(country) || { pts: {}, usd: {} };
+    var cob = goalPartnerMaps('Cobrand', country) || { pts: {}, usd: {}, br: {} };
+    var par = goalPartnerMaps('Partners', country) || { pts: {}, usd: {}, br: {} };
+    // Deferred revenue in
+    out.acum = {
+      real: { pts: sumMap(acm('Pasaporte D!', 'pts'), months) + sumMap(acm('Cobrand', 'pts'), months) + sumMap(acm('Partners', 'pts'), months),
+              usd: Math.abs(sumMap(acm('Pasaporte D!', 'usd'), months))
+                 + Math.abs(sumMap(acm('Cobrand', 'usd'), months) - sumMap(acm('Cobrand', 'br'), months))
+                 + Math.abs(sumMap(acm('Partners', 'usd'), months) - sumMap(acm('Partners', 'br'), months)) },
+      bud:  { pts: sumMap(pd.pts, months) + sumMap(cob.pts, months) + sumMap(par.pts, months),
+              usd: sumMap(pd.usd, months) + (sumMap(cob.usd, months) - sumMap(cob.br, months)) + (sumMap(par.usd, months) - sumMap(par.br, months)) }
+    };
+    // Deferred revenue out
+    var rp = 0, ru = 0, bp = 0, bu = 0;
+    ['Pasaporte D!', 'Puntos Manuales', 'Acciones Marketing'].forEach(function(prog) {
+      rp += sumMap(rdm(prog, 'pts'), months); ru += sumMap(rdm(prog, 'usd'), months);
+      var g = goalRedenMaps(prog, country);
+      if (g) { bp += sumMap(g.pts, months); bu += sumMap(g.usd, months); }
+    });
+    out.reden = { real: { pts: rp, usd: ru }, bud: { pts: bp, usd: bu } };
+    var gi = goalRedenMaps('IFOOD', country) || { pts: {}, usd: {} };
+    out.rb = { real: { pts: sumMap(rdm('IFOOD', 'pts'), months), usd: sumMap(rdm('IFOOD', 'usd'), months) },
+               bud:  { pts: sumMap(gi.pts, months), usd: sumMap(gi.usd, months) } };
+    // Breakage: por país (el precio pasivo es por país)
+    var kp = 0, ku = 0, kbp = 0, kbu = 0;
+    goalKeys(country).forEach(function(dk) {
+      var real = breakageMonthlyMap(varCountryObj(dk)), bud = goalBkMap(varCountryObj(dk)) || {};
+      months.forEach(function(ym) {
+        var pr = pv('ssp', dk, 'Precio Punto Pasivo', ym) || 0;
+        kp += real[ym] || 0; ku += (real[ym] || 0) * pr;
+        kbp += bud[ym] || 0; kbu += (bud[ym] || 0) * pr;
+      });
+    });
+    out.bk = { real: { pts: kp, usd: ku }, bud: { pts: kbp, usd: kbu } };
+    out.bank = { real: { pts: sumMap(acm('Cobrand', 'pts'), months), usd: sumMap(acm('Cobrand', 'br'), months) },
+                 bud:  { pts: sumMap(cob.pts, months), usd: sumMap(cob.br, months) } };
+    out.partner = { real: { pts: sumMap(acm('Partners', 'pts'), months), usd: sumMap(acm('Partners', 'br'), months) },
+                    bud:  { pts: sumMap(par.pts, months), usd: sumMap(par.br, months) } };
+    return out;
+  } finally {
+    METRICS_CMP = prevCmp;
+  }
+}
+function varShort(n1) { var t = n1.replace(/^loyalty\s*-\s*/, ''); return t.charAt(0).toUpperCase() + t.slice(1); }
+
+function renderVariaciones() {
+  var el = document.getElementById('panel-variaciones');
+  if (!el) return;
+  var country = varCountryObj(VAR_STATE.country);
+  var all = varFyMonths(), sel = varSelMonths(), last = proyLastClosedYm();
+  var closed = sel.filter(function(ym){ return ym <= last; }), open = sel.filter(function(ym){ return ym > last; });
+  var fy = fyYears();
+
+  // ---- controles
+  function seg(k, opts) {
+    return '<div class="seg seg-sm">' + opts.map(function(o){
+      return '<button class="seg-btn' + (VAR_STATE[k] === o[0] ? ' active' : '') + '" type="button" onclick="varSet(\'' + k + '\',\'' + o[0] + '\')">' + o[1] + '</button>';
+    }).join('') + '</div>';
+  }
+  var h = '<div class="stitle">Análisis de variaciones — P&amp;L Loyalty, Actual vs Budget ' + fyLbl(fy.cy) + '</div>';
+  h += '<div class="var-ctl"><span class="ratio-controls-lbl">Período</span>'
+     + seg('mode', [['mes', 'Mes'], ['q', 'Quarter'], ['h', 'Half'], ['fy', 'Año fiscal']]);
+  if (VAR_STATE.mode === 'mes') {
+    h += '<div class="var-months">' + all.map(function(ym){
+      var on = VAR_STATE.months.indexOf(ym) !== -1;
+      return '<button class="seg-btn var-chip' + (on ? ' active' : '') + '" type="button" onclick="varSet(\'month\',\'' + ym + '\')">'
+        + fmtMonthLbl(ym) + (ym > last ? ' <span class="var-rr">RR</span>' : '') + '</button>';
+    }).join('') + '</div>';
+  } else if (VAR_STATE.mode === 'q') {
+    h += seg('q', [['Q1', 'Q1'], ['Q2', 'Q2'], ['Q3', 'Q3'], ['Q4', 'Q4']]);
+  } else if (VAR_STATE.mode === 'h') {
+    h += seg('h', [['H1', 'H1'], ['H2', 'H2']]);
+  }
+  h += '<span class="ratio-controls-lbl" style="margin-left:12px">País</span><select class="ratio-sel" onchange="varSet(\'country\', this.value)">'
+     + COUNTRIES.map(function(c){ return '<option value="' + c.dataKey + '"' + (c.dataKey === VAR_STATE.country ? ' selected' : '') + '>' + c.label + '</option>'; }).join('')
+     + '</select></div>';
+  if (!sel.length) { el.innerHTML = h + '<div class="empty">Elegí al menos un mes.</div>'; return; }
+  h += '<div class="proj-note">Actual = <strong>Baseline</strong> del P&amp;L: actuals en los meses cerrados (hasta ' + fmtMonthLbl(last) + ')'
+     + (open.length ? ' + <strong>Run Rate</strong> en ' + open.length + ' mes(es) abierto(s) del período' : '') + '. Solo marca Despegar. '
+     + 'El filtro de fechas de arriba no aplica en esta pestaña.</div>';
+
+  // ---- P&L
+  var bud = varPnl(RAW.budget, country, sel), act = varPnl(RAW.baseline, country, sel);
+  var budC = varPnl(RAW.budget, country, closed), actC = varPnl(RAW.baseline, country, closed);
+  var lines = {};
+  Object.keys(bud).concat(Object.keys(act)).forEach(function(l){ lines[l] = 1; });
+  var order = [];
+  PNL_GROUPS.forEach(function(g){ Object.keys(lines).sort().forEach(function(l){ if (classifyN1(l) === g.label && order.indexOf(l) === -1) order.push(l); }); });
+  Object.keys(lines).sort().forEach(function(l){ if (order.indexOf(l) === -1) order.push(l); });
+  if (!order.length) { el.innerHTML = h + '<div class="empty">Sin datos del P&amp;L para el país / período.</div>'; return; }
+  var totB = 0, totA = 0;
+  order.forEach(function(l){ totB += bud[l] || 0; totA += act[l] || 0; });
+
+  h += '<div class="cc" style="margin-bottom:16px"><div class="ct">TOTAL LOYALTY: Budget → variación por línea → Actual</div>'
+     + '<div class="cw" style="height:340px"><canvas id="ch-var-wf"></canvas></div></div>';
+
+  // ---- el porqué
+  var met = closed.length ? varMetrics(country, closed) : null;
+  h += '<div class="bk-card"><div class="bk-hdr">Por qué varía cada línea — apertura en meses cerrados'
+     + (closed.length ? ' (' + fmtMonthLbl(closed[0]) + (closed.length > 1 ? ' a ' + fmtMonthLbl(closed[closed.length - 1]) : '') + ')' : '') + '</div>'
+     + '<div class="tbl-scroll"><table class="pnl var-tbl"><thead><tr>'
+     + '<th class="lc">Línea P&amp;L</th><th>Budget</th><th>Actual</th><th>Δ</th><th class="sep"></th>'
+     + '<th>Efecto volumen</th><th>Efecto precio</th><th>No explicado</th><th class="sep"></th><th>Δ meses Run Rate</th>'
+     + '</tr></thead><tbody>';
+  var sum = { b: 0, a: 0, d: 0, v: 0, p: 0, r: 0, o: 0 };
+  function cell(v, signed) { return '<td class="' + (v ? vc(v) : 'vz') + '">' + (v ? fmtPnl(v, signed) : '—') + '</td>'; }
+  order.forEach(function(l) {
+    var b = bud[l] || 0, a = act[l] || 0, d = a - b;
+    var dC = (actC[l] || 0) - (budC[l] || 0), dO = d - dC;
+    var mk = VAR_METRIC[l], v = 0, pr = 0, detail = '';
+    if (mk && met) {
+      var x = met[mk.key], sg = (b || a) < 0 ? -1 : 1;
+      var pb = x.bud.pts ? x.bud.usd / x.bud.pts : 0, pa = x.real.pts ? x.real.usd / x.real.pts : 0;
+      var expl = sg * (x.real.usd - x.bud.usd);
+      v = sg * (x.real.pts - x.bud.pts) * pb; pr = expl - v;
+      detail = '<div class="var-detail">Puntos ' + fmtPts(x.real.pts) + ' real vs ' + fmtPts(x.bud.pts) + ' budget ('
+        + fmtPct(x.real.pts, x.bud.pts) + ') · $/pt ' + (pa ? fmtPricePerPt(pa) : '—') + ' vs ' + (pb ? fmtPricePerPt(pb) : '—')
+        + ' · <span title="' + mk.desc + '">métrica: ' + mk.desc.split(' · ')[0] + '</span></div>';
+    } else if (!mk) {
+      detail = '<div class="var-detail">Sin métrica de negocio detrás: toda la variación queda como no explicada.</div>';
+    }
+    var r = dC - v - pr;
+    sum.b += b; sum.a += a; sum.d += d; sum.v += v; sum.p += pr; sum.r += r; sum.o += dO;
+    h += '<tr><td class="lc">' + varShort(l) + detail + '</td>' + cell(b) + cell(a) + cell(d, true) + '<td class="sep"></td>'
+       + cell(v, true) + cell(pr, true) + cell(r, true) + '<td class="sep"></td>' + cell(dO, true) + '</tr>';
+  });
+  h += '<tr class="grand-total"><td class="lc">TOTAL LOYALTY</td>' + cell(sum.b) + cell(sum.a) + cell(sum.d, true) + '<td class="sep"></td>'
+     + cell(sum.v, true) + cell(sum.p, true) + cell(sum.r, true) + '<td class="sep"></td>' + cell(sum.o, true) + '</tr>';
+  h += '</tbody></table></div></div>';
+  h += '<div class="proj-note"><strong>Efecto volumen</strong> = (puntos real − puntos budget) × $/pt budget · '
+     + '<strong>Efecto precio</strong> = ($/pt real − $/pt budget) × puntos real · '
+     + '<strong>No explicado</strong> = Δ del P&amp;L en meses cerrados − (volumen + precio): diferencia entre la contabilidad y la valuación de las métricas del Datalake, '
+     + 'o líneas sin métrica detrás (flag revenue, marketing, personnel). Rewards &amp; benefits cost se explica con la redención de iFood (ahí se registra). Signo: el de la línea en el P&amp;L. '
+     + '<strong>Δ meses Run Rate</strong> = variación de los meses todavía abiertos (Actual = Run Rate), sin apertura.</div>';
+  el.innerHTML = h;
+
+  // ---- waterfall
+  var labels = ['Budget'], data = [], colors = [], deltas = [], run = totB;
+  data.push([0, totB]); colors.push('rgba(85,15,237,.55)'); deltas.push(totB);
+  order.forEach(function(l) {
+    var d = (act[l] || 0) - (bud[l] || 0);
+    labels.push(varShort(l)); data.push([run, run + d]); deltas.push(d);
+    colors.push(d >= 0 ? 'rgba(2,150,135,.8)' : 'rgba(250,80,63,.8)');
+    run += d;
+  });
+  labels.push('Actual'); data.push([0, totA]); colors.push('rgba(85,15,237,.85)'); deltas.push(totA);
+  var ctx = document.getElementById('ch-var-wf');
+  if (CHARTS['ch-var-wf']) CHARTS['ch-var-wf'].destroy();
+  CHARTS['ch-var-wf'] = new Chart(ctx, {
+    type: 'bar',
+    data: { labels: labels, datasets: [{ data: data, backgroundColor: colors, borderRadius: 3,
+      datalabels: { anchor: 'end', align: 'top', clamp: true, font: { size: 11, weight: '700' }, color: '#475569',
+        formatter: function(v, c){ var i = c.dataIndex, t = i === 0 || i === labels.length - 1; return fmtPnl(deltas[i], !t); } } }] },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false },
+        tooltip: { callbacks: { label: function(c){ var i = c.dataIndex, t = i === 0 || i === labels.length - 1;
+          return (t ? 'Total: ' : 'Δ: ') + fmtPnl(deltas[i], !t); } } } },
+      scales: { x: { grid: { display: false }, ticks: { font: { size: 11 } } },
+                y: { grid: { color: '#f1f5f9' }, ticks: { callback: function(v){ return fmtPnl(v); } } } } }
+  });
+}
+
 // Fila debajo del YoY (solo Redenciones): precio/pt de LY + variacion YoY de ese precio.
 function priceRowHtml(prevPrice, currPrice) {
   return FISCAL_LABELS.map(function(lbl, i){
@@ -3189,12 +3420,26 @@ function buildPanels() {
   pbtn.addEventListener('click', function(){ switchCountry('pasivo'); });
   pbtn.setAttribute('aria-selected', 'false');
   tabsEl.appendChild(pbtn);
+
+  // Pestaña "Análisis variaciones" — P&L Actual vs Budget + el porqué por línea
+  var vbtn = document.createElement('button');
+  vbtn.className = 'ctab';
+  vbtn.dataset.key = 'variaciones';
+  vbtn.setAttribute('role', 'tab');
+  vbtn.textContent = '📊 Análisis variaciones';
+  vbtn.addEventListener('click', function(){ switchCountry('variaciones'); });
+  vbtn.setAttribute('aria-selected', 'false');
+  tabsEl.appendChild(vbtn);
   tabsEl.setAttribute('role', 'tablist');
 
   var pdiv = document.createElement('div');
   pdiv.id = 'panel-pasivo';
   pdiv.classList.add('hidden');
   panelsEl.appendChild(pdiv);
+  var vdiv = document.createElement('div');
+  vdiv.id = 'panel-variaciones';
+  vdiv.classList.add('hidden');
+  panelsEl.appendChild(vdiv);
 
   // Botón al Manual — pegado al extremo derecho de la barra de pestañas
   var man = document.createElement('a');
@@ -3218,11 +3463,14 @@ function switchCountry(key) {
   });
   var pp = document.getElementById('panel-pasivo');
   if (pp) pp.classList.toggle('hidden', key !== 'pasivo');
+  var pv2 = document.getElementById('panel-variaciones');
+  if (pv2) pv2.classList.toggle('hidden', key !== 'variaciones');
   renderCountry(key);
 }
 
 function renderCountry(key) {
   if (key === 'pasivo') { renderPasivo(); return; }
+  if (key === 'variaciones') { renderVariaciones(); return; }
   var c = COUNTRIES.filter(function(x){ return x.key === key; })[0];
   if (!c) return;
   renderPnl('pnl-' + key, c);
