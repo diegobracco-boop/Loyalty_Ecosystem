@@ -197,6 +197,9 @@ table.pnl tr.grand-total td.sep { background: #1b1533 !important; border-bottom-
 
 /* ---- Program index chips (saltos rapidos a cada programa) ---- */
 .prog-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+.cmp-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-bottom: 14px; }
+.cmp-bar .seg-btn[disabled] { opacity: .45; cursor: not-allowed; }
+.cmp-note { font-size: var(--fs-small); color: var(--muted); }
 .prog-chip { padding: 5px 12px; font-size: var(--fs-md); font-weight: 600; color: var(--accent); background: var(--accent-a08); border: 1px solid var(--accent-a15); border-radius: 999px; cursor: pointer; white-space: nowrap; transition: .15s; }
 .prog-chip:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
 
@@ -653,16 +656,26 @@ var CHARTS = {};
 // completando a medida que hay datos nuevos).
 var FISCAL_MONTHS = ['04','05','06','07','08','09','10','11','12','01','02','03'];
 function fiscalCalYear(mm, startYear) { return mm >= '04' ? startYear : startYear + 1; }
+// Año FISCAL (Abr->Mar), identificado por su año de ARRANQUE: cy = FY en curso
+// según el último dato cargado (abr-2026..mar-2027 -> cy=2026, se rotula FY27),
+// ly = FY anterior (FY26). Antes eran los años CALENDARIO de los archivos
+// (acum_2026/acum_2025): el 1-ene se corría al FY siguiente y los rótulos decían
+// "2026 vs 2025" en vez de FY27 vs FY26 (12-oct).
 function fyYears() {
-  var cy = +(((RAW.acum_cy||{}).meta||{}).year) || new Date().getFullYear();
-  var ly = +(((RAW.acum_ly||{}).meta||{}).year) || (cy - 1);
-  return { ly: ly, cy: cy };
+  var ld = ((RAW.acum_cy||{}).meta||{}).last_date;
+  var cy = fyStartYear(ld ? String(ld).substring(0, 7) : new Date().toISOString().substring(0, 7));
+  return { ly: cy - 1, cy: cy };
 }
+// Rótulo del FY por el año en que TERMINA (convención Control de Gestión): 2026 -> 'FY27'.
+function fyLbl(startYear) { return 'FY' + String(startYear + 1).slice(2); }
 
 // Switch Cantidad (Q) vs Valor ($) por seccion de metrica de negocio (pais+programa).
 // Aplica tanto a Acumulaciones como a Redenciones de esa seccion.
 var SEC_MODE = {};
-function getSecMode(suffix, prog) { return SEC_MODE[suffix + '|' + prog] || 'USD'; }
+function getSecMode(suffix, prog) {
+  // Default $; pero si se compara contra Budget/Run Rate (en puntos), default Q.
+  return SEC_MODE[suffix + '|' + prog] || (typeof cmpGoalActive === 'function' && cmpGoalActive() ? 'Q' : 'USD');
+}
 function setSecMode(btn, evt) {
   if (evt) evt.stopPropagation();  // el boton vive dentro de .prog-title (header del acordeon)
   var wrap = btn.closest('.seg');
@@ -1066,280 +1079,6 @@ function renderPnl(containerId, country) {
 }
 
 // ============================================================
-// Real vs Proyección (puntos) — loyalty_proyecciones.json (proyecciones.py, desde
-// Input_budget.xlsx / Input_runrate.xlsx de Control de Gestión) contra los reales
-// de los JSON que ya carga el dashboard. Mismo layout que el P&L: Real | Goal | Δ,
-// mismo selector Mes/Q/Half y mismo selector de Goal (Forecast no tiene proyección).
-// ============================================================
-
-// Partner del Excel -> partners del datalake, por país. '*' = "resto del país":
-// todo partner Cobrand/Partners del país que no esté listado explícitamente.
-// Solo cuentan filas de sección Cobrand/Partners: los puntos del partner con
-// point_type 'Rewards & Benefits' (= Puntos Manuales) quedan afuera, igual que en
-// el Budget (confirmado por Control de Gestión 12-oct, caso ICBC).
-var PROY_PARTNERS = {
-  argentina: { 'ICBC': ['ICBCAR'], 'FOCO': ['FOCOAR'], 'Bonda': ['BONDAAR'] },
-  brasil:    { 'C6': ['C6BANKBR'], 'BRB': ['BRBBR'], 'New partner': '*' },
-  mexico:    { 'INVEX': ['INVEXMX'], 'BBVA': ['BBVAMX'], 'Otros': '*' }
-};
-// Tipo_punto del Excel -> filtro sobre filas de redención. 'Pasaporte D!' =
-// general + COBRAND + PARTNERS (el mismo criterio que getProgramsFromReden; sin
-// Club Despegar) — validado contra el budget de AR abr-sep (diferencias < 10%).
-var PROY_REDEN = {
-  'Pasaporte D!': function(r){ return getProgramsFromReden(r).indexOf('Pasaporte D!') !== -1; },
-  // IFOOD: bolsa total del programa, TODOS los tipos (welcome incluidos) — así se
-  // proyecta en el Budget (confirmado 12-oct).
-  'IFOOD':        function(r){ return getProgramFromReden(r) === 'IFOOD'; },
-  'Puntos R&B':   function(r){ return r.point_type === 'Puntos R&B'; },
-  'PONTOSBR':     function(r){ return r.point_type === 'PONTOSBR'; },
-  'FORTUNE':      function(r){ return r.point_type === 'FORTUNE'; }
-};
-var PROY_SSP = [
-  { clave: 'SSP_Red', label: 'SSP (redención)',   real: 'ssp_calculado' },
-  { clave: 'SSP',     label: 'SSP (facturación)', real: 'ssp_facturacion' }
-];
-
-// Último mes CERRADO de reales (el mes en curso está incompleto y daría un Δ falso).
-function proyLastClosedYm() {
-  var ld = ((RAW.acum_cy || {}).meta || {}).last_date;
-  if (!ld) return '';
-  var d = new Date(ld + 'T00:00:00');
-  var next = new Date(d.getTime() + 864e5);
-  if (next.getMonth() !== d.getMonth()) return ld.substring(0, 7);   // last_date = fin de mes
-  var p = new Date(d.getFullYear(), d.getMonth() - 1, 1);
-  return p.getFullYear() + '-' + ('0' + (p.getMonth() + 1)).slice(-2);
-}
-
-function buildProy(country, goal) {
-  var r = getRange(), tot = isTotal(country);
-  var keys = tot ? COUNTRY_DATAKEYS : [country.dataKey];
-  function add(m, ym, v) { m[ym] = (m[ym] || 0) + v; }
-  function inR(ym) { return ym && inRange(ym, r.from, r.to); }
-  function lbl(k, dk) { return tot ? k + ' · ' + (COUNTRY_ISO[dk] || dk).toUpperCase() : k; }
-
-  // Proyección: proj[bloque][dk][clave] = {ym: v}
-  var proj = {};
-  expand(RAW.proy).forEach(function(p) {
-    if (p.escenario !== goal || keys.indexOf(p.pais) === -1 || !inR(p.ym)) return;
-    var b = proj[p.bloque] = proj[p.bloque] || {};
-    var c = b[p.pais] = b[p.pais] || {};
-    c[p.clave] = c[p.clave] || {};
-    add(c[p.clave], p.ym, +p.valor || 0);
-  });
-  function pj(bloque, dk, clave) { return ((proj[bloque] || {})[dk] || {})[clave] || {}; }
-
-  // Reales: CY + LY juntos (el FY abr->mar cruza el año calendario de los archivos).
-  var acum = expand(RAW.acum_cy).concat(expand(RAW.acum_ly));
-  var reden = expand(RAW.reden_cy).concat(expand(RAW.reden_ly));
-  var out = { acum: [], reden: [], breakage: [], ssp: [], ratio: [] };
-
-  keys.forEach(function(dk) {
-    var iso = (COUNTRY_ISO[dk] || '').toUpperCase();
-    // --- Acumulación Cobrand / Partners
-    var pmap = PROY_PARTNERS[dk] || {}, listed = [];
-    Object.keys(pmap).forEach(function(k){ if (pmap[k] !== '*') listed = listed.concat(pmap[k]); });
-    Object.keys(pmap).forEach(function(k) {
-      var real = {};
-      acum.forEach(function(a) {
-        var ym = (a.processing_date || '').substring(0, 7);
-        if (a.country_code !== iso || !inR(ym)) return;
-        var prog = getProgramFromAcum(a);
-        if (prog !== 'Cobrand' && prog !== 'Partners') return;
-        var hit = pmap[k] === '*' ? listed.indexOf(a.partner) === -1 : pmap[k].indexOf(a.partner) !== -1;
-        if (hit) add(real, ym, +a.points || 0);
-      });
-      out.acum.push({ label: lbl(k, dk), real: real, goal: pj('acum_partner', dk, k) });
-    });
-    // --- Redenciones por tipo
-    Object.keys(PROY_REDEN).forEach(function(k) {
-      var real = {};
-      reden.forEach(function(x) {
-        var ym = (x.processing_date || '').substring(0, 7);
-        if (x.country_code !== iso || !inR(ym) || !PROY_REDEN[k](x)) return;
-        add(real, ym, Math.abs(+x.points || 0));
-      });
-      out.reden.push({ label: k, real: real, goal: pj('reden', dk, k) });
-    });
-    // --- Breakage (vencimientos por mes de vencimiento 'MM-YYYY')
-    var bk = {};
-    (Array.isArray((RAW.breakage || {}).data) ? RAW.breakage.data : expand(RAW.breakage)).forEach(function(b) {
-      if ((b.country || '').toLowerCase() !== iso.toLowerCase()) return;
-      var e = b.expiration_date || '', ym = e.substring(3) + '-' + e.substring(0, 2);
-      if (inR(ym)) add(bk, ym, Math.abs(+b.points || 0));
-    });
-    out.breakage.push({ label: 'Puntos vencidos', real: bk, goal: pj('breakage', dk, '') });
-
-    if (tot) return;   // precios y ratios no se suman entre países
-    // --- SSP
-    var ssp = ((RAW.ssp || {}).data || {})[dk] || {};
-    PROY_SSP.forEach(function(s) {
-      var real = {};
-      Object.keys(ssp).forEach(function(ym){ if (inR(ym) && ssp[ym][s.real] != null) real[ym] = Math.abs(+ssp[ym][s.real]); });
-      out.ssp.push({ label: s.label, real: real, goal: pj('ssp', dk, s.clave), avg: true });
-    });
-    // --- Ratio de acumulación por producto (real = puntos/GB; se agrega como suma/suma)
-    var prods = Object.keys((proj.ratio || {})[dk] || {});
-    prods.forEach(function(k) {
-      var pts = {}, gb = {};
-      expand(RAW.ratio_acum).forEach(function(x) {
-        var ym = (x.processing_date || '').substring(0, 7);
-        if (x.country_code !== iso || x.grupo_pnl !== k || !inR(ym)) return;
-        add(pts, ym, +x.points || 0); add(gb, ym, +x.gb || 0);
-      });
-      out.ratio.push({ label: k, pts: pts, gb: gb, goal: pj('ratio', dk, k), ratio: true });
-    });
-  });
-  // Redenciones y breakage: una fila por tipo (en TOTAL, suma de los países).
-  // Los partners NO se fusionan: cada uno es de un país (el label lleva el ISO).
-  ['reden', 'breakage'].forEach(function(b) {
-    var byLbl = {}, order = [];
-    out[b].forEach(function(it) {
-      if (!byLbl[it.label]) { byLbl[it.label] = { label: it.label, real: {}, goal: {} }; order.push(it.label); }
-      byLbl[it.label].real = mergeMonthly([byLbl[it.label].real, it.real]);
-      byLbl[it.label].goal = mergeMonthly([byLbl[it.label].goal, it.goal]);
-    });
-    out[b] = order.map(function(l){ return byLbl[l]; });
-  });
-  return out;
-}
-
-function renderProy(containerId, country) {
-  var el = document.getElementById(containerId);
-  if (!el) return;
-  var GOAL = getScenario();
-  if (!RAW.proy) { el.innerHTML = '<div class="empty">loyalty_proyecciones.json no disponible.</div>'; return; }
-  var hasGoal = expand(RAW.proy).some(function(p){ return p.escenario === GOAL; });
-  if (!hasGoal) {
-    el.innerHTML = '<div class="empty">No hay proyección de puntos cargada para ' + scenarioLabel(GOAL)
-      + (GOAL === 'runrate' ? ' (falta Input_runrate.xlsx en OneDrive).' : '.') + '</div>';
-    return;
-  }
-  var d = buildProy(country, GOAL);
-  var lastClosed = proyLastClosedYm();
-  var r = getRange(), mode = getPeriodMode();
-
-  // Meses del rango (eje fijo, aunque no haya real todavía)
-  var months = [];
-  if (r.from && r.to) {
-    var y = +r.from.substring(0, 4), m = +r.from.substring(5, 7);
-    while (true) {
-      var ym = y + '-' + ('0' + m).slice(-2);
-      if (ym > r.to || months.length > 60) break;
-      months.push(ym); m++; if (m > 12) { m = 1; y++; }
-    }
-  }
-  var fys = {}; months.forEach(function(ym){ fys[fyStartYear(ym)] = 1; });
-  var withFy = Object.keys(fys).length > 1;
-  var periods = [];
-  months.forEach(function(ym){ var pk = pnlPeriodKey(ym, mode, withFy); if (periods.indexOf(pk) === -1) periods.push(pk); });
-  var cols = periods.concat(['TOT']), n = cols.length;
-  // Un periodo tiene real "completo" solo si todos sus meses están cerrados.
-  var closedP = {};
-  periods.forEach(function(p) {
-    closedP[p] = months.filter(function(ym){ return pnlPeriodKey(ym, mode, withFy) === p; })
-                       .every(function(ym){ return ym <= lastClosed; });
-  });
-  closedP.TOT = true;
-  var ytdLbl = 'YTD' + (lastClosed ? ' a ' + fmtMonthLbl(lastClosed) : '');
-  function pLabel(p) { return p === 'TOT' ? ytdLbl : (mode === 'month' ? fmtMonthLbl(p) : p); }
-
-  // {ym:v} -> {periodo:v}. TOT = solo meses cerrados (Real y Goal comparables).
-  // avg: promedio simple de los meses con dato (precios).
-  function toP(mm, avg) {
-    var s = {}, c = {};
-    Object.keys(mm || {}).forEach(function(ym) {
-      if (months.indexOf(ym) === -1) return;
-      var v = mm[ym], ks = [pnlPeriodKey(ym, mode, withFy)];
-      if (ym <= lastClosed) ks.push('TOT');
-      ks.forEach(function(k){ s[k] = (s[k] || 0) + v; c[k] = (c[k] || 0) + 1; });
-    });
-    if (avg) Object.keys(s).forEach(function(k){ s[k] = s[k] / c[k]; });
-    return s;
-  }
-  function ratioP(pts, gb) {
-    var p = toP(pts), g = toP(gb), o = {};
-    Object.keys(p).forEach(function(k){ if (g[k]) o[k] = p[k] / g[k]; });
-    return o;
-  }
-  var fPts = function(v, signed){ return fmtCount(v, signed); };
-  var fSsp = function(v, signed){ return (v < 0 ? '-' : (signed && v > 0 ? '+' : '')) + '$' + Math.abs(v).toFixed(4); };
-  var fRat = function(v, signed){ return (v < 0 ? '-' : (signed && v > 0 ? '+' : '')) + Math.abs(v).toFixed(3); };
-
-  function cells(pm, fmt, signed, onlyClosed) {
-    var s = '';
-    cols.forEach(function(c) {
-      var v = pm[c];
-      var show = v !== undefined && v !== 0 && (!onlyClosed || closedP[c]);
-      s += '<td class="' + (c === 'TOT' ? 'tc ' : '') + (show ? 'vf' : 'vz') + '">' + (show ? fmt(v, signed) : '—') + '</td>';
-    });
-    return s;
-  }
-  function row(label, realP, goalP, fmt, cls) {
-    var dP = {};
-    cols.forEach(function(c){ if (realP[c] !== undefined && goalP[c] !== undefined) dP[c] = realP[c] - goalP[c]; });
-    return '<tr' + (cls ? ' class="' + cls + '"' : '') + '><td class="lc">' + label + '</td>'
-      + cells(realP, fmt, false, true) + '<td class="sep"></td>' + cells(goalP, fmt, false, false)
-      + '<td class="sep"></td>' + cells(dP, fmt, true, true) + '</tr>';
-  }
-  function emptyRow() {
-    var s = '';
-    for (var b = 0; b < 3; b++) { for (var i = 0; i < n; i++) s += '<td></td>'; if (b < 2) s += '<td class="sep"></td>'; }
-    return s;
-  }
-  function nonEmpty(it) {
-    var any = function(m){ return Object.keys(m || {}).some(function(k){ return m[k]; }); };
-    return any(it.goal) || any(it.real) || any(it.pts);
-  }
-
-  var html = '<div class="tbl-scroll"><table class="pnl"><thead>';
-  html += '<tr class="bg-scen"><th class="lc"></th>'
-        + '<th class="bg-b" colspan="' + n + '">REAL</th><th class="sep"></th>'
-        + '<th class="bg-g" colspan="' + n + '">GOAL · ' + scenarioLabel(GOAL) + '</th><th class="sep"></th>'
-        + '<th class="bg-d" colspan="' + n + '">&Delta; REAL &minus; GOAL</th></tr>';
-  html += '<tr><th class="lc">Métrica</th>';
-  for (var blk = 0; blk < 3; blk++) {
-    var phCls = ['ph-b', 'ph-g', 'ph-d'][blk];
-    cols.forEach(function(c){ html += '<th class="' + phCls + (c === 'TOT' ? ' tc' : '') + '">' + pLabel(c) + '</th>'; });
-    if (blk < 2) html += '<th class="sep"></th>';
-  }
-  html += '</tr></thead><tbody>';
-
-  function sumBlock(title, items) {
-    items = items.filter(nonEmpty);
-    if (!items.length) return;
-    html += '<tr class="grp-hdr"><td class="lc">' + title + '</td>' + emptyRow() + '</tr>';
-    items.forEach(function(it){ html += row(it.label, toP(it.real), toP(it.goal), fPts); });
-    if (items.length > 1) {
-      html += row('Subtotal ' + title, toP(mergeMonthly(items.map(function(i){ return i.real; }))),
-                  toP(mergeMonthly(items.map(function(i){ return i.goal; }))), fPts, 'subtotal');
-    }
-  }
-  sumBlock('Acumulación Cobrand / Partners (pts)', d.acum);
-  sumBlock('Redenciones (pts)', d.reden);
-  sumBlock('Breakage (pts)', d.breakage);
-  var ssp = d.ssp.filter(nonEmpty);
-  if (ssp.length) {
-    html += '<tr class="grp-hdr"><td class="lc">Precio del punto (USD)</td>' + emptyRow() + '</tr>';
-    ssp.forEach(function(it){ html += row(it.label, toP(it.real, true), toP(it.goal, true), fSsp); });
-  }
-  var rat = d.ratio.filter(nonEmpty);
-  if (rat.length) {
-    html += '<tr class="grp-hdr"><td class="lc">Ratio de acumulación Pasaporte D! (pts / USD GB)</td>' + emptyRow() + '</tr>';
-    rat.forEach(function(it){ html += row(it.label, ratioP(it.pts, it.gb), toP(it.goal, true), fRat); });
-  }
-  html += '</tbody></table></div>';
-  var pm = (RAW.proy.meta || {});
-  html += '<div class="proj-note">Real hasta el último mes cerrado (' + (lastClosed ? fmtMonthLbl(lastClosed) : '—')
-        + '); el mes en curso no se compara. <strong>' + ytdLbl + '</strong> suma solo los meses cerrados, en Real y en Goal. '
-        + 'Precio y ratio: promedio de los meses (el ratio real es puntos/GB del período).'
-        + (isTotal(country) ? ' En TOTAL no se muestran precio ni ratio (no se suman entre países).' : '')
-        + '<br>Fuente Goal: Input_' + (GOAL === 'runrate' ? 'runrate' : 'budget') + '.xlsx (Control de Gestión), '
-        + 'subido ' + (pm.generated_at || '—') + '. Redenciones "Pasaporte D!" = general + Cobrand + Partners (sin Club Despegar).'
-        + '</div>';
-  el.innerHTML = html;
-}
-
-// ============================================================
 // Metrics data by program
 // ============================================================
 function buildMetrics(country) {
@@ -1359,10 +1098,14 @@ function buildMetrics(country) {
     });
   }
 
-  var acCY = filterCY(expand(RAW.acum_cy));
-  var acLY = filterLY(expand(RAW.acum_ly));
-  var rdCY = filterCY(expand(RAW.reden_cy));
-  var rdLY = filterLY(expand(RAW.reden_ly));
+  // CY y LY se filtran sobre los DOS archivos: el FY (abr->mar) cruza el año
+  // calendario, así que ene-mar del FY26 viven en acum_2026, no en acum_2025.
+  var acAll = expand(RAW.acum_cy).concat(expand(RAW.acum_ly));
+  var rdAll = expand(RAW.reden_cy).concat(expand(RAW.reden_ly));
+  var acCY = filterCY(acAll);
+  var acLY = filterLY(acAll);
+  var rdCY = filterCY(rdAll);
+  var rdLY = filterLY(rdAll);
   var bkAll = Array.isArray((RAW.breakage || {}).data) ? RAW.breakage.data : expand(RAW.breakage);
   var bkIsoSet = isTotal(country)
     ? COUNTRY_DATAKEYS.map(function(k){ return COUNTRY_ISO[k] || k; })
@@ -1397,7 +1140,26 @@ function buildMetrics(country) {
 
   var bkTotal = bkCY.reduce(function(s, b){ return s + Math.abs(+(b.points) || 0); }, 0);
 
-  return { acCY: aggAcum(acCY), acLY: aggAcum(acLY), rdCY: aggReden(rdCY), rdLY: aggReden(rdLY),
+  // Mensual por programa, sin filtro de rango (lo aplica ytdVs): base de las
+  // comparaciones de KPI a meses cerrados (FY27 YTD vs FY26 mismos meses / vs Budget).
+  // acM[prog][ym] = {pts, usd, br} · rdM[prog][ym] = {pts, usd}
+  var acM = {}, rdM = {};
+  function slot(o, prog, ym) { o[prog] = o[prog] || {}; return (o[prog][ym] = o[prog][ym] || { pts: 0, usd: 0, br: 0 }); }
+  acAll.forEach(function(row) {
+    if (!matchCountryCode(row.country_code, country)) return;
+    var ym = (row.processing_date || '').substring(0, 7), dk = rowCountryKey(row, country);
+    var o = slot(acM, getProgramFromAcum(row), ym);
+    o.pts += getPts(row); o.usd += getAcumUsd(row, dk); o.br += getBankRevenue(row, dk);
+  });
+  rdAll.forEach(function(row) {
+    if (!matchCountryCode(row.country_code, country)) return;
+    var ym = (row.processing_date || '').substring(0, 7);
+    var p = getPts(row), u = Math.abs(+(row.descuento_consumo_puntos_usd) || 0);
+    getProgramsFromReden(row).forEach(function(prog) { var o = slot(rdM, prog, ym); o.pts += p; o.usd += u; });
+  });
+
+  return { acM: acM, rdM: rdM,
+           acCY: aggAcum(acCY), acLY: aggAcum(acLY), rdCY: aggReden(rdCY), rdLY: aggReden(rdLY),
            bkTotal: bkTotal, mb: buildMiembros(country),
            cdd: buildClubDespegar(country), ifd: buildIfood(country) };
 }
@@ -1526,6 +1288,107 @@ function progTitleAttrs(id, suffix, open) {
     + 'onkeydown="progTitleKeydown(event,\'' + id + '\',\'' + suffix + '\')"';
 }
 
+// ============================================================
+// Comparación de Métricas de Negocio: FY anterior (default) o proyección
+// (Budget / Run Rate) de loyalty_proyecciones.json (proyecciones.py, desde
+// Input_budget.xlsx / Input_runrate.xlsx de Control de Gestión). La proyección
+// está en PUNTOS: en vista $ y en métricas sin proyección se compara vs FY ant.
+// ============================================================
+var METRICS_CMP = 'ly';   // 'ly' | 'budget' | 'runrate'
+function setMetricsCmp(v) { METRICS_CMP = v; renderActive(); }
+function cmpHasEsc(esc) { return expand(RAW.proy).some(function(p){ return p.escenario === esc; }); }
+function cmpGoalActive() { return METRICS_CMP !== 'ly' && cmpHasEsc(METRICS_CMP); }
+function cmpLabel() { return scenarioLabel(METRICS_CMP) + ' ' + fyLbl(fyYears().cy); }
+
+// Partner del Excel -> programa del dashboard (resto = Partners). El real del
+// programa ya excluye los puntos 'Rewards & Benefits' del partner (son Puntos
+// Manuales), igual que el Budget (confirmado 12-oct, caso ICBC).
+var PROY_PARTNER_PROG = { 'ICBC': 'Cobrand', 'INVEX': 'Cobrand' };
+// Programa del dashboard -> Tipo_punto del Excel (solapa Redenciones).
+// 'Pasaporte D!' en el Budget = general + Cobrand + Partners, el mismo universo
+// que la redención de Pasaporte D! del dashboard (getProgramsFromReden).
+// IFOOD = bolsa total, todos los tipos (confirmado 12-oct).
+var PROY_REDEN_PROG = { 'Pasaporte D!': ['Pasaporte D!'], 'IFOOD': ['IFOOD'],
+                        'Puntos Manuales': ['Puntos R&B'], 'Acciones Marketing': ['FORTUNE', 'PONTOSBR'] };
+
+// {YYYY-MM: valor} de la proyección elegida para un bloque, sumando los países de
+// la vista (TOTAL = los 8). null si no hay comparación por proyección activa o no hay filas.
+function proyMap(bloque, keyFn, country) {
+  if (!cmpGoalActive()) return null;
+  var keys = isTotal(country) ? COUNTRY_DATAKEYS : [country.dataKey];
+  var m = {}, any = false;
+  expand(RAW.proy).forEach(function(p) {
+    if (p.escenario !== METRICS_CMP || p.bloque !== bloque || keys.indexOf(p.pais) === -1 || !keyFn(p.clave)) return;
+    m[p.ym] = (m[p.ym] || 0) + (+p.valor || 0); any = true;
+  });
+  return any ? m : null;
+}
+function goalAcumMap(prog, country) {
+  if (prog !== 'Cobrand' && prog !== 'Partners') return null;
+  return proyMap('acum_partner', function(k){ return (PROY_PARTNER_PROG[k] || 'Partners') === prog; }, country);
+}
+function goalRedenMap(prog, country) {
+  var ks = PROY_REDEN_PROG[prog];
+  return ks ? proyMap('reden', function(k){ return ks.indexOf(k) !== -1; }, country) : null;
+}
+function goalBkMap(country) { return proyMap('breakage', function(){ return true; }, country); }
+// Ratio: es un precio, no se suma entre países ni productos -> sin proyección en TOTAL / producto 'Total'.
+function goalRatioMap(product, country) {
+  if (isTotal(country) || product === 'Total') return null;
+  return proyMap('ratio', function(k){ return k === product; }, country);
+}
+// Serie de comparación para buildBarChart: proyección del FY en curso si hay, si no el FY anterior.
+function pickCmp(goalMap, lyPrev, fy) {
+  if (goalMap) return { data: fiscalSeries(goalMap, goalMap, fy.cy, fy.ly, fy.cy), label: cmpLabel() };
+  return { data: lyPrev, label: fyLbl(fy.ly) };
+}
+// Último mes CERRADO de reales (el mes en curso está incompleto).
+function proyLastClosedYm() {
+  var ld = ((RAW.acum_cy || {}).meta || {}).last_date;
+  if (!ld) return '';
+  var d = new Date(ld + 'T00:00:00'), next = new Date(d.getTime() + 864e5);
+  if (next.getMonth() !== d.getMonth()) return ld.substring(0, 7);
+  var p = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+  return p.getFullYear() + '-' + ('0' + (p.getMonth() + 1)).slice(-2);
+}
+// Subtítulo de KPI: real del FY en curso vs referencia, ambos sobre los MISMOS
+// meses CERRADOS (dentro del rango de fechas) — nunca un FY a medio año contra uno
+// completo ni un mes a medio cargar. realMap: {ym: v}. goalMap = proyección
+// {ym: v} o null -> se compara contra el mismo mes del FY anterior en realMap.
+function ytdVs(realMap, goalMap) {
+  var fy = fyYears(), r = getRange(), last = proyLastClosedYm(), real = 0, ref = 0;
+  FISCAL_MONTHS.forEach(function(mm) {
+    var ym = fiscalCalYear(mm, fy.cy) + '-' + mm;
+    if (!last || ym > last || !inRange(ym, r.from, r.to)) return;
+    var lyYm = fiscalCalYear(mm, fy.ly) + '-' + mm;
+    real += Math.abs((realMap || {})[ym] || 0);
+    ref  += Math.abs(goalMap ? (goalMap[ym] || 0) : ((realMap || {})[lyYm] || 0));
+  });
+  return 'vs ' + (goalMap ? scenarioLabel(METRICS_CMP) : fyLbl(fy.ly)) + ' ' + fmtPct(real, ref)
+       + ' · YTD ' + (last ? fmtMonthLbl(last) : '—');
+}
+// {ym: campo} de un mapa acM/rdM[prog]
+function pick(m, f) { var o = {}; Object.keys(m || {}).forEach(function(ym){ o[ym] = m[ym][f]; }); return o; }
+
+function cmpBarHtml() {
+  var fy = fyYears();
+  var opts = [['ly', fyLbl(fy.ly) + ' (año anterior)'], ['budget', 'Budget ' + fyLbl(fy.cy)], ['runrate', 'Run Rate ' + fyLbl(fy.cy)]];
+  var h = '<div class="cmp-bar"><span class="ratio-controls-lbl">Comparar ' + fyLbl(fy.cy) + ' contra</span><div class="seg seg-sm">';
+  opts.forEach(function(o) {
+    var dis = o[0] !== 'ly' && !cmpHasEsc(o[0]);
+    h += '<button class="seg-btn' + (METRICS_CMP === o[0] ? ' active' : '') + '" type="button"'
+       + (dis ? ' disabled title="Sin proyección cargada (falta Input_' + o[0] + '.xlsx)"' : '')
+       + ' onclick="setMetricsCmp(\'' + o[0] + '\')">' + o[1] + '</button>';
+  });
+  h += '</div>';
+  if (METRICS_CMP !== 'ly') {
+    h += '<span class="cmp-note">' + (cmpGoalActive()
+      ? 'La proyección está en puntos: aplica en vista Q a Cobrand/Partners (acumulación), redenciones, breakage y ratio por producto. Lo demás sigue vs ' + fyLbl(fy.ly) + '.'
+      : 'No hay ' + scenarioLabel(METRICS_CMP) + ' cargado: se compara vs ' + fyLbl(fy.ly) + '.') + '</span>';
+  }
+  return h + '</div>';
+}
+
 function renderMetrics(country, m) {
   var suffix = country.key;
   var programs = programsForCountry(country.key);
@@ -1539,6 +1402,8 @@ function renderMetrics(country, m) {
           + 'Estás viendo el <strong>TOTAL agregado de los ' + COUNTRY_DATAKEYS.length + ' países</strong> (suma de todas las solapas de país).'
           + '</div>';
   }
+
+  html += cmpBarHtml();
 
   // Indice de programas: chips que saltan a cada seccion (Miembros + programas + Breakage).
   html += '<div class="prog-nav">';
@@ -1571,9 +1436,9 @@ function renderMetrics(country, m) {
       html += kpiHtml(t, fmtPts(v), pct + ' del total', MB_TIER_COLOR_SOLID[t]);
     });
     html += '</div>';
-    html += '<div class="cc" style="margin-bottom:14px"><div class="ct">Altas por mes — mes de enrolment (CY vs LY)</div><div class="cw"><canvas id="' + mbAltasId + '"></canvas></div>'
+    html += '<div class="cc" style="margin-bottom:14px"><div class="ct">Altas por mes — mes de enrolment (' + fyLbl(fyYears().cy) + ' vs ' + fyLbl(fyYears().ly) + ')</div><div class="cw"><canvas id="' + mbAltasId + '"></canvas></div>'
       + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-' + mbAltasId + '"></div></div></div>';
-    html += '<div class="cc" style="margin-bottom:14px"><div class="ct">Miembros acumulados a fin de mes (CY vs LY)</div><div class="cw"><canvas id="' + mbStockId + '"></canvas></div>'
+    html += '<div class="cc" style="margin-bottom:14px"><div class="ct">Miembros acumulados a fin de mes (' + fyLbl(fyYears().cy) + ' vs ' + fyLbl(fyYears().ly) + ')</div><div class="cw"><canvas id="' + mbStockId + '"></canvas></div>'
       + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-' + mbStockId + '"></div></div></div>';
     html += '<div class="cc"><div class="ct">Altas por mes y tier — año fiscal actual</div><div class="cw"><canvas id="' + mbTierId + '"></canvas></div></div>';
   }
@@ -1608,13 +1473,17 @@ function renderMetrics(country, m) {
     html += '<div class="prog-body" id="' + progId + '-body">';
 
     // KPI row
+    // KPIs: vs FY anterior, o vs Budget/Run Rate (solo puntos, YTD a mes cerrado)
+    // si hay proyección para ese programa y está elegida (ver METRICS_CMP).
+    var gAcK = goalAcumMap(prog, country), gRdK = goalRedenMap(prog, country);
+    var acMp = m.acM[prog], rdMp = m.rdM[prog];
     html += '<div class="kpi-row">'
-      + kpiHtml('Puntos Acumulados', fmtPts(acCY.pts), 'vs LY ' + fmtPct(acCY.pts, acLY.pts), 'var(--accent)')
-      + kpiHtml('Valor Acumulado', fmtUSD(Math.abs(acCY.usd)), 'vs LY ' + fmtPct(Math.abs(acCY.usd), Math.abs(acLY.usd)), '#976cf6')
-      + kpiHtml('Puntos Redimidos', fmtPts(Math.abs(rdCY.pts)), 'vs LY ' + fmtPct(Math.abs(rdCY.pts), Math.abs(rdLY.pts)), 'var(--red)')
-      + kpiHtml('Valor Redimido', fmtUSD(Math.abs(rdCY.usd)), 'vs LY ' + fmtPct(Math.abs(rdCY.usd), Math.abs(rdLY.usd)), '#029687')
+      + kpiHtml('Puntos Acumulados', fmtPts(acCY.pts), ytdVs(pick(acMp, 'pts'), gAcK), 'var(--accent)')
+      + kpiHtml('Valor Acumulado', fmtUSD(Math.abs(acCY.usd)), ytdVs(pick(acMp, 'usd')), '#976cf6')
+      + kpiHtml('Puntos Redimidos', fmtPts(Math.abs(rdCY.pts)), ytdVs(pick(rdMp, 'pts'), gRdK), 'var(--red)')
+      + kpiHtml('Valor Redimido', fmtUSD(Math.abs(rdCY.usd)), ytdVs(pick(rdMp, 'usd')), '#029687')
       + (prog === 'Cobrand' || prog === 'Partners'
-         ? kpiHtml(prog === 'Partners' ? 'Partner Revenue' : 'Bank Revenue', fmtUSD(Math.abs(acCY.br)), 'vs LY ' + fmtPct(Math.abs(acCY.br), Math.abs(acLY.br)), '#029687')
+         ? kpiHtml(prog === 'Partners' ? 'Partner Revenue' : 'Bank Revenue', fmtUSD(Math.abs(acCY.br)), ytdVs(pick(acMp, 'br')), '#029687')
          : '')
       + '</div>';
 
@@ -1651,13 +1520,13 @@ function renderMetrics(country, m) {
         + '</div></div>';
     }
     html += '<div class="cc" style="margin-bottom:14px">' + acTitleHtml + '<div class="cw"><canvas id="' + canvasId + '"></canvas></div>'
-      + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-' + canvasId + '"></div></div>'
+      + '<div class="dtable-row"><div class="dtable-label">' + (mode === 'Q' && gAcK && !(prog === 'Pasaporte D!' && aView === 'tier') ? 'vs ' + cmpLabel() : 'YoY %') + '</div><div class="yoy-row" id="yoy-' + canvasId + '"></div></div>'
       + '</div>'
       + (prog === 'Pasaporte D!' && aView === 'tier' ? '<div class="cc" style="margin-bottom:14px"><div class="ct" style="font-size:12px;color:#64748b;margin-bottom:4px">Mix por tier (%)</div><div class="cw" style="height:160px"><canvas id="ch-mix-' + suffix + '"></canvas></div></div>' : '')
-      + (prog === 'Pasaporte D!' && aView === 'tier' ? '<div style="margin-bottom:14px"><div class="ct" style="font-size:12px;color:#64748b;margin-bottom:8px">Ratio de acumulación por tier — puntos por $ de GB, año fiscal ' + fyYears().cy + ' vs ' + fyYears().ly + '</div><div class="kpi-row" id="tier-avg-' + suffix + '"></div></div>' : '');
+      + (prog === 'Pasaporte D!' && aView === 'tier' ? '<div style="margin-bottom:14px"><div class="ct" style="font-size:12px;color:#64748b;margin-bottom:8px">Ratio de acumulación por tier — puntos por $ de GB, año fiscal ' + fyLbl(fyYears().cy) + ' vs ' + fyLbl(fyYears().ly) + '</div><div class="kpi-row" id="tier-avg-' + suffix + '"></div></div>' : '');
     html += '<div class="cc" style="margin-bottom:14px"><div class="ct">' + rdTitle + '</div><div class="cw"><canvas id="' + canvasRdId + '"></canvas></div>'
-      + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-' + canvasRdId + '"></div></div>'
-      + '<div class="dtable-row"><div class="dtable-label">Precio LY / YoY</div><div class="ppr-row" id="ppr-' + canvasRdId + '"></div></div>'
+      + '<div class="dtable-row"><div class="dtable-label">' + (mode === 'Q' && gRdK ? 'vs ' + cmpLabel() : 'YoY %') + '</div><div class="yoy-row" id="yoy-' + canvasRdId + '"></div></div>'
+      + '<div class="dtable-row"><div class="dtable-label">Precio ' + fyLbl(fyYears().ly) + ' / YoY</div><div class="ppr-row" id="ppr-' + canvasRdId + '"></div></div>'
       + '</div>';
 
     // ---- Ratio de acumulacion (pts/GB por producto): va DENTRO de "Pasaporte D!" ----
@@ -1692,7 +1561,7 @@ function renderMetrics(country, m) {
         + '</div></div>'
         + '<div class="ratio-hint">' + (rView === 'periodo'
              ? 'Barra clara = período anterior · Barra de color = período elegido · "Total" = ratio agregado de los 7 productos'
-             : 'Barras = ratio mensual del producto elegido (año fiscal ' + fyYears().cy + ') · barra clara = mismo mes del año fiscal ' + fyYears().ly)
+             : 'Barras = ratio mensual del producto elegido (' + fyLbl(fyYears().cy) + ') · barra clara = ' + (cmpGoalActive() && !isTotal(country) && getRatioProduct(suffix) !== 'Total' ? cmpLabel() : 'mismo mes de ' + fyLbl(fyYears().ly)))
         + '</div>'
         + '<div class="cc"><div class="cw"><canvas id="ch-ratio-' + suffix + '"></canvas></div></div>'
         + (rView === 'producto' && getRatioProduct(suffix) !== 'Total'
@@ -1737,7 +1606,7 @@ function renderMetrics(country, m) {
           penetRows(country).forEach(function(r) {
             var rYm = (r.ym || '').substring(0, 7);
             var rYr = parseInt(rYm.substring(0, 4));
-            if (rYr !== yearKey) return;
+            if (rYm.length !== 7 || fyStartYear(rYm) !== yearKey) return;
             if (prod !== 'Total' && r.grupo_pnl !== prod) return;
             byYm[rYm] = byYm[rYm] || { gt: 0, gp: 0 };
             byYm[rYm].gt += (+r.gb_total      || 0);
@@ -1799,7 +1668,7 @@ function renderMetrics(country, m) {
           html += kpiHtml(p, fmtPts(v), pct + ' del total', CDD_PLAN_COLOR_SOLID[p]);
         });
         html += '</div>';
-        html += '<div class="cc" style="margin-bottom:14px"><div class="ct">Miembros suscriptos por mes y plan — base activa acumulada (CY, línea = total ' + fyYears().ly + ')</div>'
+        html += '<div class="cc" style="margin-bottom:14px"><div class="ct">Miembros suscriptos por mes y plan — base activa acumulada (' + fyLbl(fyYears().cy) + ', línea = total ' + fyLbl(fyYears().ly) + ')</div>'
           + '<div class="cw"><canvas id="ch-cdd-stock-' + suffix + '"></canvas></div>'
           + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-ch-cdd-stock-' + suffix + '"></div></div></div>';
         html += cddFlowTable(cdd, fyYears(), suffix);
@@ -1817,7 +1686,7 @@ function renderMetrics(country, m) {
         html += kpiHtml('iFood enrol', fmtPts(ifd.byTipo['iFood enrol'] || 0), 'initiative cross_cashback', '#976cf6');
         html += kpiHtml('Club iFood', fmtPts(ifd.byTipo['Club iFood'] || 0), 'initiative closed_loop_discount', 'var(--red)');
         html += '</div>';
-        html += '<div class="cc"><div class="ct">Altas por mes — iFood enrol + Club iFood (CY, línea = total ' + fyYears().ly + ')</div>'
+        html += '<div class="cc"><div class="ct">Altas por mes — iFood enrol + Club iFood (' + fyLbl(fyYears().cy) + ', línea = total ' + fyLbl(fyYears().ly) + ')</div>'
           + '<div class="cw"><canvas id="ch-ifd-altas-' + suffix + '"></canvas></div>'
           + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-ch-ifd-altas-' + suffix + '"></div></div></div>';
       }
@@ -1853,7 +1722,7 @@ function renderMetrics(country, m) {
       if (!amPointTypes.length) {
         html += '<div class="empty">Sin filas de Acciones Marketing en el rango/país seleccionado</div>';
       } else {
-        html += '<div class="cc"><div class="ct">' + (mode === 'USD' ? 'Valor USD' : 'Puntos') + ' por mes y tipo de punto — año fiscal ' + fyYears().cy + '</div><div class="cw"><canvas id="' + amPtCanvasId + '"></canvas></div>'
+        html += '<div class="cc"><div class="ct">' + (mode === 'USD' ? 'Valor USD' : 'Puntos') + ' por mes y tipo de punto — ' + fyLbl(fyYears().cy) + '</div><div class="cw"><canvas id="' + amPtCanvasId + '"></canvas></div>'
           + '<div style="margin-top:6px;font-size:11px;color:var(--muted)">Vista solo del año fiscal actual — sin comparación YoY por serie</div></div>';
       }
       html += '</div>';
@@ -1870,9 +1739,11 @@ function renderMetrics(country, m) {
   html += '<div class="prog-title" ' + progTitleAttrs(bkId, suffix, bkOpen) + '>'
     + '<span>Breakage (vencimiento de puntos)</span><span class="prog-caret" aria-hidden="true">&#9662;</span></div>';
   html += '<div class="prog-body" id="' + bkId + '-body">';
-  html += '<div class="kpi-row">' + kpiHtml('Puntos Vencidos', fmtPts(m.bkTotal), 'total período seleccionado', 'var(--muted)') + '</div>';
+  var gBk = goalBkMap(country), bkReal = breakageMonthlyMap(country);
+  html += '<div class="kpi-row">' + kpiHtml('Puntos Vencidos', fmtPts(m.bkTotal),
+      ytdVs(bkReal, gBk), 'var(--muted)') + '</div>';
   html += '<div class="cc"><div class="ct">Breakage — Puntos vencidos por mes</div><div class="cw"><canvas id="' + bkCanvasId + '"></canvas></div>'
-    + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-' + bkCanvasId + '"></div></div>'
+    + '<div class="dtable-row"><div class="dtable-label">' + (gBk ? 'vs ' + cmpLabel() : 'YoY %') + '</div><div class="yoy-row" id="yoy-' + bkCanvasId + '"></div></div>'
     + '</div>';
   html += '</div></div>';
 
@@ -1885,11 +1756,11 @@ function renderMetrics(country, m) {
   if (mb.total) {
     var mbAltasPrev = fiscalSeries(mb.altasByYm, mb.altasByYm, fy.cy, fy.ly, fy.ly);
     var mbAltasCurr = fiscalSeries(mb.altasByYm, mb.altasByYm, fy.cy, fy.ly, fy.cy);
-    buildBarChart(mbAltasId, mbAltasPrev, mbAltasCurr, fy.ly, fy.cy, 'rgba(2,150,135,.75)', fmtPtsChart);
+    buildBarChart(mbAltasId, mbAltasPrev, mbAltasCurr, fyLbl(fy.ly), fyLbl(fy.cy), 'rgba(2,150,135,.75)', fmtPtsChart);
 
     var mbStockPrev = fiscalSeries(mb.stockByYm, mb.stockByYm, fy.cy, fy.ly, fy.ly);
     var mbStockCurr = fiscalSeries(mb.stockByYm, mb.stockByYm, fy.cy, fy.ly, fy.cy);
-    buildBarChart(mbStockId, mbStockPrev, mbStockCurr, fy.ly, fy.cy, 'rgba(85,15,237,.6)', fmtPtsChart);
+    buildBarChart(mbStockId, mbStockPrev, mbStockCurr, fyLbl(fy.ly), fyLbl(fy.cy), 'rgba(85,15,237,.6)', fmtPtsChart);
 
     var tierDatasets = MB_TIERS.map(function(t){
       return { label: t,
@@ -1971,7 +1842,7 @@ function renderMetrics(country, m) {
       // (getAcumUsd sobre acum_cy/ly), Q reusa acPtsPrev/acPtsCurr.
       var tierTotalPrev = mode === 'USD' ? acPrev : acPtsPrev;
       var tierTotalCurr = mode === 'USD' ? acCurr : acPtsCurr;
-      buildStackedBarChart(canvasId, acTierDatasets, fmtFn, true, { label: 'Total ' + fy.ly, data: tierTotalPrev });
+      buildStackedBarChart(canvasId, acTierDatasets, fmtFn, true, { label: 'Total ' + fyLbl(fy.ly), data: tierTotalPrev });
       var acYoyEl = document.getElementById('yoy-' + canvasId);
       if (acYoyEl) acYoyEl.innerHTML = yoyRowHtml(tierTotalPrev, tierTotalCurr);
       // Gráfico de mix (100% apilado) — siempre en puntos, independiente del toggle Q/$.
@@ -2008,7 +1879,7 @@ function renderMetrics(country, m) {
             var a = tierRatioAgg[t];
             var ratioCY = a.cyG ? a.cyP / a.cyG : 0;
             var ratioLY = a.lyG ? a.lyP / a.lyG : 0;
-            return kpiHtml(t, ratioCY.toFixed(2), 'vs LY ' + fmtPct(ratioCY, ratioLY), MB_TIER_COLOR_SOLID[t]);
+            return kpiHtml(t, ratioCY.toFixed(2), 'vs ' + fyLbl(fy.ly) + ' ' + fmtPct(ratioCY, ratioLY), MB_TIER_COLOR_SOLID[t]);
           }).join('');
         tierAvgEl.innerHTML = tierAvgHtml || '<div class="empty">Sin datos de ratio por tier — loyalty_ratio_acum_tier.json no disponible</div>';
       }
@@ -2034,11 +1905,13 @@ function renderMetrics(country, m) {
       buildSplitBarChart(canvasId, brTotalPrev, [
         { label: 'Costo (SSP)', data: costCurr, backgroundColor: 'rgba(85,96,112,.65)' },
         { label: brLabel,       data: revCurr,  backgroundColor: 'rgba(2,150,135,.8)' }
-      ], fy.ly, fmtUSDChart);
+      ], fyLbl(fy.ly), fmtUSDChart);
     } else {
-      buildBarChart(canvasId,   acPrev, acCurr, fy.ly, fy.cy, 'rgba(85,15,237,.75)', fmtFn);
+      var acCmp = pickCmp(mode === 'Q' ? goalAcumMap(prog, country) : null, acPrev, fy);
+      buildBarChart(canvasId, acCmp.data, acCurr, acCmp.label, fyLbl(fy.cy), 'rgba(85,15,237,.75)', fmtFn);
     }
-    buildBarChart(canvasRdId, rdPrev, rdCurr, fy.ly, fy.cy, 'rgba(250,80,63,.78)', fmtFn, { prev: pricePrev, curr: priceCurr });
+    var rdCmp = pickCmp(mode === 'Q' ? goalRedenMap(prog, country) : null, rdPrev, fy);
+    buildBarChart(canvasRdId, rdCmp.data, rdCurr, rdCmp.label, fyLbl(fy.cy), 'rgba(250,80,63,.78)', fmtFn, { prev: pricePrev, curr: priceCurr });
 
     // Ratio de acumulacion (pts/GB por producto) — 2 vistas (getRatioView):
     // 'periodo' (original): periodo elegido (mes o anio fiscal) vs el inmediato
@@ -2080,10 +1953,11 @@ function renderMetrics(country, m) {
         var rSeries = ratioProductMonthlySeries(rProduct);
         var ratioColor = rProduct === 'Total' ? 'rgba(30,41,59,.92)' : 'rgba(85,15,237,.75)';
         var ratioFmt = function(v){ return v.toFixed(2); };
-        buildBarChart(ratioCanvasId, rSeries.prev, rSeries.curr, fy.ly, fy.cy, ratioColor, ratioFmt);
+        var rCmp = pickCmp(goalRatioMap(rProduct, country), rSeries.prev, fy);
+        buildBarChart(ratioCanvasId, rCmp.data, rSeries.curr, rCmp.label, fyLbl(fy.cy), ratioColor, ratioFmt);
         if (rProduct !== 'Total') {
           var totalSeries = ratioProductMonthlySeries('Total');
-          buildBarChart('ch-ratio-total-' + suffix, totalSeries.prev, totalSeries.curr, fy.ly, fy.cy, 'rgba(30,41,59,.92)', ratioFmt);
+          buildBarChart('ch-ratio-total-' + suffix, totalSeries.prev, totalSeries.curr, fyLbl(fy.ly), fyLbl(fy.cy), 'rgba(30,41,59,.92)', ratioFmt);
         }
       } else {
         var rMode2 = getRatioMode(suffix);
@@ -2132,7 +2006,7 @@ function renderMetrics(country, m) {
         } else {
           val = +row.points || 0;
         }
-        if (yr !== fy.cy) return;
+        if (fyStartYear(ym) !== fy.cy) return;
         if (grp === 'ifood') { chIfoodMapCY[ym] = (chIfoodMapCY[ym] || 0) + val; }
         else                 { chRestoMapCY[ym] = (chRestoMapCY[ym] || 0) + val; }
       });
@@ -2161,7 +2035,7 @@ function renderMetrics(country, m) {
       var cddStockCY = fiscalSeries(cdd.stockByYm, cdd.stockByYm, fy.cy, fy.ly, fy.cy);
       var cddStockLY = fiscalSeries(cdd.stockByYm, cdd.stockByYm, fy.cy, fy.ly, fy.ly);
       buildStackedBarChart('ch-cdd-stock-' + suffix, cddDatasets, fmtPtsChart, true,
-        { label: 'Total ' + fy.ly, data: cddStockLY });
+        { label: 'Total ' + fyLbl(fy.ly), data: cddStockLY });
       var yEl = document.getElementById('yoy-ch-cdd-stock-' + suffix);
       if (yEl) yEl.innerHTML = yoyRowHtml(cddStockLY, cddStockCY);
     }
@@ -2176,7 +2050,7 @@ function renderMetrics(country, m) {
       var ifdAltasCY = fiscalSeries(ifd.altasByYm, ifd.altasByYm, fy.cy, fy.ly, fy.cy);
       var ifdAltasLY = fiscalSeries(ifd.altasByYm, ifd.altasByYm, fy.cy, fy.ly, fy.ly);
       buildStackedBarChart('ch-ifd-altas-' + suffix, ifdDatasets, fmtPtsChart, true,
-        { label: 'Total ' + fy.ly, data: ifdAltasLY });
+        { label: 'Total ' + fyLbl(fy.ly), data: ifdAltasLY });
       var yEl2 = document.getElementById('yoy-ch-ifd-altas-' + suffix);
       if (yEl2) yEl2.innerHTML = yoyRowHtml(ifdAltasLY, ifdAltasCY);
     }
@@ -2196,12 +2070,12 @@ function renderMetrics(country, m) {
         // que invertir el signo, igual que getAcumUsd/getBankRevenueCost, si no un
         // stock (siempre ≥0) sale negativo en $ (ver getAcumUsd más arriba).
         if (mode === 'USD') { val = val * Math.abs(sspFactor(dk, ym) || 0); }
-        if (yr === fy.cy)      { stkMapCY[ym] = val; }
-        else if (yr === fy.ly) { stkMapLY[ym] = val; }
+        if (fyStartYear(ym) === fy.cy)      { stkMapCY[ym] = val; }
+        else if (fyStartYear(ym) === fy.ly) { stkMapLY[ym] = val; }
       });
       var stkPrev = fiscalSeries(stkMapCY, stkMapLY, fy.cy, fy.ly, fy.ly);
       var stkCurr = fiscalSeries(stkMapCY, stkMapLY, fy.cy, fy.ly, fy.cy);
-      buildBarChart(stkCanId2, stkPrev, stkCurr, fy.ly, fy.cy, 'rgba(85,15,237,.7)', fmtFn);
+      buildBarChart(stkCanId2, stkPrev, stkCurr, fyLbl(fy.ly), fyLbl(fy.cy), 'rgba(85,15,237,.7)', fmtFn);
     }
 
     // Acumulación por point_type — apilado CY, sin línea LY (ver comentario en el HTML).
@@ -2224,7 +2098,8 @@ function renderMetrics(country, m) {
   var bkMap  = breakageMonthlyMap(country);
   var bkPrev = fiscalSeries(bkMap, bkMap, fy.cy, fy.ly, fy.ly);
   var bkCurr = fiscalSeries(bkMap, bkMap, fy.cy, fy.ly, fy.cy);
-  buildBarChart(bkCanvasId, bkPrev, bkCurr, fy.ly, fy.cy, 'rgba(217,119,6,.78)', fmtPtsChart);
+  var bkCmp = pickCmp(goalBkMap(country), bkPrev, fy);
+  buildBarChart(bkCanvasId, bkCmp.data, bkCurr, bkCmp.label, fyLbl(fy.cy), 'rgba(217,119,6,.78)', fmtPtsChart);
 }
 
 function kpiHtml(label, value, sub, color) {
@@ -2286,13 +2161,15 @@ function monthlyMapByPointType(raw, country, prog, getProgFn, pointType, valueFn
 
 // 12 valores en orden fiscal (Abr->Mar) para el anio fiscal que arranca en startYear,
 // tomando cada mes calendario del mapa (cy o ly) al que efectivamente pertenezca.
+// cyMap/lyMap son mapas {YYYY-MM: valor} (pueden ser el mismo); como las claves
+// son meses calendario y no se pisan entre archivos, se busca el mes en cualquiera
+// de los dos. yearCY/yearLY quedan por compatibilidad de firma (ya no filtran: con
+// años fiscales, ene-mar caen en el año calendario siguiente al de arranque).
 function fiscalSeries(cyMap, lyMap, yearCY, yearLY, startYear) {
   return FISCAL_MONTHS.map(function(mm){
-    var year = fiscalCalYear(mm, startYear);
-    var ym = year + '-' + mm;
-    if (year === yearCY) return cyMap[ym] || 0;
-    if (year === yearLY) return lyMap[ym] || 0;
-    return 0;
+    var ym = fiscalCalYear(mm, startYear) + '-' + mm;
+    var v = (cyMap && ym in cyMap) ? cyMap[ym] : (lyMap ? lyMap[ym] : 0);
+    return v || 0;
   });
 }
 
@@ -2316,8 +2193,13 @@ function breakageMonthlyMap(country) {
 }
 
 function yoyRowHtml(prevValues, currValues) {
+  // Meses posteriores al último con dato real: '—' (antes mostraba -100%, que con
+  // Budget/Run Rate cargados para todo el FY se leía como un desvío real).
+  var last = -1;
+  currValues.forEach(function(v, i){ if (v) last = i; });
   return FISCAL_LABELS.map(function(lbl, i){
-    return '<div class="yoy-cell"><div class="yoy-m">' + lbl + '</div>' + fmtPct(currValues[i] || 0, prevValues[i] || 0) + '</div>';
+    var cell = i > last ? '<span class="neu">—</span>' : fmtPct(currValues[i] || 0, prevValues[i] || 0);
+    return '<div class="yoy-cell"><div class="yoy-m">' + lbl + '</div>' + cell + '</div>';
   }).join('');
 }
 
@@ -2875,8 +2757,8 @@ function cddFlowTable(cdd, fy, suffix) {
   var sum = function(a){ return a.reduce(function(x, y){ return x + (y || 0); }, 0); };
   var h = '<div class="bk-card"><div class="bk-hdr">Altas y bajas por mes · bajas por fecha registrada (aprox.)</div>'
     + '<div class="tbl-scroll"><table class="bk"><thead><tr><th>Mes</th>'
-    + '<th class="r">Altas ' + fy.cy + '</th><th class="r">Bajas ' + fy.cy + '</th>'
-    + '<th class="r">Altas ' + fy.ly + '</th><th class="r">Bajas ' + fy.ly + '</th></tr></thead><tbody>';
+    + '<th class="r">Altas ' + fyLbl(fy.cy) + '</th><th class="r">Bajas ' + fyLbl(fy.cy) + '</th>'
+    + '<th class="r">Altas ' + fyLbl(fy.ly) + '</th><th class="r">Bajas ' + fyLbl(fy.ly) + '</th></tr></thead><tbody>';
   FISCAL_LABELS.forEach(function(lbl, i){
     h += '<tr><td>' + lbl + '</td>'
       + '<td class="r">' + (aCY[i] ? fmtPts(aCY[i]) : '—') + '</td>'
@@ -3123,8 +3005,6 @@ function buildPanels() {
     }
     inner += '<div class="stitle">P&amp;L Contable Loyalty</div>';
     inner += '<div class="pnl-wrap" id="pnl-' + c.key + '"></div>';
-    inner += '<div class="stitle">Real vs Proyección · Puntos</div>';
-    inner += '<div class="pnl-wrap" id="proy-' + c.key + '"></div>';
     inner += '<div class="stitle">Métricas de Negocio</div>';
     inner += '<div id="metrics-' + c.key + '"></div>';
 
@@ -3178,7 +3058,6 @@ function renderCountry(key) {
   var c = COUNTRIES.filter(function(x){ return x.key === key; })[0];
   if (!c) return;
   renderPnl('pnl-' + key, c);
-  renderProy('proy-' + key, c);
   renderMetrics(c, buildMetrics(c));
   syncSegPressed(document.getElementById('panel-' + key));
 }

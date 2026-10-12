@@ -15,7 +15,7 @@ Solapas que se leen (las demás se ignoran):
 
 Salida: loyalty_proyecciones.json  {meta, cols, rows} con una fila por
 escenario × bloque × país × clave × mes. El cruce contra los reales lo hace
-dashboard.html (sección "Real vs Proyección") con los JSON que ya existen.
+dashboard.html (selector "Comparar contra" de Métricas de Negocio) con los JSON que ya existen.
 
 Uso:
   py proyecciones.py            # arma el JSON y muestra un resumen (no sube)
