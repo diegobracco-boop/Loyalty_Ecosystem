@@ -2532,8 +2532,9 @@ function renderPasivo() {
 // Arriba: waterfall Budget -> Δ por línea -> Actual. Abajo: el "por qué" de cada línea
 // con las métricas de negocio, en los meses CERRADOS del período:
 //   Δ explicado = Δ $ de la métrica (real − budget, con el signo de la línea en el P&L)
-//               = efecto volumen (Pts real − Pts budget) × $/pt budget
-//               + efecto precio  ($/pt real − $/pt budget) × Pts real
+//               = efecto volumen  ΔPts × $/pt budget
+//               + efecto precio   Δ$/pt × Pts budget
+//               + efecto cruzado  ΔPts × Δ$/pt        (los tres suman exacto el Δ explicado)
 //   No explicado = Δ P&L (meses cerrados) − Δ explicado (el P&L es contable, las métricas
 //                  son del Datalake; también líneas sin métrica de negocio detrás).
 // Meses abiertos del período: el "Actual" es Run Rate (Baseline) — su Δ va aparte, sin apertura.
@@ -2691,36 +2692,43 @@ function renderVariaciones() {
      + (closed.length ? ' (' + fmtMonthLbl(closed[0]) + (closed.length > 1 ? ' a ' + fmtMonthLbl(closed[closed.length - 1]) : '') + ')' : '') + '</div>'
      + '<div class="tbl-scroll"><table class="pnl var-tbl"><thead><tr>'
      + '<th class="lc">Línea P&amp;L</th><th>Budget</th><th>Actual</th><th>Δ</th><th class="sep"></th>'
-     + '<th>Efecto volumen</th><th>Efecto precio</th><th>No explicado</th><th class="sep"></th><th>Δ meses Run Rate</th>'
+     + '<th>Efecto volumen</th><th>Efecto precio</th><th>Efecto cruzado</th><th>No explicado</th><th class="sep"></th><th>Δ meses Run Rate</th>'
      + '</tr></thead><tbody>';
-  var sum = { b: 0, a: 0, d: 0, v: 0, p: 0, r: 0, o: 0 };
+  var sum = { b: 0, a: 0, d: 0, v: 0, p: 0, x: 0, r: 0, o: 0 };
   function cell(v, signed) { return '<td class="' + (v ? vc(v) : 'vz') + '">' + (v ? fmtPnl(v, signed) : '—') + '</td>'; }
   order.forEach(function(l) {
     var b = bud[l] || 0, a = act[l] || 0, d = a - b;
     var dC = (actC[l] || 0) - (budC[l] || 0), dO = d - dC;
-    var mk = VAR_METRIC[l], v = 0, pr = 0, detail = '';
+    var mk = VAR_METRIC[l], v = 0, pr = 0, cx = 0, detail = '';
     if (mk && met) {
       var x = met[mk.key], sg = (b || a) < 0 ? -1 : 1;
       var pb = x.bud.pts ? x.bud.usd / x.bud.pts : 0, pa = x.real.pts ? x.real.usd / x.real.pts : 0;
       var expl = sg * (x.real.usd - x.bud.usd);
-      v = sg * (x.real.pts - x.bud.pts) * pb; pr = expl - v;
+      var dQ = x.real.pts - x.bud.pts;
+      // Sin precio de un lado (0 puntos), no hay Δ precio medible: todo el Δ va a volumen.
+      var dP = (x.real.pts && x.bud.pts) ? pa - pb : 0;
+      v  = sg * dQ * pb;
+      pr = sg * dP * x.bud.pts;
+      cx = sg * dQ * dP;
+      if (!(x.real.pts && x.bud.pts)) { v = expl; pr = 0; cx = 0; }
       detail = '<div class="var-detail">Puntos ' + fmtPts(x.real.pts) + ' real vs ' + fmtPts(x.bud.pts) + ' budget ('
         + fmtPct(x.real.pts, x.bud.pts) + ') · $/pt ' + (pa ? fmtPricePerPt(pa) : '—') + ' vs ' + (pb ? fmtPricePerPt(pb) : '—')
         + ' · <span title="' + mk.desc + '">métrica: ' + mk.desc.split(' · ')[0] + '</span></div>';
     } else if (!mk) {
       detail = '<div class="var-detail">Sin métrica de negocio detrás: toda la variación queda como no explicada.</div>';
     }
-    var r = dC - v - pr;
-    sum.b += b; sum.a += a; sum.d += d; sum.v += v; sum.p += pr; sum.r += r; sum.o += dO;
+    var r = dC - v - pr - cx;
+    sum.b += b; sum.a += a; sum.d += d; sum.v += v; sum.p += pr; sum.x += cx; sum.r += r; sum.o += dO;
     h += '<tr><td class="lc">' + varShort(l) + detail + '</td>' + cell(b) + cell(a) + cell(d, true) + '<td class="sep"></td>'
-       + cell(v, true) + cell(pr, true) + cell(r, true) + '<td class="sep"></td>' + cell(dO, true) + '</tr>';
+       + cell(v, true) + cell(pr, true) + cell(cx, true) + cell(r, true) + '<td class="sep"></td>' + cell(dO, true) + '</tr>';
   });
   h += '<tr class="grand-total"><td class="lc">TOTAL LOYALTY</td>' + cell(sum.b) + cell(sum.a) + cell(sum.d, true) + '<td class="sep"></td>'
-     + cell(sum.v, true) + cell(sum.p, true) + cell(sum.r, true) + '<td class="sep"></td>' + cell(sum.o, true) + '</tr>';
+     + cell(sum.v, true) + cell(sum.p, true) + cell(sum.x, true) + cell(sum.r, true) + '<td class="sep"></td>' + cell(sum.o, true) + '</tr>';
   h += '</tbody></table></div></div>';
-  h += '<div class="proj-note"><strong>Efecto volumen</strong> = (puntos real − puntos budget) × $/pt budget · '
-     + '<strong>Efecto precio</strong> = ($/pt real − $/pt budget) × puntos real · '
-     + '<strong>No explicado</strong> = Δ del P&amp;L en meses cerrados − (volumen + precio): diferencia entre la contabilidad y la valuación de las métricas del Datalake, '
+  h += '<div class="proj-note"><strong>Efecto volumen</strong> = Δ puntos × $/pt budget · '
+     + '<strong>Efecto precio</strong> = Δ $/pt × puntos budget · '
+     + '<strong>Efecto cruzado</strong> = Δ puntos × Δ $/pt (los tres suman el Δ de la métrica) · '
+     + '<strong>No explicado</strong> = Δ del P&amp;L en meses cerrados − (volumen + precio + cruzado): diferencia entre la contabilidad y la valuación de las métricas del Datalake, '
      + 'o líneas sin métrica detrás (flag revenue, marketing, personnel). Rewards &amp; benefits cost se explica con la redención de iFood (ahí se registra). Signo: el de la línea en el P&amp;L. '
      + '<strong>Δ meses Run Rate</strong> = variación de los meses todavía abiertos (Actual = Run Rate), sin apertura.</div>';
   el.innerHTML = h;
@@ -2743,7 +2751,7 @@ function renderVariaciones() {
     afterDatasetsDraw: function(chart) {
       var meta = chart.getDatasetMeta(0), n = meta.data.length;
       if (n < 2) return;
-      var c = chart.ctx, x0 = meta.data[0].x, x1 = meta.data[n - 1].x, y = chart.chartArea.top - 22;
+      var c = chart.ctx, x0 = meta.data[0].x, x1 = meta.data[n - 1].x, y = chart.chartArea.top - 52;
       var col = dTot >= 0 ? '#029687' : '#e0442f';
       c.save();
       c.strokeStyle = col; c.fillStyle = col; c.lineWidth = 2;
@@ -2766,7 +2774,7 @@ function renderVariaciones() {
       datalabels: { anchor: 'end', align: 'top', clamp: true, font: { size: 11, weight: '700' }, color: '#475569',
         formatter: function(v, c){ var i = c.dataIndex, t = i === 0 || i === labels.length - 1; return fmtPnl(deltas[i], !t); } } }] },
     options: { responsive: true, maintainAspectRatio: false,
-      layout: { padding: { top: 46 } },   // espacio para la flecha Budget -> Actual
+      layout: { padding: { top: 72 } },   // flecha Budget -> Actual por ENCIMA de las etiquetas de las barras
       plugins: { legend: { display: false },
         tooltip: { callbacks: { label: function(c){ var i = c.dataIndex, t = i === 0 || i === labels.length - 1;
           return (t ? 'Total: ' : 'Δ: ') + fmtPnl(deltas[i], !t); } } } },
