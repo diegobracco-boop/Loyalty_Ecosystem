@@ -175,6 +175,7 @@ table.pnl th.sep, table.pnl td.sep { width: 14px; min-width: 14px; background: #
 /* totales y encabezados de grupo: sutiles */
 table.pnl td.tc { background: #f8f6fd !important; }
 table.pnl tr.grp-hdr td { background: #faf8fe; color: #4c1d95; border-top: none; border-bottom: 1px solid #ece8f4; letter-spacing: .08em; }
+table.pnl tr.grp-hdr .drv-note { text-transform: none; letter-spacing: 0; font-weight: 400; color: #5b6472; }
 table.pnl tr.grp-hdr td.lc { background: #faf8fe; }
 table.pnl tr.subtotal td { background: #fbfaff; color: #1b1533; font-weight: 800; border-top: none; border-bottom: 1px solid #ece8f4; }
 table.pnl tr.subtotal td.lc { background: #fbfaff; }
@@ -429,6 +430,26 @@ var PNL_GROUPS = [
     keywords: ['marketing', 'rewards', 'benefits', 'personnel'] }
 ];
 
+// Drivers B2C del P&L Contable (bloque aparte ARRIBA de Net Revenue). Contexto
+// del negocio B2C, NO son líneas de Loyalty: no entran en subtotales ni en el
+// TOTAL LOYALTY. Match EXACTO contra P&L N1 (lowercase). Código.js ya los
+// recorta a LoB='b2c'. Orders es cantidad, no USD (unit: 'count').
+var PNL_DRIVERS = [
+  { label: 'Gross Bookings',  unit: 'usd',
+    n1: ['gross bookings domestic', 'gross bookings international'] },
+  { label: 'Orders',          unit: 'count',
+    n1: ['orders domestic', 'orders international'] },
+  { label: 'Up Front + Fees', unit: 'usd',
+    n1: ['up front incentives', 'fees', 'commercial discounts'] }
+];
+function driverOf(n1) {
+  var l = (n1 || '').toLowerCase().trim();
+  for (var i = 0; i < PNL_DRIVERS.length; i++) {
+    if (PNL_DRIVERS[i].n1.indexOf(l) !== -1) return PNL_DRIVERS[i].label;
+  }
+  return null;
+}
+
 // ============================================================
 // Program dictionary — loaded dynamically from loyalty_dict.json
 // Built from Diccionario.xlsx by loyalty_sync.py
@@ -677,6 +698,13 @@ function fmtPnl(v, signed) {
   return sign + '$' + abs.toFixed(1) + 'K';  // default K
 }
 
+// Cantidades (Orders) con el mismo selector de formato que fmtPnl, sin '$'.
+function fmtCount(v, signed) {
+  if (v === null || v === undefined) return '—';
+  var sign = v < 0 ? '-' : (signed && v > 0 ? '+' : '');
+  return sign + fmtPts(v);
+}
+
 // Format point counts (raw integers)
 function fmtPts(v) {
   var fmt = getFmt(), abs = Math.abs(v || 0);
@@ -848,6 +876,17 @@ function buildPnl(country) {
     agg[l][m] = (agg[l][m] || 0) + (parseFloat(row['Monto USD']) || 0);
   });
 
+  // Drivers B2C del baseline (mismos meses que las lineas de loyalty)
+  var drv = {};
+  PNL_DRIVERS.forEach(function(dd){ drv[dd.label] = {}; });
+  rows.forEach(function(row) {
+    var lbl = driverOf(row['P&L N1']);
+    if (!lbl || !matchCountryRow(row['Pais'], country)) return;
+    var m = (row['Fecha'] || '').substring(0, 7);
+    if (months.indexOf(m) === -1) return;
+    drv[lbl][m] = (drv[lbl][m] || 0) + (parseFloat(row['Monto USD']) || 0);
+  });
+
   // Grupos → lineas ordenadas por PNL_GROUPS + 'Otros'
   var groups = {};
   PNL_GROUPS.forEach(function(g) { groups[g.label] = { lines: [] }; });
@@ -858,7 +897,7 @@ function buildPnl(country) {
     groups[grp].lines.push(l);
   });
 
-  return { months: months, lines: lines, agg: agg, groups: groups, scn: scn };
+  return { months: months, lines: lines, agg: agg, groups: groups, scn: scn, drv: drv };
 }
 
 // Por escenario: { line: {ym: monto} } de loyalty para el pais, restringido a
@@ -866,17 +905,21 @@ function buildPnl(country) {
 function scenarioLoyaltyPnl(country, monthArr) {
   var monthSet = {};
   monthArr.forEach(function(m){ monthSet[m] = 1; });
-  var out = { budget: {}, forecast: {}, runrate: {} };
+  // drv[escenario][driver] = {ym: monto} — Drivers B2C, aparte de las lineas loyalty
+  var out = { budget: {}, forecast: {}, runrate: {}, drv: { budget: {}, forecast: {}, runrate: {} } };
   ['budget', 'forecast', 'runrate'].forEach(function(s) {
-    var byLine = out[s];
+    var byLine = out[s], byDrv = out.drv[s];
     expandBaseline(RAW[s]).forEach(function(row) {
       if (!matchCountryRow(row['Pais'], country)) return;
       var l = row['P&L N1'] || 'N/D';
-      if (l.toLowerCase().indexOf('loyalty') === -1) return;
       var ym = (row['Fecha'] || '').substring(0, 7);
       if (!monthSet[ym]) return;
+      var v = parseFloat(row['Monto USD']) || 0;
+      var dl = driverOf(l);
+      if (dl) { if (!byDrv[dl]) byDrv[dl] = {}; byDrv[dl][ym] = (byDrv[dl][ym] || 0) + v; return; }
+      if (l.toLowerCase().indexOf('loyalty') === -1) return;
       if (!byLine[l]) byLine[l] = {};
-      byLine[l][ym] = (byLine[l][ym] || 0) + (parseFloat(row['Monto USD']) || 0);
+      byLine[l][ym] = (byLine[l][ym] || 0) + v;
     });
   });
   return out;
@@ -934,23 +977,23 @@ function renderPnl(containerId, country) {
     return o;
   }
 
-  function valCells(pmap, colored, signed) {
-    var s = '';
+  function valCells(pmap, colored, signed, fmtFn) {
+    var f = fmtFn || fmtPnl, s = '';
     cols.forEach(function(c){
       var v = pmap[c] || 0;
       var col = colored ? vc(v) : (v ? 'vf' : 'vz');  // sin criterio -> color fijo (vf); vacio -> vz
-      s += '<td class="' + (c === 'TOT' ? 'tc ' : '') + col + '">' + (v ? fmtPnl(v, signed) : '—') + '</td>';
+      s += '<td class="' + (c === 'TOT' ? 'tc ' : '') + col + '">' + (v ? f(v, signed) : '—') + '</td>';
     });
     return s;
   }
   // fila completa: baseline | sep | goal | sep | (baseline - goal)
   // Criterio de color (verde/rojo): en Baseline+Goal solo si es fila resumen
   // (subtotal / total); el bloque Delta SIEMPRE va con color.
-  function rowBGD(baseMap, goalMap, summary) {
+  function rowBGD(baseMap, goalMap, summary, fmtFn) {
     var bp = toPeriods(baseMap), gp = toPeriods(goalMap), dp = {};
     cols.forEach(function(c){ dp[c] = (bp[c] || 0) - (gp[c] || 0); });
-    return valCells(bp, summary) + '<td class="sep"></td>' + valCells(gp, summary)
-         + '<td class="sep"></td>' + valCells(dp, true, true);  // bloque Delta: +/- explicito
+    return valCells(bp, summary, false, fmtFn) + '<td class="sep"></td>' + valCells(gp, summary, false, fmtFn)
+         + '<td class="sep"></td>' + valCells(dp, true, true, fmtFn);  // bloque Delta: +/- explicito
   }
   function emptyRow() {
     var s = '';
@@ -973,6 +1016,15 @@ function renderPnl(containerId, country) {
     if (blk < 2) html += '<th class="sep"></th>';
   }
   html += '</tr></thead><tbody>';
+
+  // Bloque Drivers B2C (contexto, NO suma al TOTAL LOYALTY)
+  var goalDrv = d.scn.drv[GOAL] || {};
+  html += '<tr class="grp-hdr"><td class="lc">Drivers B2C <span class="drv-note">(no suman al Total Loyalty)</span></td>'
+        + emptyRow() + '</tr>';
+  PNL_DRIVERS.forEach(function(dd) {
+    html += '<tr><td class="lc">' + dd.label + '</td>'
+          + rowBGD(d.drv[dd.label], goalDrv[dd.label], false, dd.unit === 'count' ? fmtCount : fmtPnl) + '</tr>';
+  });
 
   var groupOrder = PNL_GROUPS.map(function(g){ return g.label; }).concat(['Otros']);
 
@@ -1001,12 +1053,14 @@ function renderPnl(containerId, country) {
   html += '</tbody></table></div>';
   html += '<div class="proj-note">Baseline = actuals (meses cerrados) + run-rate + forecast · Goal = '
         + scenarioLabel(GOAL) + ' · Δ = Baseline &minus; Goal'
-        // Run Rate solo cubre Sep-26→Mar-27 (Legal Entity NA): el Total/Δ suma el
-        // Baseline COMPLETO contra un Run Rate PARCIAL (0 fuera de esa ventana) —
-        // no es una comparación de año completo, aclarar para no confundir.
-        + (GOAL === 'runrate' ? '<br><strong>Run Rate</strong> cubre solo Sep-26→Mar-27 (Legal '
-           + 'Entity NA) — el Total/Δ compara el Baseline del año completo contra un Run Rate '
-           + 'parcial, no son comparables como año completo.' : '')
+        // runrate.json canonico: los meses proyectados del Baseline SALEN del Run
+        // Rate, asi que ahi el Δ da 0 por construccion — aclararlo para que no
+        // se lea como "sin desvio". Orders viene en 0 en los meses cerrados.
+        + (GOAL === 'runrate' ? '<br><strong>Run Rate</strong>: en los meses proyectados el Baseline '
+           + 'se arma con este mismo Run Rate, por eso ahí el Δ es 0. Orders del Run Rate solo '
+           + 'viene cargado en los meses proyectados.' : '')
+        + '<br><strong>Drivers B2C</strong> (GB, Orders, Up Front + Fees = Up Front Incentives + Fees '
+        + '+ Commercial Discounts): total B2C del país, contexto del negocio — no suman al Total Loyalty.'
         + '</div>';
   el.innerHTML = html;
 }
