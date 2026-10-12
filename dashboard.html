@@ -175,6 +175,7 @@ table.pnl th.sep, table.pnl td.sep { width: 14px; min-width: 14px; background: #
 /* totales y encabezados de grupo: sutiles */
 table.pnl td.tc { background: #f8f6fd !important; }
 table.pnl tr.grp-hdr td { background: #faf8fe; color: #4c1d95; border-top: none; border-bottom: 1px solid #ece8f4; letter-spacing: .08em; }
+table.pnl td .pgb { font-size: 10.5px; font-weight: 400; color: var(--muted); line-height: 1.1; }
 table.pnl tr.grp-hdr .drv-note { text-transform: none; letter-spacing: 0; font-weight: 400; color: #5b6472; }
 table.pnl tr.grp-hdr td.lc { background: #faf8fe; }
 table.pnl tr.subtotal td { background: #fbfaff; color: #1b1533; font-weight: 800; border-top: none; border-bottom: 1px solid #ece8f4; }
@@ -197,9 +198,9 @@ table.pnl tr.grand-total td.sep { background: #1b1533 !important; border-bottom-
 
 /* ---- Program index chips (saltos rapidos a cada programa) ---- */
 .prog-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
-.cmp-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-bottom: 14px; }
-.cmp-bar .seg-btn[disabled] { opacity: .45; cursor: not-allowed; }
-.cmp-note { font-size: var(--fs-small); color: var(--muted); }
+.cmp-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 14px; }
+@media (max-width: 1000px) { .cmp-grid { grid-template-columns: minmax(0, 1fr); } }
+.seg-btn[disabled] { opacity: .45; cursor: not-allowed; }
 .prog-chip { padding: 5px 12px; font-size: var(--fs-md); font-weight: 600; color: var(--accent); background: var(--accent-a08); border: 1px solid var(--accent-a15); border-radius: 999px; cursor: pointer; white-space: nowrap; transition: .15s; }
 .prog-chip:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
 
@@ -438,10 +439,10 @@ var PNL_GROUPS = [
 // TOTAL LOYALTY. Match EXACTO contra P&L N1 (lowercase). Código.js ya los
 // recorta a LoB='b2c'. Orders es cantidad, no USD (unit: 'count').
 var PNL_DRIVERS = [
-  { label: 'Gross Bookings',  unit: 'usd',
-    n1: ['gross bookings domestic', 'gross bookings international'] },
   { label: 'Orders',          unit: 'count',
     n1: ['orders domestic', 'orders international'] },
+  { label: 'Gross Bookings',  unit: 'usd',
+    n1: ['gross bookings domestic', 'gross bookings international'] },
   { label: 'Up Front + Fees', unit: 'usd',
     n1: ['up front incentives', 'fees', 'commercial discounts'] }
 ];
@@ -672,10 +673,7 @@ function fyLbl(startYear) { return 'FY' + String(startYear + 1).slice(2); }
 // Switch Cantidad (Q) vs Valor ($) por seccion de metrica de negocio (pais+programa).
 // Aplica tanto a Acumulaciones como a Redenciones de esa seccion.
 var SEC_MODE = {};
-function getSecMode(suffix, prog) {
-  // Default $; pero si se compara contra Budget/Run Rate (en puntos), default Q.
-  return SEC_MODE[suffix + '|' + prog] || (typeof cmpGoalActive === 'function' && cmpGoalActive() ? 'Q' : 'USD');
-}
+function getSecMode(suffix, prog) { return SEC_MODE[suffix + '|' + prog] || 'USD'; }
 function setSecMode(btn, evt) {
   if (evt) evt.stopPropagation();  // el boton vive dentro de .prog-title (header del acordeon)
   var wrap = btn.closest('.seg');
@@ -990,23 +988,43 @@ function renderPnl(containerId, country) {
     return o;
   }
 
-  function valCells(pmap, colored, signed, fmtFn) {
+  // pctMap (opcional): {periodo: % sobre GB} -> segunda línea chica en la celda.
+  // pctPP: el % ya es una diferencia en pp (bloque Δ).
+  function valCells(pmap, colored, signed, fmtFn, pctMap, pctPP) {
     var f = fmtFn || fmtPnl, s = '';
     cols.forEach(function(c){
       var v = pmap[c] || 0;
       var col = colored ? vc(v) : (v ? 'vf' : 'vz');  // sin criterio -> color fijo (vf); vacio -> vz
-      s += '<td class="' + (c === 'TOT' ? 'tc ' : '') + col + '">' + (v ? f(v, signed) : '—') + '</td>';
+      var pc = pctMap ? pctMap[c] : null, pTxt = '';
+      if (pc !== null && pc !== undefined && isFinite(pc) && v) {
+        pTxt = '<div class="pgb">' + (pctPP ? (pc > 0 ? '+' : '') + pc.toFixed(2) + 'pp' : pc.toFixed(2) + '%') + '</div>';
+      }
+      s += '<td class="' + (c === 'TOT' ? 'tc ' : '') + col + '">' + (v ? f(v, signed) : '—') + pTxt + '</td>';
     });
     return s;
+  }
+  // GB por período de cada escenario (denominador del %GB). Toda línea del P&L
+  // (salvo Orders y el propio GB) muestra su % sobre el GB B2C del mismo escenario.
+  var gbBaseP = toPeriods(d.drv['Gross Bookings']);
+  var gbGoalP = toPeriods((d.scn.drv[GOAL] || {})['Gross Bookings']);
+  function pctOf(pm, gbp) {
+    var o = {};
+    cols.forEach(function(c){ if (gbp[c]) o[c] = (pm[c] || 0) / gbp[c] * 100; });
+    return o;
   }
   // fila completa: baseline | sep | goal | sep | (baseline - goal)
   // Criterio de color (verde/rojo): en Baseline+Goal solo si es fila resumen
   // (subtotal / total); el bloque Delta SIEMPRE va con color.
-  function rowBGD(baseMap, goalMap, summary, fmtFn) {
+  function rowBGD(baseMap, goalMap, summary, fmtFn, noPct) {
     var bp = toPeriods(baseMap), gp = toPeriods(goalMap), dp = {};
     cols.forEach(function(c){ dp[c] = (bp[c] || 0) - (gp[c] || 0); });
-    return valCells(bp, summary, false, fmtFn) + '<td class="sep"></td>' + valCells(gp, summary, false, fmtFn)
-         + '<td class="sep"></td>' + valCells(dp, true, true, fmtFn);  // bloque Delta: +/- explicito
+    var bPct = noPct ? null : pctOf(bp, gbBaseP), gPct = noPct ? null : pctOf(gp, gbGoalP), dPct = null;
+    if (!noPct) {
+      dPct = {};
+      cols.forEach(function(c){ if (bPct[c] !== undefined && gPct[c] !== undefined) dPct[c] = bPct[c] - gPct[c]; });
+    }
+    return valCells(bp, summary, false, fmtFn, bPct) + '<td class="sep"></td>' + valCells(gp, summary, false, fmtFn, gPct)
+         + '<td class="sep"></td>' + valCells(dp, true, true, fmtFn, dPct, true);  // bloque Delta: +/- explicito, %GB en pp
   }
   function emptyRow() {
     var s = '';
@@ -1036,7 +1054,8 @@ function renderPnl(containerId, country) {
         + emptyRow() + '</tr>';
   PNL_DRIVERS.forEach(function(dd) {
     html += '<tr><td class="lc">' + dd.label + '</td>'
-          + rowBGD(d.drv[dd.label], goalDrv[dd.label], false, dd.unit === 'count' ? fmtCount : fmtPnl) + '</tr>';
+          + rowBGD(d.drv[dd.label], goalDrv[dd.label], false, dd.unit === 'count' ? fmtCount : fmtPnl,
+                   dd.label === 'Orders' || dd.label === 'Gross Bookings') + '</tr>';
   });
 
   var groupOrder = PNL_GROUPS.map(function(g){ return g.label; }).concat(['Otros']);
@@ -1072,8 +1091,10 @@ function renderPnl(containerId, country) {
         + (GOAL === 'runrate' ? '<br><strong>Run Rate</strong>: en los meses proyectados el Baseline '
            + 'se arma con este mismo Run Rate, por eso ahí el Δ es 0. Orders del Run Rate solo '
            + 'viene cargado en los meses proyectados.' : '')
-        + '<br><strong>Drivers B2C</strong> (GB, Orders, Up Front + Fees = Up Front Incentives + Fees '
+        + '<br><strong>Drivers B2C</strong> (Orders, GB, Up Front + Fees = Up Front Incentives + Fees '
         + '+ Commercial Discounts): total B2C del país, contexto del negocio — no suman al Total Loyalty.'
+        + '<br><strong>% GB</strong> (debajo de cada monto) = monto / Gross Bookings B2C del mismo escenario y período; '
+        + 'en Δ, diferencia en puntos porcentuales.'
         + '</div>';
   el.innerHTML = html;
 }
@@ -1289,16 +1310,40 @@ function progTitleAttrs(id, suffix, open) {
 }
 
 // ============================================================
-// Comparación de Métricas de Negocio: FY anterior (default) o proyección
-// (Budget / Run Rate) de loyalty_proyecciones.json (proyecciones.py, desde
-// Input_budget.xlsx / Input_runrate.xlsx de Control de Gestión). La proyección
-// está en PUNTOS: en vista $ y en métricas sin proyección se compara vs FY ant.
+// Comparación vs proyección en Métricas de Negocio (12-oct): los gráficos que
+// tienen proyección se muestran DE A PARES — izquierda siempre vs FY anterior
+// (respeta el toggle $/Q de la sección), derecha vs Budget o Run Rate (selector
+// en el título del gráfico de la derecha; uno cambia todos). La proyección
+// (loyalty_proyecciones.json, de Input_budget.xlsx / Input_runrate.xlsx) está en
+// PUNTOS, así que el gráfico de la derecha es siempre en puntos.
 // ============================================================
-var METRICS_CMP = 'ly';   // 'ly' | 'budget' | 'runrate'
-function setMetricsCmp(v) { METRICS_CMP = v; renderActive(); }
+var METRICS_CMP = 'budget';   // 'budget' | 'runrate'
+function setMetricsCmp(v, evt) { if (evt) evt.stopPropagation(); METRICS_CMP = v; renderActive(); }
 function cmpHasEsc(esc) { return expand(RAW.proy).some(function(p){ return p.escenario === esc; }); }
-function cmpGoalActive() { return METRICS_CMP !== 'ly' && cmpHasEsc(METRICS_CMP); }
+function cmpGoalActive() { return cmpHasEsc(METRICS_CMP); }
 function cmpLabel() { return scenarioLabel(METRICS_CMP) + ' ' + fyLbl(fyYears().cy); }
+function goalSegHtml() {
+  var h = '<div class="seg seg-sm">';
+  ['budget', 'runrate'].forEach(function(e) {
+    var dis = !cmpHasEsc(e);
+    h += '<button class="seg-btn' + (METRICS_CMP === e ? ' active' : '') + '" type="button"'
+       + (dis ? ' disabled title="Sin proyección cargada (falta Input_' + e + '.xlsx)"' : '')
+       + ' onclick="setMetricsCmp(\'' + e + '\',event)">' + scenarioLabel(e) + '</button>';
+  });
+  return h + '</div>';
+}
+// Tarjeta del gráfico de la derecha (vs proyección).
+function goalCardHtml(id, title) {
+  return '<div class="cc" style="margin-bottom:14px"><div class="sub-title-row" style="margin-bottom:6px">'
+    + '<div class="ct" style="margin-bottom:0">' + title + ' vs ' + cmpLabel() + '</div>' + goalSegHtml() + '</div>'
+    + '<div class="cw"><canvas id="' + id + '"></canvas></div>'
+    + '<div class="dtable-row"><div class="dtable-label">vs ' + scenarioLabel(METRICS_CMP) + ' %</div><div class="yoy-row" id="yoy-' + id + '"></div></div></div>';
+}
+// Par izquierda/derecha; sin proyección, solo la izquierda a ancho completo.
+function pairHtml(leftHtml, rightHtml) {
+  return rightHtml ? '<div class="cmp-grid">' + leftHtml + rightHtml + '</div>' : leftHtml;
+}
+function goalSeries(goalMap, fy) { return fiscalSeries(goalMap, goalMap, fy.cy, fy.ly, fy.cy); }
 
 // Partner del Excel -> programa del dashboard (resto = Partners). El real del
 // programa ya excluye los puntos 'Rewards & Benefits' del partner (son Puntos
@@ -1314,7 +1359,7 @@ var PROY_REDEN_PROG = { 'Pasaporte D!': ['Pasaporte D!'], 'IFOOD': ['IFOOD'],
 // {YYYY-MM: valor} de la proyección elegida para un bloque, sumando los países de
 // la vista (TOTAL = los 8). null si no hay comparación por proyección activa o no hay filas.
 function proyMap(bloque, keyFn, country) {
-  if (!cmpGoalActive()) return null;
+  if (!RAW.proy || !cmpGoalActive()) return null;
   var keys = isTotal(country) ? COUNTRY_DATAKEYS : [country.dataKey];
   var m = {}, any = false;
   expand(RAW.proy).forEach(function(p) {
@@ -1336,11 +1381,6 @@ function goalBkMap(country) { return proyMap('breakage', function(){ return true
 function goalRatioMap(product, country) {
   if (isTotal(country) || product === 'Total') return null;
   return proyMap('ratio', function(k){ return k === product; }, country);
-}
-// Serie de comparación para buildBarChart: proyección del FY en curso si hay, si no el FY anterior.
-function pickCmp(goalMap, lyPrev, fy) {
-  if (goalMap) return { data: fiscalSeries(goalMap, goalMap, fy.cy, fy.ly, fy.cy), label: cmpLabel() };
-  return { data: lyPrev, label: fyLbl(fy.ly) };
 }
 // Último mes CERRADO de reales (el mes en curso está incompleto).
 function proyLastClosedYm() {
@@ -1370,25 +1410,6 @@ function ytdVs(realMap, goalMap) {
 // {ym: campo} de un mapa acM/rdM[prog]
 function pick(m, f) { var o = {}; Object.keys(m || {}).forEach(function(ym){ o[ym] = m[ym][f]; }); return o; }
 
-function cmpBarHtml() {
-  var fy = fyYears();
-  var opts = [['ly', fyLbl(fy.ly) + ' (año anterior)'], ['budget', 'Budget ' + fyLbl(fy.cy)], ['runrate', 'Run Rate ' + fyLbl(fy.cy)]];
-  var h = '<div class="cmp-bar"><span class="ratio-controls-lbl">Comparar ' + fyLbl(fy.cy) + ' contra</span><div class="seg seg-sm">';
-  opts.forEach(function(o) {
-    var dis = o[0] !== 'ly' && !cmpHasEsc(o[0]);
-    h += '<button class="seg-btn' + (METRICS_CMP === o[0] ? ' active' : '') + '" type="button"'
-       + (dis ? ' disabled title="Sin proyección cargada (falta Input_' + o[0] + '.xlsx)"' : '')
-       + ' onclick="setMetricsCmp(\'' + o[0] + '\')">' + o[1] + '</button>';
-  });
-  h += '</div>';
-  if (METRICS_CMP !== 'ly') {
-    h += '<span class="cmp-note">' + (cmpGoalActive()
-      ? 'La proyección está en puntos: aplica en vista Q a Cobrand/Partners (acumulación), redenciones, breakage y ratio por producto. Lo demás sigue vs ' + fyLbl(fy.ly) + '.'
-      : 'No hay ' + scenarioLabel(METRICS_CMP) + ' cargado: se compara vs ' + fyLbl(fy.ly) + '.') + '</span>';
-  }
-  return h + '</div>';
-}
-
 function renderMetrics(country, m) {
   var suffix = country.key;
   var programs = programsForCountry(country.key);
@@ -1402,8 +1423,6 @@ function renderMetrics(country, m) {
           + 'Estás viendo el <strong>TOTAL agregado de los ' + COUNTRY_DATAKEYS.length + ' países</strong> (suma de todas las solapas de país).'
           + '</div>';
   }
-
-  html += cmpBarHtml();
 
   // Indice de programas: chips que saltan a cada seccion (Miembros + programas + Breakage).
   html += '<div class="prog-nav">';
@@ -1478,9 +1497,9 @@ function renderMetrics(country, m) {
     var gAcK = goalAcumMap(prog, country), gRdK = goalRedenMap(prog, country);
     var acMp = m.acM[prog], rdMp = m.rdM[prog];
     html += '<div class="kpi-row">'
-      + kpiHtml('Puntos Acumulados', fmtPts(acCY.pts), ytdVs(pick(acMp, 'pts'), gAcK), 'var(--accent)')
+      + kpiHtml('Puntos Acumulados', fmtPts(acCY.pts), ytdVs(pick(acMp, 'pts')) + (gAcK ? '<br>' + ytdVs(pick(acMp, 'pts'), gAcK) : ''), 'var(--accent)')
       + kpiHtml('Valor Acumulado', fmtUSD(Math.abs(acCY.usd)), ytdVs(pick(acMp, 'usd')), '#976cf6')
-      + kpiHtml('Puntos Redimidos', fmtPts(Math.abs(rdCY.pts)), ytdVs(pick(rdMp, 'pts'), gRdK), 'var(--red)')
+      + kpiHtml('Puntos Redimidos', fmtPts(Math.abs(rdCY.pts)), ytdVs(pick(rdMp, 'pts')) + (gRdK ? '<br>' + ytdVs(pick(rdMp, 'pts'), gRdK) : ''), 'var(--red)')
       + kpiHtml('Valor Redimido', fmtUSD(Math.abs(rdCY.usd)), ytdVs(pick(rdMp, 'usd')), '#029687')
       + (prog === 'Cobrand' || prog === 'Partners'
          ? kpiHtml(prog === 'Partners' ? 'Partner Revenue' : 'Bank Revenue', fmtUSD(Math.abs(acCY.br)), ytdVs(pick(acMp, 'br')), '#029687')
@@ -1519,15 +1538,15 @@ function renderMetrics(country, m) {
         +   '<button class="seg-btn' + (brView === 'margen' ? ' active' : '') + '" type="button" onclick="setBrView(\'' + suffix + '\',\'' + prog + '\',\'margen\')">Costo y Ganancia</button>'
         + '</div></div>';
     }
-    html += '<div class="cc" style="margin-bottom:14px">' + acTitleHtml + '<div class="cw"><canvas id="' + canvasId + '"></canvas></div>'
-      + '<div class="dtable-row"><div class="dtable-label">' + (mode === 'Q' && gAcK && !(prog === 'Pasaporte D!' && aView === 'tier') ? 'vs ' + cmpLabel() : 'YoY %') + '</div><div class="yoy-row" id="yoy-' + canvasId + '"></div></div>'
-      + '</div>'
+    html += pairHtml('<div class="cc" style="margin-bottom:14px">' + acTitleHtml + '<div class="cw"><canvas id="' + canvasId + '"></canvas></div>'
+      + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-' + canvasId + '"></div></div>'
+      + '</div>', gAcK ? goalCardHtml(canvasId + '-g', 'Acumulaciones — Puntos') : '')
       + (prog === 'Pasaporte D!' && aView === 'tier' ? '<div class="cc" style="margin-bottom:14px"><div class="ct" style="font-size:12px;color:#64748b;margin-bottom:4px">Mix por tier (%)</div><div class="cw" style="height:160px"><canvas id="ch-mix-' + suffix + '"></canvas></div></div>' : '')
       + (prog === 'Pasaporte D!' && aView === 'tier' ? '<div style="margin-bottom:14px"><div class="ct" style="font-size:12px;color:#64748b;margin-bottom:8px">Ratio de acumulación por tier — puntos por $ de GB, año fiscal ' + fyLbl(fyYears().cy) + ' vs ' + fyLbl(fyYears().ly) + '</div><div class="kpi-row" id="tier-avg-' + suffix + '"></div></div>' : '');
-    html += '<div class="cc" style="margin-bottom:14px"><div class="ct">' + rdTitle + '</div><div class="cw"><canvas id="' + canvasRdId + '"></canvas></div>'
-      + '<div class="dtable-row"><div class="dtable-label">' + (mode === 'Q' && gRdK ? 'vs ' + cmpLabel() : 'YoY %') + '</div><div class="yoy-row" id="yoy-' + canvasRdId + '"></div></div>'
+    html += pairHtml('<div class="cc" style="margin-bottom:14px"><div class="ct">' + rdTitle + '</div><div class="cw"><canvas id="' + canvasRdId + '"></canvas></div>'
+      + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-' + canvasRdId + '"></div></div>'
       + '<div class="dtable-row"><div class="dtable-label">Precio ' + fyLbl(fyYears().ly) + ' / YoY</div><div class="ppr-row" id="ppr-' + canvasRdId + '"></div></div>'
-      + '</div>';
+      + '</div>', gRdK ? goalCardHtml(canvasRdId + '-g', 'Redenciones — Puntos') : '');
 
     // ---- Ratio de acumulacion (pts/GB por producto): va DENTRO de "Pasaporte D!" ----
     // Vista "Por Período" (original): Mes/Año + selector de período, barras de
@@ -1561,9 +1580,11 @@ function renderMetrics(country, m) {
         + '</div></div>'
         + '<div class="ratio-hint">' + (rView === 'periodo'
              ? 'Barra clara = período anterior · Barra de color = período elegido · "Total" = ratio agregado de los 7 productos'
-             : 'Barras = ratio mensual del producto elegido (' + fyLbl(fyYears().cy) + ') · barra clara = ' + (cmpGoalActive() && !isTotal(country) && getRatioProduct(suffix) !== 'Total' ? cmpLabel() : 'mismo mes de ' + fyLbl(fyYears().ly)))
+             : 'Barras = ratio mensual del producto elegido (' + fyLbl(fyYears().cy) + ') · barra clara = mismo mes de ' + fyLbl(fyYears().ly))
         + '</div>'
-        + '<div class="cc"><div class="cw"><canvas id="ch-ratio-' + suffix + '"></canvas></div></div>'
+        + pairHtml('<div class="cc"><div class="cw"><canvas id="ch-ratio-' + suffix + '"></canvas></div></div>',
+                   rView === 'producto' && goalRatioMap(getRatioProduct(suffix), country)
+                     ? goalCardHtml('ch-ratio-' + suffix + '-g', getRatioProduct(suffix)) : '')
         + (rView === 'producto' && getRatioProduct(suffix) !== 'Total'
            ? '<div class="cc" style="margin-top:14px"><div class="ct">Total — puntos por $ de GB, todos los productos, por mes</div><div class="cw"><canvas id="ch-ratio-total-' + suffix + '"></canvas></div></div>'
            : '')
@@ -1741,10 +1762,10 @@ function renderMetrics(country, m) {
   html += '<div class="prog-body" id="' + bkId + '-body">';
   var gBk = goalBkMap(country), bkReal = breakageMonthlyMap(country);
   html += '<div class="kpi-row">' + kpiHtml('Puntos Vencidos', fmtPts(m.bkTotal),
-      ytdVs(bkReal, gBk), 'var(--muted)') + '</div>';
-  html += '<div class="cc"><div class="ct">Breakage — Puntos vencidos por mes</div><div class="cw"><canvas id="' + bkCanvasId + '"></canvas></div>'
-    + '<div class="dtable-row"><div class="dtable-label">' + (gBk ? 'vs ' + cmpLabel() : 'YoY %') + '</div><div class="yoy-row" id="yoy-' + bkCanvasId + '"></div></div>'
-    + '</div>';
+      ytdVs(bkReal) + (gBk ? '<br>' + ytdVs(bkReal, gBk) : ''), 'var(--muted)') + '</div>';
+  html += pairHtml('<div class="cc"><div class="ct">Breakage — Puntos vencidos por mes</div><div class="cw"><canvas id="' + bkCanvasId + '"></canvas></div>'
+    + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-' + bkCanvasId + '"></div></div>'
+    + '</div>', gBk ? goalCardHtml(bkCanvasId + '-g', 'Breakage — Puntos vencidos') : '');
   html += '</div></div>';
 
   el.innerHTML = html;
@@ -1907,11 +1928,21 @@ function renderMetrics(country, m) {
         { label: brLabel,       data: revCurr,  backgroundColor: 'rgba(2,150,135,.8)' }
       ], fyLbl(fy.ly), fmtUSDChart);
     } else {
-      var acCmp = pickCmp(mode === 'Q' ? goalAcumMap(prog, country) : null, acPrev, fy);
-      buildBarChart(canvasId, acCmp.data, acCurr, acCmp.label, fyLbl(fy.cy), 'rgba(85,15,237,.75)', fmtFn);
+      buildBarChart(canvasId, acPrev, acCurr, fyLbl(fy.ly), fyLbl(fy.cy), 'rgba(85,15,237,.75)', fmtFn);
     }
-    var rdCmp = pickCmp(mode === 'Q' ? goalRedenMap(prog, country) : null, rdPrev, fy);
-    buildBarChart(canvasRdId, rdCmp.data, rdCurr, rdCmp.label, fyLbl(fy.cy), 'rgba(250,80,63,.78)', fmtFn, { prev: pricePrev, curr: priceCurr });
+    buildBarChart(canvasRdId, rdPrev, rdCurr, fyLbl(fy.ly), fyLbl(fy.cy), 'rgba(250,80,63,.78)', fmtFn, { prev: pricePrev, curr: priceCurr });
+    // Derecha: vs proyección, siempre en puntos (m.acM / m.rdM ya vienen en puntos por programa y mes).
+    var gAc = goalAcumMap(prog, country), gRd = goalRedenMap(prog, country);
+    if (gAc) {
+      var acPtsM = pick(m.acM[prog], 'pts');
+      buildBarChart(canvasId + '-g', goalSeries(gAc, fy), fiscalSeries(acPtsM, acPtsM, fy.cy, fy.ly, fy.cy),
+                    cmpLabel(), fyLbl(fy.cy), 'rgba(85,15,237,.75)', fmtPtsChart);
+    }
+    if (gRd) {
+      var rdPtsM = pick(m.rdM[prog], 'pts');
+      buildBarChart(canvasRdId + '-g', goalSeries(gRd, fy), fiscalSeries(rdPtsM, rdPtsM, fy.cy, fy.ly, fy.cy),
+                    cmpLabel(), fyLbl(fy.cy), 'rgba(250,80,63,.78)', fmtPtsChart);
+    }
 
     // Ratio de acumulacion (pts/GB por producto) — 2 vistas (getRatioView):
     // 'periodo' (original): periodo elegido (mes o anio fiscal) vs el inmediato
@@ -1953,8 +1984,9 @@ function renderMetrics(country, m) {
         var rSeries = ratioProductMonthlySeries(rProduct);
         var ratioColor = rProduct === 'Total' ? 'rgba(30,41,59,.92)' : 'rgba(85,15,237,.75)';
         var ratioFmt = function(v){ return v.toFixed(2); };
-        var rCmp = pickCmp(goalRatioMap(rProduct, country), rSeries.prev, fy);
-        buildBarChart(ratioCanvasId, rCmp.data, rSeries.curr, rCmp.label, fyLbl(fy.cy), ratioColor, ratioFmt);
+        buildBarChart(ratioCanvasId, rSeries.prev, rSeries.curr, fyLbl(fy.ly), fyLbl(fy.cy), ratioColor, ratioFmt);
+        var gRt = goalRatioMap(rProduct, country);
+        if (gRt) buildBarChart(ratioCanvasId + '-g', goalSeries(gRt, fy), rSeries.curr, cmpLabel(), fyLbl(fy.cy), ratioColor, ratioFmt);
         if (rProduct !== 'Total') {
           var totalSeries = ratioProductMonthlySeries('Total');
           buildBarChart('ch-ratio-total-' + suffix, totalSeries.prev, totalSeries.curr, fyLbl(fy.ly), fyLbl(fy.cy), 'rgba(30,41,59,.92)', ratioFmt);
@@ -2098,8 +2130,9 @@ function renderMetrics(country, m) {
   var bkMap  = breakageMonthlyMap(country);
   var bkPrev = fiscalSeries(bkMap, bkMap, fy.cy, fy.ly, fy.ly);
   var bkCurr = fiscalSeries(bkMap, bkMap, fy.cy, fy.ly, fy.cy);
-  var bkCmp = pickCmp(goalBkMap(country), bkPrev, fy);
-  buildBarChart(bkCanvasId, bkCmp.data, bkCurr, bkCmp.label, fyLbl(fy.cy), 'rgba(217,119,6,.78)', fmtPtsChart);
+  buildBarChart(bkCanvasId, bkPrev, bkCurr, fyLbl(fy.ly), fyLbl(fy.cy), 'rgba(217,119,6,.78)', fmtPtsChart);
+  var gBk2 = goalBkMap(country);
+  if (gBk2) buildBarChart(bkCanvasId + '-g', goalSeries(gBk2, fy), bkCurr, cmpLabel(), fyLbl(fy.cy), 'rgba(217,119,6,.78)', fmtPtsChart);
 }
 
 function kpiHtml(label, value, sub, color) {
