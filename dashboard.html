@@ -1074,6 +1074,9 @@ function renderPnl(containerId, country) {
 
 // Partner del Excel -> partners del datalake, por país. '*' = "resto del país":
 // todo partner Cobrand/Partners del país que no esté listado explícitamente.
+// Solo cuentan filas de sección Cobrand/Partners: los puntos del partner con
+// point_type 'Rewards & Benefits' (= Puntos Manuales) quedan afuera, igual que en
+// el Budget (confirmado por Control de Gestión 12-oct, caso ICBC).
 var PROY_PARTNERS = {
   argentina: { 'ICBC': ['ICBCAR'], 'FOCO': ['FOCOAR'], 'Bonda': ['BONDAAR'] },
   brasil:    { 'C6': ['C6BANKBR'], 'BRB': ['BRBBR'], 'New partner': '*' },
@@ -1084,6 +1087,8 @@ var PROY_PARTNERS = {
 // Club Despegar) — validado contra el budget de AR abr-sep (diferencias < 10%).
 var PROY_REDEN = {
   'Pasaporte D!': function(r){ return getProgramsFromReden(r).indexOf('Pasaporte D!') !== -1; },
+  // IFOOD: bolsa total del programa, TODOS los tipos (welcome incluidos) — así se
+  // proyecta en el Budget (confirmado 12-oct).
   'IFOOD':        function(r){ return getProgramFromReden(r) === 'IFOOD'; },
   'Puntos R&B':   function(r){ return r.point_type === 'Puntos R&B'; },
   'PONTOSBR':     function(r){ return r.point_type === 'PONTOSBR'; },
