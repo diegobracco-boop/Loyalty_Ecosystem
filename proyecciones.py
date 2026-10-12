@@ -103,20 +103,35 @@ def _read_xlsx(path, escenario, warns):
 
 
 def build_proyecciones_json():
-    """Devuelve (bytes del JSON, resumen legible). Nunca rompe la corrida: si no
-    hay ningún Excel, sale un JSON vacío con el aviso en meta."""
+    """Devuelve (bytes del JSON | None, resumen legible). Nunca rompe la corrida.
+    Por escenario prueba cada candidato en orden (OneDrive -> copia del repo): si
+    uno existe pero no se puede leer (bloqueado, sin descargar, formato roto), pasa
+    al siguiente. Si no sale NINGUNA fila, devuelve None: el caller no sube nada y
+    queda en Drive el loyalty_proyecciones.json anterior (no se pisa con uno vacío)."""
     rows, warns, fuentes = [], [], {}
     for esc, cands in ESCENARIOS.items():
-        path = next((p for p in cands if p and Path(p).exists()), None)
-        fuentes[esc] = path
-        if path is None:
-            if esc == "budget":
-                warns.append("budget: Input_budget.xlsx no encontrado")
-            continue
-        try:
-            rows += _read_xlsx(path, esc, warns)
-        except Exception as e:  # archivo abierto/bloqueado, formato roto, etc.
-            warns.append(f"{esc}: no se pudo leer {path}: {str(e)[:150]}")
+        fuentes[esc] = None
+        for path in [p for p in cands if p and Path(p).exists()]:
+            try:
+                esc_rows = _read_xlsx(path, esc, warns)
+            except Exception as e:  # archivo abierto/bloqueado, formato roto, openpyxl faltante...
+                warns.append(f"{esc}: no se pudo leer {path}: {str(e)[:150]}")
+                continue
+            if not esc_rows:
+                warns.append(f"{esc}: {path} no trajo filas")
+                continue
+            rows += esc_rows
+            fuentes[esc] = path
+            if Path(path).parent == _SCRIPT_DIR:
+                mod = datetime.fromtimestamp(Path(path).stat().st_mtime).strftime("%Y-%m-%d")
+                warns.append(f"{esc}: se usó la COPIA DEL REPO ({Path(path).name}, modificada {mod}) — "
+                             "puede estar desactualizada respecto de OneDrive")
+            break
+        if fuentes[esc] is None and esc == "budget":
+            warns.append("budget: Input_budget.xlsx no encontrado o ilegible en todos los candidatos")
+    if not rows:
+        return None, [f"  [WARN] proyecciones: {w}" for w in warns] + [
+            "  [WARN] proyecciones: 0 filas — NO se sube loyalty_proyecciones.json (queda el anterior en Drive)"]
     meta = {
         "generated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
         "fuentes": fuentes,
@@ -137,8 +152,10 @@ def build_proyecciones_json():
 
 if __name__ == "__main__":
     data, resumen = build_proyecciones_json()
-    print(f"{PROYECCIONES_FILE}: {len(data) // 1024} KB")
+    print(f"{PROYECCIONES_FILE}: {len(data) // 1024 if data else 0} KB")
     print("\n".join(resumen))
+    if data is None:
+        sys.exit(1)
     if "--upload" in sys.argv:
         from google.oauth2.credentials import Credentials
         from googleapiclient.discovery import build

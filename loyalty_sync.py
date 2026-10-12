@@ -3360,7 +3360,6 @@ proy_bytes, _proy_resumen = build_proyecciones_json()
 print("\n".join(_proy_resumen))
 
 _OUT = [
-    (proy_bytes, PROYECCIONES_FILE),
     (acum_cy_bytes,  ACUM_CY_FILE), (acum_ly_bytes,  ACUM_LY_FILE),
     (reden_cy_bytes, REDEN_CY_FILE), (reden_ly_bytes, REDEN_LY_FILE),
     (breakage_bytes, BREAKAGE_FILE), (dict_bytes, DICT_FILE), (ssp_bytes, SSP_FILE),
@@ -3372,6 +3371,8 @@ _OUT = [
     (acum_channel_bytes, ACUM_CHANNEL_FILE),
     (stock_ifood_bytes, STOCK_IFOOD_FILE),
 ]
+if proy_bytes is not None:  # None = no se pudo leer ningún Excel: no pisar el JSON bueno de Drive
+    _OUT.append((proy_bytes, PROYECCIONES_FILE))
 
 if DRY_RUN:
     out_dir = Path(__file__).resolve().parent / "_out"
