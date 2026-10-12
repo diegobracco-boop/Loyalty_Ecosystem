@@ -20,3 +20,4 @@ Proceso_cierre/config.yaml
 # Backups/versiones de prueba de queries que no forman parte de la vigente.
 *.bak_*
 Proceso_cierre/queries/**/*_TRIAL.sql
+_out_pnl/

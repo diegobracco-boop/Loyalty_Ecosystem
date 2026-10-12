@@ -89,22 +89,22 @@ function getAllRaw() {
   return out;
 }
 
-// P&L Contable: mismos JSON canónicos que consumen las landings B2B
-// (Inputs_Planning_PnL). Se filtran a las líneas de loyalty server-side para
-// mandar ~4k filas al cliente en vez de ~70k.
-// Sufijo _v2 en la clave de caché (12-oct): el filtro de _loyPnl ahora retiene
-// también los drivers B2C (Up Front/Fees/Commercial Discounts). La clave se arma
-// con lastUpdated del archivo, que NO cambió — sin el sufijo, el caché (6 h)
-// seguiría devolviendo el payload viejo sin esas líneas.
-function getLoyBaseline() { return _loyPnl('baseline_actuals+projections.json', 'loy_baseline_v2'); }
-function getLoyBudget()   { return _loyPnl('budget.json',   'loy_budget_v2');   }
-function getLoyForecast() { return _loyPnl('forecast.json', 'loy_forecast_v2'); }
-
-// Run Rate (12-oct): runrate.json CANÓNICO de Inputs_Planning_PnL (mismo folder,
-// mismo alcance y mismo filtro que budget/forecast/baseline, 12 meses del FY).
-// Reemplaza a loyalty_runrate.json (armado a mano el 22-sep, solo LE NA y
-// Sep→Mar, sin Up Front/Fees) — ese archivo queda en Drive pero ya no se lee.
-function getLoyRunrate() { return _loyPnl('runrate.json', 'loy_runrate_v2'); }
+// P&L Contable (12-oct): vista de Loyalty SOLO MARCA DESPEGAR —
+// loyalty_pnl_<escenario>.json en el folder de Loyalty, armados por
+// inputs_contables_loyalty.py desde las planas de Inputs_Planning_PnL (ya vienen
+// recortados a líneas loyalty + Drivers B2C). Los canónicos de B2B suman todas las
+// marcas (Best Day = 44% del GB B2C de MX). Si el JSON de Loyalty no está, cae al
+// canónico de B2B filtrado por _loyPnl (todas las marcas) — degradado, no roto.
+function _loyPnlDespegar(esc, canonical) {
+  try { return _load(LOYALTY_FOLDER_ID, 'loyalty_pnl_' + esc + '.json', 'loy_pnl_' + esc); }
+  catch (e) { return _loyPnl(canonical, 'loy_' + esc + '_v2'); }
+}
+function getLoyBaseline() { return _loyPnlDespegar('baseline', 'baseline_actuals+projections.json'); }
+function getLoyBudget()   { return _loyPnlDespegar('budget',   'budget.json'); }
+function getLoyForecast() { return _loyPnlDespegar('forecast', 'forecast.json'); }
+// Run Rate: runrate.json de Inputs_Planning_PnL (12 meses del FY), misma vista Despegar.
+// loyalty_runrate.json (armado a mano el 22-sep, solo LE NA) queda en Drive sin uso.
+function getLoyRunrate()  { return _loyPnlDespegar('runrate',  'runrate.json'); }
 
 // ---- Internal helpers ----
 
