@@ -2683,7 +2683,7 @@ function renderVariaciones() {
   order.forEach(function(l){ totB += bud[l] || 0; totA += act[l] || 0; });
 
   h += '<div class="cc" style="margin-bottom:16px"><div class="ct">TOTAL LOYALTY: Budget → variación por línea → Actual</div>'
-     + '<div class="cw" style="height:340px"><canvas id="ch-var-wf"></canvas></div></div>';
+     + '<div class="cw" style="height:380px"><canvas id="ch-var-wf"></canvas></div></div>';
 
   // ---- el porqué
   var met = closed.length ? varMetrics(country, closed) : null;
@@ -2735,14 +2735,38 @@ function renderVariaciones() {
     run += d;
   });
   labels.push('Actual'); data.push([0, totA]); colors.push('rgba(85,15,237,.85)'); deltas.push(totA);
+  // Flecha Budget -> Actual con el Δ total, dibujada sobre el área del gráfico.
+  var dTot = totA - totB;
+  var dPct = totB ? (dTot / Math.abs(totB) * 100) : null;
+  var deltaArrow = {
+    id: 'varDeltaArrow',
+    afterDatasetsDraw: function(chart) {
+      var meta = chart.getDatasetMeta(0), n = meta.data.length;
+      if (n < 2) return;
+      var c = chart.ctx, x0 = meta.data[0].x, x1 = meta.data[n - 1].x, y = chart.chartArea.top - 22;
+      var col = dTot >= 0 ? '#029687' : '#e0442f';
+      c.save();
+      c.strokeStyle = col; c.fillStyle = col; c.lineWidth = 2;
+      c.beginPath(); c.moveTo(x0, y + 12); c.lineTo(x0, y); c.lineTo(x1, y); c.lineTo(x1, y + 8); c.stroke();
+      c.beginPath(); c.moveTo(x1 - 6, y + 6); c.lineTo(x1 + 6, y + 6); c.lineTo(x1, y + 14); c.closePath(); c.fill();
+      var txt = 'Δ Actual − Budget: ' + fmtPnl(dTot, true) + (dPct !== null ? ' (' + (dPct > 0 ? '+' : '') + dPct.toFixed(1) + '%)' : '');
+      c.font = '700 12px -apple-system, "Segoe UI", system-ui, sans-serif';
+      var w = c.measureText(txt).width, xm = (x0 + x1) / 2;
+      c.fillStyle = '#fff'; c.fillRect(xm - w / 2 - 6, y - 9, w + 12, 18);
+      c.fillStyle = col; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(txt, xm, y);
+      c.restore();
+    }
+  };
   var ctx = document.getElementById('ch-var-wf');
   if (CHARTS['ch-var-wf']) CHARTS['ch-var-wf'].destroy();
   CHARTS['ch-var-wf'] = new Chart(ctx, {
     type: 'bar',
+    plugins: [deltaArrow],
     data: { labels: labels, datasets: [{ data: data, backgroundColor: colors, borderRadius: 3,
       datalabels: { anchor: 'end', align: 'top', clamp: true, font: { size: 11, weight: '700' }, color: '#475569',
         formatter: function(v, c){ var i = c.dataIndex, t = i === 0 || i === labels.length - 1; return fmtPnl(deltas[i], !t); } } }] },
     options: { responsive: true, maintainAspectRatio: false,
+      layout: { padding: { top: 46 } },   // espacio para la flecha Budget -> Actual
       plugins: { legend: { display: false },
         tooltip: { callbacks: { label: function(c){ var i = c.dataIndex, t = i === 0 || i === labels.length - 1;
           return (t ? 'Total: ' : 'Δ: ') + fmtPnl(deltas[i], !t); } } } },
