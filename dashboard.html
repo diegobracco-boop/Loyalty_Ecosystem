@@ -199,8 +199,8 @@ table.pnl tr.grand-total td.sep { background: #1b1533 !important; border-bottom-
 
 /* ---- Program index chips (saltos rapidos a cada programa) ---- */
 .prog-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
-.cmp-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 20px; }
-@media (max-width: 1000px) { .cmp-grid { grid-template-columns: minmax(0, 1fr); } }
+.goal-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0 0 8px; }
+.goal-hint { font-size: var(--fs-small); color: var(--muted); }
 .seg-btn[disabled] { opacity: .45; cursor: not-allowed; }
 .prog-chip { padding: 5px 12px; font-size: var(--fs-md); font-weight: 600; color: var(--accent); background: var(--accent-a08); border: 1px solid var(--accent-a15); border-radius: 999px; cursor: pointer; white-space: nowrap; transition: .15s; }
 .prog-chip:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
@@ -1311,12 +1311,12 @@ function progTitleAttrs(id, suffix, open) {
 }
 
 // ============================================================
-// Comparación vs proyección en Métricas de Negocio (12-oct): los gráficos que
-// tienen proyección se muestran DE A PARES — izquierda siempre vs FY anterior
-// (respeta el toggle $/Q de la sección), derecha vs Budget o Run Rate (selector
-// en el título del gráfico de la derecha; uno cambia todos). La proyección
-// (loyalty_proyecciones.json, de Input_budget.xlsx / Input_runrate.xlsx) está en
-// PUNTOS, así que el gráfico de la derecha es siempre en puntos.
+// Comparación vs proyección en Métricas de Negocio (12-oct): en los gráficos que
+// tienen proyección, la proyección es una TERCERA BARRA (FY anterior | Budget o
+// Run Rate | FY en curso); clic en la leyenda la oculta (o la del FY anterior).
+// Selector Budget / Run Rate dentro de la tarjeta (uno cambia todos). La
+// proyección (loyalty_proyecciones.json, de Input_budget.xlsx / Input_runrate.xlsx)
+// está en PUNTOS: la tercera barra solo aparece con la sección en vista Q.
 // ============================================================
 var METRICS_CMP = 'budget';   // 'budget' | 'runrate'
 function setMetricsCmp(v, evt) { if (evt) evt.stopPropagation(); METRICS_CMP = v; renderActive(); }
@@ -1333,17 +1333,16 @@ function goalSegHtml() {
   });
   return h + '</div>';
 }
-// Tarjeta del gráfico de la derecha (vs proyección).
-function goalCardHtml(id, title) {
-  return '<div class="cc" style="margin-bottom:14px"><div class="sub-title-row" style="margin-bottom:6px">'
-    + '<div class="ct" style="margin-bottom:0">' + title + ' vs ' + cmpLabel() + '</div>' + goalSegHtml() + '</div>'
-    + '<div class="cw"><canvas id="' + id + '"></canvas></div>'
-    + '<div class="dtable-row"><div class="dtable-label">vs ' + scenarioLabel(METRICS_CMP) + ' %</div><div class="yoy-row" id="yoy-' + id + '"></div></div></div>';
+// Línea de control dentro de la tarjeta: Budget / Run Rate + ayuda de la leyenda.
+function goalCtlHtml() {
+  return '<div class="goal-ctl"><span class="ratio-controls-lbl">Proyección</span>' + goalSegHtml()
+    + '<span class="goal-hint">Clic en la leyenda para ocultar o mostrar cada barra</span></div>';
 }
-// Par izquierda/derecha; sin proyección, solo la izquierda a ancho completo.
-function pairHtml(leftHtml, rightHtml) {
-  return rightHtml ? '<div class="cmp-grid">' + leftHtml + rightHtml + '</div>' : leftHtml;
+// Fila de % vs proyección debajo del gráfico (la llena buildBarChart en 'yob-<id>').
+function goalRowHtml(id) {
+  return '<div class="dtable-row"><div class="dtable-label">vs ' + scenarioLabel(METRICS_CMP) + ' %</div><div class="yoy-row" id="yob-' + id + '"></div></div>';
 }
+var GOAL_ONLY_Q = '<div class="goal-hint" style="margin-bottom:6px">El Budget está en puntos: pasá la sección a Q para verlo como tercera barra.</div>';
 function goalSeries(goalMap, fy) { return fiscalSeries(goalMap, goalMap, fy.cy, fy.ly, fy.cy); }
 
 // Partner del Excel -> programa del dashboard (resto = Partners). El real del
@@ -1539,15 +1538,23 @@ function renderMetrics(country, m) {
         +   '<button class="seg-btn' + (brView === 'margen' ? ' active' : '') + '" type="button" onclick="setBrView(\'' + suffix + '\',\'' + prog + '\',\'margen\')">Costo y Ganancia</button>'
         + '</div></div>';
     }
-    html += pairHtml('<div class="cc" style="margin-bottom:14px">' + acTitleHtml + '<div class="cw"><canvas id="' + canvasId + '"></canvas></div>'
+    var acGoalOn = !!gAcK && mode === 'Q';
+    html += '<div class="cc" style="margin-bottom:14px">' + acTitleHtml
+      + (acGoalOn ? goalCtlHtml() : (gAcK ? GOAL_ONLY_Q : ''))
+      + '<div class="cw"><canvas id="' + canvasId + '"></canvas></div>'
       + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-' + canvasId + '"></div></div>'
-      + '</div>', gAcK ? goalCardHtml(canvasId + '-g', 'Acumulaciones — Puntos') : '')
+      + (acGoalOn ? goalRowHtml(canvasId) : '')
+      + '</div>'
       + (prog === 'Pasaporte D!' && aView === 'tier' ? '<div class="cc" style="margin-bottom:14px"><div class="ct" style="font-size:12px;color:#64748b;margin-bottom:4px">Mix por tier (%)</div><div class="cw" style="height:160px"><canvas id="ch-mix-' + suffix + '"></canvas></div></div>' : '')
       + (prog === 'Pasaporte D!' && aView === 'tier' ? '<div style="margin-bottom:14px"><div class="ct" style="font-size:12px;color:#64748b;margin-bottom:8px">Ratio de acumulación por tier — puntos por $ de GB, año fiscal ' + fyLbl(fyYears().cy) + ' vs ' + fyLbl(fyYears().ly) + '</div><div class="kpi-row" id="tier-avg-' + suffix + '"></div></div>' : '');
-    html += pairHtml('<div class="cc" style="margin-bottom:14px"><div class="ct">' + rdTitle + '</div><div class="cw"><canvas id="' + canvasRdId + '"></canvas></div>'
+    var rdGoalOn = !!gRdK && mode === 'Q';
+    html += '<div class="cc" style="margin-bottom:14px"><div class="ct">' + rdTitle + '</div>'
+      + (rdGoalOn ? goalCtlHtml() : (gRdK ? GOAL_ONLY_Q : ''))
+      + '<div class="cw"><canvas id="' + canvasRdId + '"></canvas></div>'
       + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-' + canvasRdId + '"></div></div>'
+      + (rdGoalOn ? goalRowHtml(canvasRdId) : '')
       + '<div class="dtable-row"><div class="dtable-label">Precio ' + fyLbl(fyYears().ly) + ' / YoY</div><div class="ppr-row" id="ppr-' + canvasRdId + '"></div></div>'
-      + '</div>', gRdK ? goalCardHtml(canvasRdId + '-g', 'Redenciones — Puntos') : '');
+      + '</div>';
 
     // ---- Ratio de acumulacion (pts/GB por producto): va DENTRO de "Pasaporte D!" ----
     // Vista "Por Período" (original): Mes/Año + selector de período, barras de
@@ -1583,9 +1590,12 @@ function renderMetrics(country, m) {
              ? 'Barra clara = período anterior · Barra de color = período elegido · "Total" = ratio agregado de los 7 productos'
              : 'Barras = ratio mensual del producto elegido (' + fyLbl(fyYears().cy) + ') · barra clara = mismo mes de ' + fyLbl(fyYears().ly))
         + '</div>'
-        + pairHtml('<div class="cc"><div class="cw"><canvas id="ch-ratio-' + suffix + '"></canvas></div></div>',
-                   rView === 'producto' && goalRatioMap(getRatioProduct(suffix), country)
-                     ? goalCardHtml('ch-ratio-' + suffix + '-g', getRatioProduct(suffix)) : '')
+        + (function(){
+            var on = rView === 'producto' && !!goalRatioMap(getRatioProduct(suffix), country);
+            return '<div class="cc">' + (on ? goalCtlHtml() : '')
+              + '<div class="cw"><canvas id="ch-ratio-' + suffix + '"></canvas></div>'
+              + (on ? goalRowHtml('ch-ratio-' + suffix) : '') + '</div>';
+          })()
         + (rView === 'producto' && getRatioProduct(suffix) !== 'Total'
            ? '<div class="cc" style="margin-top:14px"><div class="ct">Total — puntos por $ de GB, todos los productos, por mes</div><div class="cw"><canvas id="ch-ratio-total-' + suffix + '"></canvas></div></div>'
            : '')
@@ -1764,9 +1774,12 @@ function renderMetrics(country, m) {
   var gBk = goalBkMap(country), bkReal = breakageMonthlyMap(country);
   html += '<div class="kpi-row">' + kpiHtml('Puntos Vencidos', fmtPts(m.bkTotal),
       ytdVs(bkReal) + (gBk ? '<br>' + ytdVs(bkReal, gBk) : ''), 'var(--muted)') + '</div>';
-  html += pairHtml('<div class="cc"><div class="ct">Breakage — Puntos vencidos por mes</div><div class="cw"><canvas id="' + bkCanvasId + '"></canvas></div>'
+  html += '<div class="cc"><div class="ct">Breakage — Puntos vencidos por mes</div>'
+    + (gBk ? goalCtlHtml() : '')
+    + '<div class="cw"><canvas id="' + bkCanvasId + '"></canvas></div>'
     + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-' + bkCanvasId + '"></div></div>'
-    + '</div>', gBk ? goalCardHtml(bkCanvasId + '-g', 'Breakage — Puntos vencidos') : '');
+    + (gBk ? goalRowHtml(bkCanvasId) : '')
+    + '</div>';
   html += '</div></div>';
 
   el.innerHTML = html;
@@ -1929,21 +1942,14 @@ function renderMetrics(country, m) {
         { label: brLabel,       data: revCurr,  backgroundColor: 'rgba(2,150,135,.8)' }
       ], fyLbl(fy.ly), fmtUSDChart);
     } else {
-      buildBarChart(canvasId, acPrev, acCurr, fyLbl(fy.ly), fyLbl(fy.cy), 'rgba(85,15,237,.75)', fmtFn);
+      // 3ra barra (proyección) solo en Q: acCurr ya está en puntos en ese modo.
+      var gAc = mode === 'Q' ? goalAcumMap(prog, country) : null;
+      buildBarChart(canvasId, acPrev, acCurr, fyLbl(fy.ly), fyLbl(fy.cy), 'rgba(85,15,237,.75)', fmtFn, null,
+                    gAc ? { data: goalSeries(gAc, fy), label: cmpLabel() } : null);
     }
-    buildBarChart(canvasRdId, rdPrev, rdCurr, fyLbl(fy.ly), fyLbl(fy.cy), 'rgba(250,80,63,.78)', fmtFn, { prev: pricePrev, curr: priceCurr });
-    // Derecha: vs proyección, siempre en puntos (m.acM / m.rdM ya vienen en puntos por programa y mes).
-    var gAc = goalAcumMap(prog, country), gRd = goalRedenMap(prog, country);
-    if (gAc) {
-      var acPtsM = pick(m.acM[prog], 'pts');
-      buildBarChart(canvasId + '-g', goalSeries(gAc, fy), fiscalSeries(acPtsM, acPtsM, fy.cy, fy.ly, fy.cy),
-                    cmpLabel(), fyLbl(fy.cy), 'rgba(85,15,237,.75)', fmtPtsChart);
-    }
-    if (gRd) {
-      var rdPtsM = pick(m.rdM[prog], 'pts');
-      buildBarChart(canvasRdId + '-g', goalSeries(gRd, fy), fiscalSeries(rdPtsM, rdPtsM, fy.cy, fy.ly, fy.cy),
-                    cmpLabel(), fyLbl(fy.cy), 'rgba(250,80,63,.78)', fmtPtsChart);
-    }
+    var gRd = mode === 'Q' ? goalRedenMap(prog, country) : null;
+    buildBarChart(canvasRdId, rdPrev, rdCurr, fyLbl(fy.ly), fyLbl(fy.cy), 'rgba(250,80,63,.78)', fmtFn, { prev: pricePrev, curr: priceCurr },
+                  gRd ? { data: goalSeries(gRd, fy), label: cmpLabel() } : null);
 
     // Ratio de acumulacion (pts/GB por producto) — 2 vistas (getRatioView):
     // 'periodo' (original): periodo elegido (mes o anio fiscal) vs el inmediato
@@ -1985,9 +1991,9 @@ function renderMetrics(country, m) {
         var rSeries = ratioProductMonthlySeries(rProduct);
         var ratioColor = rProduct === 'Total' ? 'rgba(30,41,59,.92)' : 'rgba(85,15,237,.75)';
         var ratioFmt = function(v){ return v.toFixed(2); };
-        buildBarChart(ratioCanvasId, rSeries.prev, rSeries.curr, fyLbl(fy.ly), fyLbl(fy.cy), ratioColor, ratioFmt);
         var gRt = goalRatioMap(rProduct, country);
-        if (gRt) buildBarChart(ratioCanvasId + '-g', goalSeries(gRt, fy), rSeries.curr, cmpLabel(), fyLbl(fy.cy), ratioColor, ratioFmt);
+        buildBarChart(ratioCanvasId, rSeries.prev, rSeries.curr, fyLbl(fy.ly), fyLbl(fy.cy), ratioColor, ratioFmt, null,
+                      gRt ? { data: goalSeries(gRt, fy), label: cmpLabel() } : null);
         if (rProduct !== 'Total') {
           var totalSeries = ratioProductMonthlySeries('Total');
           buildBarChart('ch-ratio-total-' + suffix, totalSeries.prev, totalSeries.curr, fyLbl(fy.ly), fyLbl(fy.cy), 'rgba(30,41,59,.92)', ratioFmt);
@@ -2131,9 +2137,9 @@ function renderMetrics(country, m) {
   var bkMap  = breakageMonthlyMap(country);
   var bkPrev = fiscalSeries(bkMap, bkMap, fy.cy, fy.ly, fy.ly);
   var bkCurr = fiscalSeries(bkMap, bkMap, fy.cy, fy.ly, fy.cy);
-  buildBarChart(bkCanvasId, bkPrev, bkCurr, fyLbl(fy.ly), fyLbl(fy.cy), 'rgba(217,119,6,.78)', fmtPtsChart);
   var gBk2 = goalBkMap(country);
-  if (gBk2) buildBarChart(bkCanvasId + '-g', goalSeries(gBk2, fy), bkCurr, cmpLabel(), fyLbl(fy.cy), 'rgba(217,119,6,.78)', fmtPtsChart);
+  buildBarChart(bkCanvasId, bkPrev, bkCurr, fyLbl(fy.ly), fyLbl(fy.cy), 'rgba(217,119,6,.78)', fmtPtsChart, null,
+                gBk2 ? { data: goalSeries(gBk2, fy), label: cmpLabel() } : null);
 }
 
 function kpiHtml(label, value, sub, color) {
@@ -2414,16 +2420,21 @@ function priceRowHtml(prevPrice, currPrice) {
 // (anio fiscal anterior), currLabel = derecha (anio fiscal actual).
 // priceSeries (opcional, solo Redenciones): { prev:[12], curr:[12] } precio USD/pt por mes —
 // se dibuja como linea punteada sobre el grafico (eje secundario) + fila de precio/YoY debajo.
-function buildBarChart(canvasId, prevValues, currValues, prevLabel, currLabel, color, fmtFn, priceSeries) {
+// goal (opcional): { data:[12], label } -> tercera barra (proyección) entre la del
+// año anterior y la del actual, + fila 'yob-<canvasId>' con el % vs proyección.
+// Clic en la leyenda oculta/muestra cada barra (comportamiento default de Chart.js).
+function buildBarChart(canvasId, prevValues, currValues, prevLabel, currLabel, color, fmtFn, priceSeries, goal) {
   var ctx = document.getElementById(canvasId);
   var yoyEl = document.getElementById('yoy-' + canvasId);
   var pprEl = document.getElementById('ppr-' + canvasId);
+  var yobEl = document.getElementById('yob-' + canvasId);
   if (!ctx) return;
   if (CHARTS[canvasId]) { CHARTS[canvasId].destroy(); }
-  if (!prevValues.some(Boolean) && !currValues.some(Boolean)) {
+  if (!prevValues.some(Boolean) && !currValues.some(Boolean) && !(goal && goal.data.some(Boolean))) {
     ctx.parentElement.innerHTML = '<div class="empty" style="padding:20px">Sin datos</div>';
     if (yoyEl) yoyEl.innerHTML = '';
     if (pprEl) pprEl.innerHTML = '';
+    if (yobEl) yobEl.innerHTML = '';
     return;
   }
   fmtFn = fmtFn || fmtPts;
@@ -2442,6 +2453,12 @@ function buildBarChart(canvasId, prevValues, currValues, prevLabel, currLabel, c
     { label: String(prevLabel), data: prevValues, backgroundColor: 'rgba(100,116,139,.3)', borderRadius: 3, datalabels: dataLabelCfg },
     { label: String(currLabel), data: currValues, backgroundColor: color, borderRadius: 3, datalabels: dataLabelCfg }
   ];
+  if (goal) {
+    // Proyección: mismo tono que la serie actual pero claro + borde, sin datalabel
+    // (3 barras con número por mes no se leen).
+    datasets.splice(1, 0, { label: String(goal.label), data: goal.data, backgroundColor: lightenColor(color),
+      borderColor: color, borderWidth: 1.5, borderRadius: 3, datalabels: { display: false } });
+  }
   var scales = {
     x: { grid: { display: false }, ticks: { font: { size: 12 } } },
     y: { grid: { color: '#f1f5f9' }, ticks: { font: { size: 12 }, callback: function(v){ return fmtFn(v); } } }
@@ -2476,6 +2493,7 @@ function buildBarChart(canvasId, prevValues, currValues, prevLabel, currLabel, c
     }
   });
   if (yoyEl) yoyEl.innerHTML = yoyRowHtml(prevValues, currValues);
+  if (yobEl) yobEl.innerHTML = goal ? yoyRowHtml(goal.data, currValues) : '';
   if (pprEl) pprEl.innerHTML = priceSeries ? priceRowHtml(priceSeries.prev, priceSeries.curr) : '';
 }
 
