@@ -6,12 +6,22 @@ las MISMAS solapas y formato (filas = país × clave, columnas = meses abr→mar
   Input_budget.xlsx   -> escenario 'budget'
   Input_runrate.xlsx  -> escenario 'runrate'   (opcional: si no existe, se omite)
 
-Solapas que se leen (las demás se ignoran):
-  Cobrands_Partners  Pais, Partner, <meses>                  puntos acumulados por partner
-  Redenciones        Pais, Metrica, Tipo_punto, <meses>      puntos redimidos por tipo
-  Breakage           Pais, Metrica, <meses>                  puntos vencidos
-  SSP_PrecioPasivo   Pais, Metrica, <meses>                  SSP_Red / SSP / Precio Punto Pasivo
-  Ratio_acumulacion  Pais, Producto, Metrica, <meses>        puntos / GB por producto
+Solapas que se leen (las demás se ignoran). Las columnas se buscan por NOMBRE
+de encabezado (no por posición), los meses son las columnas cuyo encabezado es fecha:
+  Cobrands_Partners  Pais, Metrica, Partner        Metrica 'Cantidad puntos' -> bloque acum_partner
+                                                   Metrica 'Precio_Facturacion' (USD/pt) -> precio_partner
+                                                   (Partner 'Todos' = precio de los partners del país)
+  Redenciones        Pais, Metrica, Tipo_punto     puntos redimidos por tipo       -> reden
+  Breakage           Pais, Metrica                 puntos vencidos                 -> breakage
+  SSP_PrecioPasivo   Pais, Metrica                 SSP_Red / SSP / Precio Punto Pasivo -> ssp
+  Ratio_acumulacion  LOB-Canal, Pais, Producto, Metrica, Viaje
+                                                   regla de acumulación (pts / USD GB), SOLO
+                                                   B2C-SITE -> ratio, clave 'Producto|Viaje'
+  Penetracion_GB     LOB-Canal, Pais, Producto, Metrica, Viaje
+                                                   % del GB que acumula (fracción), SOLO
+                                                   LOB-Canal 'B2C-SITE' (decisión 12-oct: el GB
+                                                   de Budget no viene abierto por canal) -> penet,
+                                                   clave 'Producto|Domestic' / 'Producto|International'
 
 Salida: loyalty_proyecciones.json  {meta, cols, rows} con una fila por
 escenario × bloque × país × clave × mes. El cruce contra los reales lo hace
@@ -45,14 +55,27 @@ ESCENARIOS = {
                 str(_SCRIPT_DIR / "Input_runrate.xlsx")],
 }
 
-# solapa -> (bloque, cantidad de columnas de llave antes de los meses, índice de la clave)
+# solapa -> lista de (columnas que arman la clave, filtro de fila, bloque por fila)
+def _bloque_cp(f):  # Cobrands_Partners: según Metrica
+    m = (f.get("Metrica") or "").lower()
+    return "precio_partner" if m.startswith("precio") else "acum_partner"
+
+# Ratio y Penetración vienen por LOB-Canal × Viaje: solo B2C-SITE (12-oct, el GB de
+# Budget no viene abierto por canal). Si la solapa no tiene LOB-Canal, pasa todo.
+def _solo_site(f):
+    c = (f.get("LOB-Canal") or "").upper()
+    return c in ("", "B2C-SITE")
+
 SOLAPAS = {
-    "Cobrands_Partners": ("acum_partner", 2, 1),   # clave = Partner
-    "Redenciones":       ("reden",        3, 2),   # clave = Tipo_punto
-    "Breakage":          ("breakage",     2, None),
-    "SSP_PrecioPasivo":  ("ssp",          2, 1),   # clave = Metrica
-    "Ratio_acumulacion": ("ratio",        3, 1),   # clave = Producto
+    "Cobrands_Partners": (["Partner"], None, _bloque_cp),
+    "Redenciones":       (["Tipo_punto"], None, "reden"),
+    "Breakage":          ([], None, "breakage"),
+    "SSP_PrecioPasivo":  (["Metrica"], None, "ssp"),
+    "Ratio_acumulacion": (["Producto", "Viaje"], _solo_site, "ratio"),
+    "Penetracion_GB":    (["Producto", "Viaje"], _solo_site, "penet"),
 }
+# Celdas que el modelo de Planning deja sin dato: se ignoran sin warning.
+_SIN_DATO = {"#missing", "#n/a", "#value!", "#div/0!", "-"}
 
 # Nombre de país del Excel -> dataKey del dashboard (COUNTRY_DATAKEYS).
 PAIS = {"argentina": "argentina", "brasil": "brasil", "brazil": "brasil",
@@ -72,32 +95,40 @@ def _read_xlsx(path, escenario, warns):
     import openpyxl
     wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
     rows = []
-    for solapa, (bloque, nkey, kidx) in SOLAPAS.items():
+    for solapa, (kcols, filtro, bloque) in SOLAPAS.items():
         if solapa not in wb.sheetnames:
             warns.append(f"{escenario}: falta la solapa '{solapa}'")
             continue
         it = wb[solapa].iter_rows(values_only=True)
         header = next(it, None) or ()
-        meses = [(i, _ym(h)) for i, h in enumerate(header) if i >= nkey and _ym(h)]
+        names = {str(h).strip(): i for i, h in enumerate(header) if h is not None and not _ym(h)}
+        meses = [(i, _ym(h)) for i, h in enumerate(header) if _ym(h)]
+        faltan = [c for c in ["Pais"] + kcols if c not in names]
+        if faltan:
+            warns.append(f"{escenario}/{solapa}: faltan columnas {faltan} (encabezado: {list(names)})")
+            continue
         for r in it:
-            if not r or r[0] is None:
+            if not r:
                 continue
-            pais_raw = str(r[0]).strip()
-            pais = PAIS.get(pais_raw.lower())
+            f = {n: (str(r[i]).strip() if i < len(r) and r[i] is not None else "") for n, i in names.items()}
+            pais = PAIS.get(f["Pais"].lower())
             if pais is None:
                 # 'Other Countries' y similares: no hay solapa de país en el dashboard
                 continue
-            clave = str(r[kidx]).strip() if kidx is not None and r[kidx] is not None else ""
+            if filtro and not filtro(f):
+                continue
+            clave = "|".join(f[c] for c in kcols)
+            blq = bloque(f) if callable(bloque) else bloque
             for i, ym in meses:
                 v = r[i] if i < len(r) else None
-                if v is None or v == "":
+                if v is None or v == "" or str(v).strip().lower() in _SIN_DATO:
                     continue
                 try:
                     v = float(v)
                 except (TypeError, ValueError):
-                    warns.append(f"{escenario}/{solapa}: valor no numérico {v!r} ({pais_raw} {clave} {ym})")
+                    warns.append(f"{escenario}/{solapa}: valor no numérico {v!r} ({f['Pais']} {clave} {ym})")
                     continue
-                rows.append([escenario, bloque, pais, clave, ym, v])
+                rows.append([escenario, blq, pais, clave, ym, v])
     wb.close()
     return rows
 
@@ -136,8 +167,9 @@ def build_proyecciones_json():
         "generated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
         "fuentes": fuentes,
         "warnings": warns,
-        "unidades": {"acum_partner": "puntos", "reden": "puntos", "breakage": "puntos",
-                     "ssp": "USD por punto", "ratio": "puntos / USD GB"},
+        "unidades": {"acum_partner": "puntos", "precio_partner": "USD por punto", "reden": "puntos",
+                     "breakage": "puntos", "ssp": "USD por punto", "ratio": "puntos / USD GB",
+                     "penet": "fracción del GB (B2C-SITE)"},
     }
     cols = ["escenario", "bloque", "pais", "clave", "ym", "valor"]
     data = json.dumps({"meta": meta, "cols": cols, "rows": rows}, ensure_ascii=False,

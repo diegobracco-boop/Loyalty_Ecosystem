@@ -1342,7 +1342,6 @@ function goalCtlHtml() {
 function goalRowHtml(id) {
   return '<div class="dtable-row"><div class="dtable-label">vs ' + scenarioLabel(METRICS_CMP) + ' %</div><div class="yoy-row" id="yob-' + id + '"></div></div>';
 }
-var GOAL_ONLY_Q = '<div class="goal-hint" style="margin-bottom:6px">El Budget está en puntos: pasá la sección a Q para verlo como tercera barra.</div>';
 function goalSeries(goalMap, fy) { return fiscalSeries(goalMap, goalMap, fy.cy, fy.ly, fy.cy); }
 
 // Partner del Excel -> programa del dashboard (resto = Partners). El real del
@@ -1356,31 +1355,139 @@ var PROY_PARTNER_PROG = { 'ICBC': 'Cobrand', 'INVEX': 'Cobrand' };
 var PROY_REDEN_PROG = { 'Pasaporte D!': ['Pasaporte D!'], 'IFOOD': ['IFOOD'],
                         'Puntos Manuales': ['Puntos R&B'], 'Acciones Marketing': ['FORTUNE', 'PONTOSBR'] };
 
-// {YYYY-MM: valor} de la proyección elegida para un bloque, sumando los países de
-// la vista (TOTAL = los 8). null si no hay comparación por proyección activa o no hay filas.
-function proyMap(bloque, keyFn, country) {
-  if (!RAW.proy || !cmpGoalActive()) return null;
-  var keys = isTotal(country) ? COUNTRY_DATAKEYS : [country.dataKey];
-  var m = {}, any = false;
+// ---- Índice de la proyección elegida: idx[bloque][país][clave][YYYY-MM] = valor.
+var _PIDX = null;
+function proyIdx() {
+  if (_PIDX && _PIDX.esc === METRICS_CMP && _PIDX.src === RAW.proy) return _PIDX.idx;
+  var idx = {};
   expand(RAW.proy).forEach(function(p) {
-    if (p.escenario !== METRICS_CMP || p.bloque !== bloque || keys.indexOf(p.pais) === -1 || !keyFn(p.clave)) return;
-    m[p.ym] = (m[p.ym] || 0) + (+p.valor || 0); any = true;
+    if (p.escenario !== METRICS_CMP) return;
+    var b = idx[p.bloque] = idx[p.bloque] || {}, c = b[p.pais] = b[p.pais] || {}, k = c[p.clave] = c[p.clave] || {};
+    k[p.ym] = (k[p.ym] || 0) + (+p.valor || 0);
   });
-  return any ? m : null;
+  _PIDX = { esc: METRICS_CMP, src: RAW.proy, idx: idx, cache: {} };
+  return idx;
 }
-function goalAcumMap(prog, country) {
-  if (prog !== 'Cobrand' && prog !== 'Partners') return null;
-  return proyMap('acum_partner', function(k){ return (PROY_PARTNER_PROG[k] || 'Partners') === prog; }, country);
+function pv(b, dk, k, ym) { return (((proyIdx()[b] || {})[dk] || {})[k] || {})[ym]; }
+function goalKeys(country) { return isTotal(country) ? COUNTRY_DATAKEYS : [country.dataKey]; }
+function addTo(m, ym, v) { m[ym] = (m[ym] || 0) + v; }
+function anyKey(o) { return Object.keys(o).length > 0; }
+
+// Cobrand / Partners (Input_budget.xlsx, Cobrands_Partners):
+//   $        = puntos × precio facturación (USD/pt; el del partner o el 'Todos' del país)
+//   revenue  = puntos × (precio facturación − SSP)
+function goalPartnerMaps(prog, country) {
+  if ((prog !== 'Cobrand' && prog !== 'Partners') || !RAW.proy || !cmpGoalActive()) return null;
+  var idx = proyIdx(), out = { pts: {}, usd: {}, br: {} };
+  goalKeys(country).forEach(function(dk) {
+    var cl = (idx.acum_partner || {})[dk] || {};
+    Object.keys(cl).forEach(function(k) {
+      if ((PROY_PARTNER_PROG[k] || 'Partners') !== prog) return;
+      Object.keys(cl[k]).forEach(function(ym) {
+        var pts = cl[k][ym];
+        var pr = pv('precio_partner', dk, k, ym);
+        if (pr === undefined) pr = pv('precio_partner', dk, 'Todos', ym) || 0;
+        var ssp = pv('ssp', dk, 'SSP', ym) || 0;
+        addTo(out.pts, ym, pts); addTo(out.usd, ym, pts * pr); addTo(out.br, ym, pts * (pr - ssp));
+      });
+    });
+  });
+  return anyKey(out.pts) ? out : null;
 }
-function goalRedenMap(prog, country) {
+// Redenciones: $ = puntos × SSP_Red del país/mes.
+function goalRedenMaps(prog, country) {
   var ks = PROY_REDEN_PROG[prog];
-  return ks ? proyMap('reden', function(k){ return ks.indexOf(k) !== -1; }, country) : null;
+  if (!ks || !RAW.proy || !cmpGoalActive()) return null;
+  var idx = proyIdx(), out = { pts: {}, usd: {} };
+  goalKeys(country).forEach(function(dk) {
+    var cl = (idx.reden || {})[dk] || {};
+    ks.forEach(function(k) {
+      Object.keys(cl[k] || {}).forEach(function(ym) {
+        var pts = cl[k][ym];
+        addTo(out.pts, ym, pts); addTo(out.usd, ym, pts * (pv('ssp', dk, 'SSP_Red', ym) || 0));
+      });
+    });
+  });
+  return anyKey(out.pts) ? out : null;
 }
-function goalBkMap(country) { return proyMap('breakage', function(){ return true; }, country); }
-// Ratio: es un precio, no se suma entre países ni productos -> sin proyección en TOTAL / producto 'Total'.
+// Pasaporte D! acumulación, por país × producto × viaje × mes:
+//   puntos = regla de acumulación × penetración de GB × GB          (Excel B2C-SITE; GB del P&L)
+//   R      = GB × penetración × (Up Front + Fees + Commercial Discounts) / GB del producto
+//   $      = (puntos × SSP) / (puntos × SSP + R) × R                 (mismo reparto DRO que el real)
+// GB y Up Front/Fees/CD salen del escenario del P&L (RAW.budget / RAW.runrate, B2C, por Producto).
+// También devuelve el ratio implícito por producto (Σ puntos / Σ GB penetrado), comparable con el
+// ratio real (puntos / GB de las reservas que acumulan).
+function goalPdAcum(country) {
+  if (!RAW.proy || !cmpGoalActive() || !RAW[METRICS_CMP]) return null;
+  proyIdx();
+  var ck = 'pd|' + country.key;
+  if (_PIDX.cache[ck] !== undefined) return _PIDX.cache[ck];
+  var keys = goalKeys(country), gb = {}, uf = {};   // gb[dk][prod][ym][viaje], uf[dk][prod][ym]
+  expandBaseline(RAW[METRICS_CMP]).forEach(function(row) {
+    var dk = (row['Pais'] || '').toLowerCase();
+    if (keys.indexOf(dk) === -1) return;
+    var n1 = (row['P&L N1'] || '').toLowerCase(), prod = (row['Producto'] || '').toLowerCase().trim();
+    var ym = (row['Fecha'] || '').substring(0, 7), v = parseFloat(row['Monto USD']) || 0;
+    var viaje = n1 === 'gross bookings domestic' ? 'Domestic' : n1 === 'gross bookings international' ? 'International' : null;
+    if (viaje) {
+      var g = ((gb[dk] = gb[dk] || {})[prod] = gb[dk][prod] || {});
+      g[ym] = g[ym] || {}; g[ym][viaje] = (g[ym][viaje] || 0) + v;
+    } else if (n1 === 'up front incentives' || n1 === 'fees' || n1 === 'commercial discounts') {
+      var u = ((uf[dk] = uf[dk] || {})[prod] = uf[dk][prod] || {});
+      u[ym] = (u[ym] || 0) + v;
+    }
+  });
+  var idx = proyIdx(), out = { pts: {}, usd: {}, rNum: {}, rDen: {} };
+  keys.forEach(function(dk) {
+    var rk = (idx.ratio || {})[dk] || {};
+    Object.keys(rk).forEach(function(pk) {           // pk = 'Producto|Viaje'
+      var parts = pk.split('|'), prodName = parts[0], viaje = parts[1];
+      var gp = ((gb[dk] || {})[prodName.toLowerCase()]) || {};
+      Object.keys(rk[pk]).forEach(function(ym) {
+        var regla = rk[pk][ym], pen = pv('penet', dk, pk, ym), g = (gp[ym] || {})[viaje] || 0;
+        if (pen === undefined || !g) return;
+        var gTot = (gp[ym].Domestic || 0) + (gp[ym].International || 0);
+        var take = gTot ? ((((uf[dk] || {})[prodName.toLowerCase()]) || {})[ym] || 0) / gTot : 0;
+        var pts = regla * pen * g, R = g * pen * take, PV = pts * (pv('ssp', dk, 'SSP', ym) || 0);
+        addTo(out.pts, ym, pts);
+        addTo(out.usd, ym, (PV + R) ? PV / (PV + R) * R : 0);
+        var rn = out.rNum[prodName] = out.rNum[prodName] || {}, rd = out.rDen[prodName] = out.rDen[prodName] || {};
+        addTo(rn, ym, pts); addTo(rd, ym, g * pen);
+      });
+    });
+  });
+  return (_PIDX.cache[ck] = anyKey(out.pts) ? out : null);
+}
+// Serie de comparación de acumulación / redención según el modo ('Q' puntos, 'USD' $).
+function goalAcumMap(prog, country, mode) {
+  var m = prog === 'Pasaporte D!' ? goalPdAcum(country) : goalPartnerMaps(prog, country);
+  return m ? (mode === 'USD' ? m.usd : m.pts) : null;
+}
+function goalRedenMap(prog, country, mode) {
+  var m = goalRedenMaps(prog, country);
+  return m ? (mode === 'USD' ? m.usd : m.pts) : null;
+}
+function goalBrMap(prog, country) { var m = goalPartnerMaps(prog, country); return m ? m.br : null; }
+function goalBkMap(country) {
+  if (!RAW.proy || !cmpGoalActive()) return null;
+  var idx = proyIdx(), out = {};
+  goalKeys(country).forEach(function(dk) {
+    var cl = ((idx.breakage || {})[dk] || {})[''] || {};
+    Object.keys(cl).forEach(function(ym){ addTo(out, ym, cl[ym]); });
+  });
+  return anyKey(out) ? out : null;
+}
+// Ratio implícito del Budget por producto ('Total' = todos los productos): Σ puntos / Σ GB penetrado.
 function goalRatioMap(product, country) {
-  if (isTotal(country) || product === 'Total') return null;
-  return proyMap('ratio', function(k){ return k === product; }, country);
+  var m = goalPdAcum(country);
+  if (!m) return null;
+  var prods = product === 'Total' ? Object.keys(m.rNum) : [product];
+  var num = {}, den = {}, out = {};
+  prods.forEach(function(p) {
+    Object.keys(m.rNum[p] || {}).forEach(function(ym){ addTo(num, ym, m.rNum[p][ym]); addTo(den, ym, m.rDen[p][ym]); });
+  });
+  Object.keys(num).forEach(function(ym){ if (den[ym]) out[ym] = num[ym] / den[ym]; });
+  return anyKey(out) ? out : null;
 }
 // Último mes CERRADO de reales (el mes en curso está incompleto).
 function proyLastClosedYm() {
@@ -1494,15 +1601,19 @@ function renderMetrics(country, m) {
     // KPI row
     // KPIs: vs FY anterior, o vs Budget/Run Rate (solo puntos, YTD a mes cerrado)
     // si hay proyección para ese programa y está elegida (ver METRICS_CMP).
-    var gAcK = goalAcumMap(prog, country), gRdK = goalRedenMap(prog, country);
+    var gAcQ = goalAcumMap(prog, country, 'Q'), gAcU = goalAcumMap(prog, country, 'USD');
+    var gRdQ = goalRedenMap(prog, country, 'Q'), gRdU = goalRedenMap(prog, country, 'USD');
+    var gBrK = goalBrMap(prog, country);
+    var gAcK = mode === 'USD' ? gAcU : gAcQ, gRdK = mode === 'USD' ? gRdU : gRdQ;
     var acMp = m.acM[prog], rdMp = m.rdM[prog];
+    var vs2 = function(real, goal){ return ytdVs(real) + (goal ? '<br>' + ytdVs(real, goal) : ''); };
     html += '<div class="kpi-row">'
-      + kpiHtml('Puntos Acumulados', fmtPts(acCY.pts), ytdVs(pick(acMp, 'pts')) + (gAcK ? '<br>' + ytdVs(pick(acMp, 'pts'), gAcK) : ''), 'var(--accent)')
-      + kpiHtml('Valor Acumulado', fmtUSD(Math.abs(acCY.usd)), ytdVs(pick(acMp, 'usd')), '#976cf6')
-      + kpiHtml('Puntos Redimidos', fmtPts(Math.abs(rdCY.pts)), ytdVs(pick(rdMp, 'pts')) + (gRdK ? '<br>' + ytdVs(pick(rdMp, 'pts'), gRdK) : ''), 'var(--red)')
-      + kpiHtml('Valor Redimido', fmtUSD(Math.abs(rdCY.usd)), ytdVs(pick(rdMp, 'usd')), '#029687')
+      + kpiHtml('Puntos Acumulados', fmtPts(acCY.pts), vs2(pick(acMp, 'pts'), gAcQ), 'var(--accent)')
+      + kpiHtml('Valor Acumulado', fmtUSD(Math.abs(acCY.usd)), vs2(pick(acMp, 'usd'), gAcU), '#976cf6')
+      + kpiHtml('Puntos Redimidos', fmtPts(Math.abs(rdCY.pts)), vs2(pick(rdMp, 'pts'), gRdQ), 'var(--red)')
+      + kpiHtml('Valor Redimido', fmtUSD(Math.abs(rdCY.usd)), vs2(pick(rdMp, 'usd'), gRdU), '#029687')
       + (prog === 'Cobrand' || prog === 'Partners'
-         ? kpiHtml(prog === 'Partners' ? 'Partner Revenue' : 'Bank Revenue', fmtUSD(Math.abs(acCY.br)), ytdVs(pick(acMp, 'br')), '#029687')
+         ? kpiHtml(prog === 'Partners' ? 'Partner Revenue' : 'Bank Revenue', fmtUSD(Math.abs(acCY.br)), vs2(pick(acMp, 'br'), gBrK), '#029687')
          : '')
       + '</div>';
 
@@ -1538,18 +1649,20 @@ function renderMetrics(country, m) {
         +   '<button class="seg-btn' + (brView === 'margen' ? ' active' : '') + '" type="button" onclick="setBrView(\'' + suffix + '\',\'' + prog + '\',\'margen\')">Costo y Ganancia</button>'
         + '</div></div>';
     }
-    var acGoalOn = !!gAcK && mode === 'Q';
+    // 3ra barra: no en Pasaporte 'Por Tier' ni en Cobrand/Partners 'Costo y Ganancia' (gráfico partido).
+    var acGoalOn = !!gAcK && !(prog === 'Pasaporte D!' && aView === 'tier')
+      && !((prog === 'Cobrand' || prog === 'Partners') && mode === 'USD' && getBrView(suffix, prog) === 'margen');
     html += '<div class="cc" style="margin-bottom:14px">' + acTitleHtml
-      + (acGoalOn ? goalCtlHtml() : (gAcK ? GOAL_ONLY_Q : ''))
+      + (acGoalOn ? goalCtlHtml() : '')
       + '<div class="cw"><canvas id="' + canvasId + '"></canvas></div>'
       + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-' + canvasId + '"></div></div>'
       + (acGoalOn ? goalRowHtml(canvasId) : '')
       + '</div>'
       + (prog === 'Pasaporte D!' && aView === 'tier' ? '<div class="cc" style="margin-bottom:14px"><div class="ct" style="font-size:12px;color:#64748b;margin-bottom:4px">Mix por tier (%)</div><div class="cw" style="height:160px"><canvas id="ch-mix-' + suffix + '"></canvas></div></div>' : '')
       + (prog === 'Pasaporte D!' && aView === 'tier' ? '<div style="margin-bottom:14px"><div class="ct" style="font-size:12px;color:#64748b;margin-bottom:8px">Ratio de acumulación por tier — puntos por $ de GB, año fiscal ' + fyLbl(fyYears().cy) + ' vs ' + fyLbl(fyYears().ly) + '</div><div class="kpi-row" id="tier-avg-' + suffix + '"></div></div>' : '');
-    var rdGoalOn = !!gRdK && mode === 'Q';
+    var rdGoalOn = !!gRdK;
     html += '<div class="cc" style="margin-bottom:14px"><div class="ct">' + rdTitle + '</div>'
-      + (rdGoalOn ? goalCtlHtml() : (gRdK ? GOAL_ONLY_Q : ''))
+      + (rdGoalOn ? goalCtlHtml() : '')
       + '<div class="cw"><canvas id="' + canvasRdId + '"></canvas></div>'
       + '<div class="dtable-row"><div class="dtable-label">YoY %</div><div class="yoy-row" id="yoy-' + canvasRdId + '"></div></div>'
       + (rdGoalOn ? goalRowHtml(canvasRdId) : '')
@@ -1942,12 +2055,12 @@ function renderMetrics(country, m) {
         { label: brLabel,       data: revCurr,  backgroundColor: 'rgba(2,150,135,.8)' }
       ], fyLbl(fy.ly), fmtUSDChart);
     } else {
-      // 3ra barra (proyección) solo en Q: acCurr ya está en puntos en ese modo.
-      var gAc = mode === 'Q' ? goalAcumMap(prog, country) : null;
+      // 3ra barra (proyección) en el mismo modo Q/$ que la sección.
+      var gAc = goalAcumMap(prog, country, mode);
       buildBarChart(canvasId, acPrev, acCurr, fyLbl(fy.ly), fyLbl(fy.cy), 'rgba(85,15,237,.75)', fmtFn, null,
                     gAc ? { data: goalSeries(gAc, fy), label: cmpLabel() } : null);
     }
-    var gRd = mode === 'Q' ? goalRedenMap(prog, country) : null;
+    var gRd = goalRedenMap(prog, country, mode);
     buildBarChart(canvasRdId, rdPrev, rdCurr, fyLbl(fy.ly), fyLbl(fy.cy), 'rgba(250,80,63,.78)', fmtFn, { prev: pricePrev, curr: priceCurr },
                   gRd ? { data: goalSeries(gRd, fy), label: cmpLabel() } : null);
 
