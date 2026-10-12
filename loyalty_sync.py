@@ -116,8 +116,10 @@ import time as _time
 # (errorCode member not found / SSL), sobre todo con la VPN inestable. Como fetch()
 # abre una conexion nueva por query (~10 por corrida), cualquiera puede caer al azar.
 # Se reintenta la CONEXION con backoff; los errores de la query en si no se reintentan.
-_CONN_RETRIES = 4
-_CONN_BACKOFF = 8  # segundos: 8, 16, 24...
+# Tope de 2 intentos (12-oct): el mismo error lo tira una contraseña vencida/mal cargada,
+# y con 4 intentos por conexión la cuenta del datalake se bloqueaba por intentos fallidos.
+_CONN_RETRIES = 2
+_CONN_BACKOFF = 8  # segundos antes del 2º intento
 
 
 def conectar():
