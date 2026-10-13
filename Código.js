@@ -26,7 +26,8 @@ var FILES = {
   acum_tier:  'loyalty_acum_tier.json',
   penet:      'loyalty_penetracion_gb.json',
   acum_channel: 'loyalty_acum_channel.json',
-  stock_ifood: 'loyalty_stock_ifood.json'
+  stock_ifood: 'loyalty_stock_ifood.json',
+  proy:       'loyalty_proyecciones.json'
 };
 
 var CACHE_TTL   = 21600;  // 6 h
@@ -58,6 +59,7 @@ function getRawAcumTier()       { return _load(LOYALTY_FOLDER_ID,  FILES.acum_ti
 function getRawPenetracionGb()  { return _load(LOYALTY_FOLDER_ID,  FILES.penet,      'penet');      }
 function getRawAcumChannel()    { return _load(LOYALTY_FOLDER_ID,  FILES.acum_channel, 'acum_channel'); }
 function getRawStockIfood()     { return _load(LOYALTY_FOLDER_ID,  FILES.stock_ifood, 'stock_ifood'); }
+function getRawProyecciones()   { return _load(LOYALTY_FOLDER_ID,  FILES.proy,       'proy');       }
 
 // Carga TODO en una sola ejecución server-side (secuencial), en vez de que el
 // cliente dispare ~18 google.script.run en paralelo — eso es lo que agotaba
@@ -76,7 +78,7 @@ function getAllRaw() {
     dict: getRawDict, ssp: getRawSsp,
     ratio_acum: getRawRatioAcum, ratio_acum_tier: getRawRatioAcumTier, acum_tier: getRawAcumTier,
     penet: getRawPenetracionGb, acum_channel: getRawAcumChannel,
-    stock_ifood: getRawStockIfood,
+    stock_ifood: getRawStockIfood, proy: getRawProyecciones,
     baseline: getLoyBaseline, budget: getLoyBudget, forecast: getLoyForecast,
     runrate: getLoyRunrate
   };
@@ -87,22 +89,22 @@ function getAllRaw() {
   return out;
 }
 
-// P&L Contable: mismos JSON canónicos que consumen las landings B2B
-// (Inputs_Planning_PnL). Se filtran a las líneas de loyalty server-side para
-// mandar ~4k filas al cliente en vez de ~70k.
-function getLoyBaseline() { return _loyPnl('baseline_actuals+projections.json', 'loy_baseline'); }
-function getLoyBudget()   { return _loyPnl('budget.json',   'loy_budget');   }
-function getLoyForecast() { return _loyPnl('forecast.json', 'loy_forecast'); }
-
-// Run Rate (22-sep, PENDIENTE de visualizar más allá del selector Goal): a
-// diferencia de budget/forecast/baseline, este NO sale del folder canónico de
-// Inputs_Planning_PnL — se armó a mano (ver memoria) desde el CSV crudo
-// 'RR - Legal Entity NA - 27.csv' (Legal Entity NA únicamente, no ALL+NA),
-// recortado a los meses Sep-26→Mar-27 (Abr-Ago se descartó a propósito) y
-// PRE-filtrado a Loyalty + GB/Orders B2C — no pasa por _loyPnl porque ya viene
-// scoped. Vive en LOYALTY_FOLDER_ID (no en BASELINE_FOLDER_ID) porque no es un
-// archivo del pipeline de Diego, es propio de Loyalty.
-function getLoyRunrate() { return _load(LOYALTY_FOLDER_ID, 'loyalty_runrate.json', 'loy_runrate'); }
+// P&L Contable (12-oct): vista de Loyalty SOLO MARCA DESPEGAR —
+// loyalty_pnl_<escenario>.json en el folder de Loyalty, armados por
+// inputs_contables_loyalty.py desde las planas de Inputs_Planning_PnL (ya vienen
+// recortados a líneas loyalty + Drivers B2C). Los canónicos de B2B suman todas las
+// marcas (Best Day = 44% del GB B2C de MX). Si el JSON de Loyalty no está, cae al
+// canónico de B2B filtrado por _loyPnl (todas las marcas) — degradado, no roto.
+function _loyPnlDespegar(esc, canonical) {
+  try { return _load(LOYALTY_FOLDER_ID, 'loyalty_pnl_' + esc + '.json', 'loy_pnl_' + esc); }
+  catch (e) { return _loyPnl(canonical, 'loy_' + esc + '_v2'); }
+}
+function getLoyBaseline() { return _loyPnlDespegar('baseline', 'baseline_actuals+projections.json'); }
+function getLoyBudget()   { return _loyPnlDespegar('budget',   'budget.json'); }
+function getLoyForecast() { return _loyPnlDespegar('forecast', 'forecast.json'); }
+// Run Rate: runrate.json de Inputs_Planning_PnL (12 meses del FY), misma vista Despegar.
+// loyalty_runrate.json (armado a mano el 22-sep, solo LE NA) queda en Drive sin uso.
+function getLoyRunrate()  { return _loyPnlDespegar('runrate',  'runrate.json'); }
 
 // ---- Internal helpers ----
 
@@ -143,17 +145,14 @@ function _loyPnl(filename, baseKey) {
   });
   var n1i = raw.cols.indexOf('P&L N1');
   var lobi = raw.cols.indexOf('LoB');
-  // GB/Orders B2C (mismo alcance que loyalty_runrate.json, NO todas las LoB —
-  // corregido 22-sep) — PENDIENTE de visualizar: se traen y quedan contenidos
-  // en RAW.baseline/budget/forecast, pero el dashboard no los usa todavía.
-  // buildPnl()/scenarioLoyaltyPnl() en dashboard.html siguen filtrando por
-  // 'loyalty' en P&L N1, así que estas filas viajan sin efecto en el P&L
-  // actual hasta que se decida mostrarlas. El resto de filtros (Marca, LoB
-  // b2b/b2b2c/b2c, exclusiones de negocio) ya vienen aplicados upstream en
-  // Inputs_Planning_PnL — acá solo se acota a B2C, igual que el resto del
-  // scope de Loyalty (todas sus líneas ya son B2C, ver CLAUDE.md).
+  // Drivers B2C (GB, Orders, Up Front + Fees) — solo LoB='b2c', mismo alcance
+  // que Loyalty (todas sus líneas ya son B2C). Los muestra el bloque "Drivers
+  // B2C" del P&L Contable (PNL_DRIVERS en dashboard.html), que NO los suma al
+  // TOTAL LOYALTY. El resto de filtros (Marca, exclusiones de negocio) ya vienen
+  // aplicados upstream en Inputs_Planning_PnL.
   var GB_ORDERS_N1 = ['gross bookings domestic', 'gross bookings international',
-                       'orders domestic', 'orders international'];
+                       'orders domestic', 'orders international',
+                       'up front incentives', 'fees', 'commercial discounts'];
   var rows = [], loyCount = 0;
   for (var i = 0; i < raw.rows.length; i++) {
     var v = raw.rows[i][n1i];

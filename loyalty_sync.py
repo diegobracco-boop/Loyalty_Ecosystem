@@ -3352,6 +3352,13 @@ stock_ifood_bytes = json.dumps(
 ).encode("utf-8")
 print(f"  Stock iFood:    {len(stock_ifood_bytes)//1024:.0f} KB  ({len(df_stock_ifood):,} filas)")
 
+print("\n--- Proyecciones de puntos (Input_budget.xlsx / Input_runrate.xlsx) ---")
+# Sin datalake: lee los Excel de Control de Gestión. Ver proyecciones.py (también
+# se puede correr suelto con --upload para no esperar la sync completa).
+from proyecciones import build_proyecciones_json, PROYECCIONES_FILE
+proy_bytes, _proy_resumen = build_proyecciones_json()
+print("\n".join(_proy_resumen))
+
 _OUT = [
     (acum_cy_bytes,  ACUM_CY_FILE), (acum_ly_bytes,  ACUM_LY_FILE),
     (reden_cy_bytes, REDEN_CY_FILE), (reden_ly_bytes, REDEN_LY_FILE),
@@ -3364,6 +3371,8 @@ _OUT = [
     (acum_channel_bytes, ACUM_CHANNEL_FILE),
     (stock_ifood_bytes, STOCK_IFOOD_FILE),
 ]
+if proy_bytes is not None:  # None = no se pudo leer ningún Excel: no pisar el JSON bueno de Drive
+    _OUT.append((proy_bytes, PROYECCIONES_FILE))
 
 if DRY_RUN:
     out_dir = Path(__file__).resolve().parent / "_out"
