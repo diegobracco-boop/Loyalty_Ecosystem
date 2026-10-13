@@ -204,6 +204,9 @@ table.pnl tr.grand-total td.sep { background: #1b1533 !important; border-bottom-
 .var-chip { border: 1px solid var(--border); border-radius: 999px; }
 .var-rr { font-size: 9.5px; color: var(--muted); font-weight: 700; }
 .var-tbl td.lc { white-space: normal; min-width: 320px; }
+.var-tbl tr.var-sub td { padding-top: 4px; padding-bottom: 4px; font-size: var(--fs-small); color: var(--muted); border-bottom-color: #f8f6fd; }
+.var-tbl tr.var-sub td.lc { padding-left: 44px; }
+.var-tbl tr.var-line td { border-top: 1px solid #ece8f4; }
 .var-detail { font-size: 10.5px; font-weight: 400; color: var(--muted); margin-top: 3px; line-height: 1.3; }
 .goal-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0 0 8px; }
 .goal-hint { font-size: var(--fs-small); color: var(--muted); }
@@ -2542,14 +2545,14 @@ function renderPasivo() {
 var VAR_STATE = { mode: 'fy', months: [], q: 'Q1', h: 'H1', country: 'total' };
 // línea del P&L (P&L N1 en minúscula) -> métrica que la explica
 var VAR_METRIC = {
-  'loyalty - deferred revenue in':  { key: 'acum',    desc: 'Puntos acumulados Pasaporte D! + Cobrand + Partners · $ = valor diferido (Pasaporte: reparto con SSP; Cobrand/Partners: pts × SSP)' },
-  'loyalty - deferred revenue out': { key: 'reden',   desc: 'Puntos redimidos (Pasaporte D! con Cobrand/Partners, Puntos Manuales, Acciones Marketing) · $ = valor redimido (budget: pts × SSP_Red)' },
-  // iFood: su redención se registra en Rewards & Benefits cost, no en Deferred revenue out
-  // (12-oct: BR H1 real ≈ $5,9M redimido iFood vs R&B cost -$6,2M; budget $2,0M vs -$2,1M).
-  'loyalty - rewards & benefits cost': { key: 'rb',   desc: 'Puntos redimidos IFOOD · $ = valor redimido (budget: pts × SSP_Red)' },
-  'loyalty - breakage revenue':     { key: 'bk',      desc: 'Puntos vencidos · $ = pts × Precio Punto Pasivo del Budget (precio pasivo real pendiente: sin efecto precio)' },
-  'loyalty - bank revenue':         { key: 'bank',    desc: 'Puntos Cobrand · $ = pts × (precio de facturación − SSP)' },
-  'loyalty - partner revenue':      { key: 'partner', desc: 'Puntos Partners · $ = pts × (precio de facturación − SSP)' }
+  'loyalty - deferred revenue in':     { key: 'acum',    desc: 'Valor diferido de la acumulación: Pasaporte D! (fórmula GB × pen × regla, margen, SSP) + Cobrand/Partners (pts × SSP)' },
+  'loyalty - deferred revenue out':    { key: 'reden',   desc: 'Redención Pasaporte D! (con Cobrand/Partners) + Puntos Manuales · budget: pts × SSP_Red' },
+  // iFood y Acciones Marketing: su redención se registra en Rewards & Benefits cost (12-oct:
+  // BR H1 iFood redimido ≈ $5,9M vs R&B cost -$6,2M; budget $2,0M vs -$2,1M).
+  'loyalty - rewards & benefits cost': { key: 'rb',      desc: 'Redención IFOOD + Acciones Marketing · budget: pts × SSP_Red' },
+  'loyalty - breakage revenue':        { key: 'bk',      desc: 'Puntos vencidos × Precio Punto Pasivo (real pendiente: se usa el del Budget)' },
+  'loyalty - bank revenue':            { key: 'bank',    desc: 'Puntos Cobrand × (precio facturación − SSP), precio fijo' },
+  'loyalty - partner revenue':         { key: 'partner', desc: 'Puntos Partners × (precio facturación − SSP), precio fijo' }
 };
 function varFyMonths() { var fy = fyYears(); return FISCAL_MONTHS.map(function(mm){ return fiscalCalYear(mm, fy.cy) + '-' + mm; }); }
 function varSelMonths() {
@@ -2582,52 +2585,201 @@ function varPnl(raw, country, months) {
   return o;
 }
 function sumMap(m, months) { var t = 0; months.forEach(function(ym){ t += (m && m[ym]) || 0; }); return t; }
-// Métrica real y budget {pts, usd} por línea, sobre los meses dados (cerrados).
+
+// ---- Índice REAL granular, una sola pasada (cacheado): país × mes × programa × partner.
+var _VRIDX = null;
+function varRealIdx() {
+  if (_VRIDX && _VRIDX.src === RAW.acum_cy && _VRIDX.src2 === RAW.reden_cy) return _VRIDX;
+  var ac = {}, rd = {};
+  function slot(o, a, b, c, d) {
+    var x = (o[a] = o[a] || {}); x = (x[b] = x[b] || {}); x = (x[c] = x[c] || {});
+    return (x[d] = x[d] || { pts: 0, usd: 0, br: 0 });
+  }
+  expand(RAW.acum_cy).concat(expand(RAW.acum_ly)).forEach(function(row) {
+    var dk = ISO_TO_DATAKEY[(row.country_code || '').toLowerCase()];
+    if (!dk) return;
+    var o = slot(ac, dk, (row.processing_date || '').substring(0, 7), getProgramFromAcum(row), row.partner || '');
+    o.pts += getPts(row); o.usd += getAcumUsd(row, dk); o.br += getBankRevenue(row, dk);
+  });
+  expand(RAW.reden_cy).concat(expand(RAW.reden_ly)).forEach(function(row) {
+    var dk = ISO_TO_DATAKEY[(row.country_code || '').toLowerCase()];
+    if (!dk) return;
+    var ym = (row.processing_date || '').substring(0, 7), p = getPts(row), u = Math.abs(+(row.descuento_consumo_puntos_usd) || 0);
+    getProgramsFromReden(row).forEach(function(prog) { var o = slot(rd, dk, ym, prog, ''); o.pts += p; o.usd += u; });
+  });
+  _VRIDX = { src: RAW.acum_cy, src2: RAW.reden_cy, ac: ac, rd: rd };
+  return _VRIDX;
+}
+// Partner del Budget -> códigos de partner del Datalake, por país ('*' = el resto del país).
+var VAR_PARTNERS = {
+  argentina: { 'ICBC': ['ICBCAR'], 'FOCO': ['FOCOAR'], 'Bonda': ['BONDAAR'] },
+  brasil:    { 'C6': ['C6BANKBR'], 'BRB': ['BRBBR'], 'New partner': '*' },
+  mexico:    { 'INVEX': ['INVEXMX'], 'BBVA': ['BBVAMX'], 'Otros': '*' }
+};
+function varBudgetName(dk, code) {
+  var m = VAR_PARTNERS[dk] || {}, star = null;
+  for (var k in m) { if (m[k] === '*') star = k; else if (m[k].indexOf(code) !== -1) return k; }
+  return star || code;   // sin match: el propio código (celda sin budget)
+}
+// Efectos de una celda: volumen ΔQ×Pb · precio ΔP×Qb · cruzado ΔQ×ΔP (suman Qa·Pa − Qb·Pb).
+// Si falta un lado no hay precio comparable: todo el Δ va a volumen.
+function varEff(qa, pa, qb, pb) {
+  if (!qb) return { vol: qa * pa, pre: 0, cru: 0 };
+  if (!qa) return { vol: -qb * pb, pre: 0, cru: 0 };
+  return { vol: (qa - qb) * pb, pre: (pa - pb) * qb, cru: (qa - qb) * (pa - pb) };
+}
+// Valor diferido de la acumulación (fórmula de Control de Gestión, misma del Budget):
+//   pts = GB × pen × regla · R = GB × pen × take · $ = (pts × SSP) / (pts × SSP + R) × R
+function varPdV(d) {
+  var pts = d.gb * d.pen * d.regla, PV = pts * d.ssp, R = d.gb * d.pen * d.take;
+  return (PV + R) ? PV / (PV + R) * R : 0;
+}
+
+// Por línea: { bud, real (valor de la métrica), eff: [{label, val}] } con efectos calculados en la
+// celda más chica disponible y sumados. Valores en magnitud positiva; el signo de la línea se aplica al mostrar.
 function varMetrics(country, months) {
   var prevCmp = METRICS_CMP;
   METRICS_CMP = 'budget';
   try {
-    var m = buildMetrics(country), out = {};
-    function acm(prog, f) { var o = {}; Object.keys(m.acM[prog] || {}).forEach(function(ym){ o[ym] = m.acM[prog][ym][f]; }); return o; }
-    function rdm(prog, f) { var o = {}; Object.keys(m.rdM[prog] || {}).forEach(function(ym){ o[ym] = m.rdM[prog][ym][f]; }); return o; }
-    var pd = goalPdAcum(country) || { pts: {}, usd: {} };
-    var cob = goalPartnerMaps('Cobrand', country) || { pts: {}, usd: {}, br: {} };
-    var par = goalPartnerMaps('Partners', country) || { pts: {}, usd: {}, br: {} };
-    // Deferred revenue in
-    out.acum = {
-      real: { pts: sumMap(acm('Pasaporte D!', 'pts'), months) + sumMap(acm('Cobrand', 'pts'), months) + sumMap(acm('Partners', 'pts'), months),
-              usd: Math.abs(sumMap(acm('Pasaporte D!', 'usd'), months))
-                 + Math.abs(sumMap(acm('Cobrand', 'usd'), months) - sumMap(acm('Cobrand', 'br'), months))
-                 + Math.abs(sumMap(acm('Partners', 'usd'), months) - sumMap(acm('Partners', 'br'), months)) },
-      bud:  { pts: sumMap(pd.pts, months) + sumMap(cob.pts, months) + sumMap(par.pts, months),
-              usd: sumMap(pd.usd, months) + (sumMap(cob.usd, months) - sumMap(cob.br, months)) + (sumMap(par.usd, months) - sumMap(par.br, months)) }
-    };
-    // Deferred revenue out
-    var rp = 0, ru = 0, bp = 0, bu = 0;
-    ['Pasaporte D!', 'Puntos Manuales', 'Acciones Marketing'].forEach(function(prog) {
-      rp += sumMap(rdm(prog, 'pts'), months); ru += sumMap(rdm(prog, 'usd'), months);
-      var g = goalRedenMaps(prog, country);
-      if (g) { bp += sumMap(g.pts, months); bu += sumMap(g.usd, months); }
-    });
-    out.reden = { real: { pts: rp, usd: ru }, bud: { pts: bp, usd: bu } };
-    var gi = goalRedenMaps('IFOOD', country) || { pts: {}, usd: {} };
-    out.rb = { real: { pts: sumMap(rdm('IFOOD', 'pts'), months), usd: sumMap(rdm('IFOOD', 'usd'), months) },
-               bud:  { pts: sumMap(gi.pts, months), usd: sumMap(gi.usd, months) } };
-    // Breakage: por país (el precio pasivo es por país)
-    var kp = 0, ku = 0, kbp = 0, kbu = 0;
-    goalKeys(country).forEach(function(dk) {
-      var real = breakageMonthlyMap(varCountryObj(dk)), bud = goalBkMap(varCountryObj(dk)) || {};
+    var R = varRealIdx(), idx = proyIdx(), keys = goalKeys(country), out = {};
+    function line(k) { return (out[k] = out[k] || { bud: 0, real: 0, effMap: {}, order: [] }); }
+    function addEff(L, label, v) { if (!(label in L.effMap)) { L.effMap[label] = 0; L.order.push(label); } L.effMap[label] += v; }
+
+    keys.forEach(function(dk) {
+      var co = varCountryObj(dk), iso = (COUNTRY_ISO[dk] || '').toUpperCase();
+
+      // ===== Bank revenue (Cobrand) y Partner revenue: precio fijo -> solo volumen por partner
+      // ===== + la parte Cobrand/Partners de Deferred revenue in (pts × SSP): volumen / SSP / cruzado
+      [['Cobrand', 'bank'], ['Partners', 'partner']].forEach(function(pp) {
+        var prog = pp[0], Lr = line(pp[1]), Ld = line('acum');
+        months.forEach(function(ym) {
+          var cells = {};   // nombre budget -> {qa, br, cost, qb}
+          var real = ((R.ac[dk] || {})[ym] || {})[prog] || {};
+          Object.keys(real).forEach(function(code) {
+            var n = varBudgetName(dk, code), c = cells[n] = cells[n] || { qa: 0, br: 0, cost: 0, qb: 0 };
+            c.qa += real[code].pts; c.br += real[code].br; c.cost += real[code].usd - real[code].br;
+          });
+          var bp = (idx.acum_partner || {})[dk] || {};
+          Object.keys(bp).forEach(function(n) {
+            if ((PROY_PARTNER_PROG[n] || 'Partners') !== prog) return;
+            var c = cells[n] = cells[n] || { qa: 0, br: 0, cost: 0, qb: 0 };
+            c.qb += (bp[n] || {})[ym] || 0;
+          });
+          var ssp = pv('ssp', dk, 'SSP', ym) || 0;
+          Object.keys(cells).forEach(function(n) {
+            var c = cells[n];
+            var pr = pv('precio_partner', dk, n, ym); if (pr === undefined) pr = pv('precio_partner', dk, 'Todos', ym);
+            var mgB = pr !== undefined ? pr - ssp : (c.qa ? c.br / c.qa : 0);   // margen budget (USD/pt)
+            Lr.bud += c.qb * mgB; Lr.real += c.br;
+            addEff(Lr, 'Volumen de puntos ' + n, (c.qa - c.qb) * mgB);      // precio fijo: solo volumen
+            Ld.bud += c.qb * ssp; Ld.real += c.cost;
+            var e = varEff(c.qa, c.qa ? c.cost / c.qa : 0, c.qb, ssp);
+            addEff(Ld, prog + ': volumen de puntos', e.vol);
+            addEff(Ld, prog + ': SSP (precio)', e.pre);
+            addEff(Ld, prog + ': cruzado', e.cru);
+          });
+        });
+      });
+
+      // ===== Deferred revenue in — Pasaporte D!: país × mes × producto, sustitución secuencial
+      var Ld = line('acum');
+      // Budget por producto (ponderando Domestic/International) desde la proyección + P&L de Budget
+      var gbB = {}, ufB = {}, gbA = {}, ufA = {};
+      function pnlProd(raw, gbo, ufo) {
+        expandBaseline(raw).forEach(function(r) {
+          if ((r['Pais'] || '').toLowerCase() !== dk) return;
+          var ym = (r['Fecha'] || '').substring(0, 7); if (months.indexOf(ym) === -1) return;
+          var n1 = (r['P&L N1'] || '').toLowerCase(), pr = (r['Producto'] || '').toLowerCase().trim(), v = parseFloat(r['Monto USD']) || 0;
+          var viaje = n1 === 'gross bookings domestic' ? 'Domestic' : n1 === 'gross bookings international' ? 'International' : null;
+          var k = ym + '|' + pr;
+          if (viaje) { gbo[k] = gbo[k] || {}; gbo[k][viaje] = (gbo[k][viaje] || 0) + v; }
+          else if (n1 === 'up front incentives' || n1 === 'fees' || n1 === 'commercial discounts') ufo[k] = (ufo[k] || 0) + v;
+        });
+      }
+      pnlProd(RAW.budget, gbB, ufB); pnlProd(RAW.baseline, gbA, ufA);
+      var pen = {}, rat = {};   // real: ym|prod -> {num, den}
+      (expand(RAW.penet) || []).forEach(function(r) {
+        if ((r.country_code || '').toUpperCase() !== iso) return;
+        var k = (r.ym || '').substring(0, 7) + '|' + (r.grupo_pnl || '').toLowerCase();
+        var o = pen[k] = pen[k] || { num: 0, den: 0 }; o.num += +r.gb_con_puntos || 0; o.den += +r.gb_total || 0;
+      });
+      (expand(RAW.ratio_acum) || []).forEach(function(r) {
+        if ((r.country_code || '').toUpperCase() !== iso) return;
+        var k = (r.processing_date || '').substring(0, 7) + '|' + (r.grupo_pnl || '').toLowerCase();
+        var o = rat[k] = rat[k] || { num: 0, den: 0 }; o.num += +r.points || 0; o.den += +r.gb || 0;
+      });
+      var sspR = ((RAW.ssp || {}).data || {})[dk] || {};
+      var rk = (idx.ratio || {})[dk] || {}, prods = {};
+      Object.keys(rk).forEach(function(pk){ prods[pk.split('|')[0]] = 1; });
       months.forEach(function(ym) {
-        var pr = pv('ssp', dk, 'Precio Punto Pasivo', ym) || 0;
-        kp += real[ym] || 0; ku += (real[ym] || 0) * pr;
-        kbp += bud[ym] || 0; kbu += (bud[ym] || 0) * pr;
+        var modelReal = 0;
+        Object.keys(prods).forEach(function(P) {
+          var pl = P.toLowerCase(), k = ym + '|' + pl, g = gbB[k] || {}, gbb = 0, penGB = 0, ptsB = 0;
+          ['Domestic', 'International'].forEach(function(v) {
+            var regla = (rk[P + '|' + v] || {})[ym], pe = pv('penet', dk, P + '|' + v, ym), gv = g[v] || 0;
+            if (regla === undefined || pe === undefined) return;
+            gbb += gv; penGB += pe * gv; ptsB += regla * pe * gv;
+          });
+          var gTotB = (g.Domestic || 0) + (g.International || 0);
+          var b = { gb: gbb, pen: gbb ? penGB / gbb : 0, regla: penGB ? ptsB / penGB : 0,
+                    take: gTotB ? (ufB[k] || 0) / gTotB : 0, ssp: pv('ssp', dk, 'SSP', ym) || 0 };
+          var ga = gbA[k] || {}, gTotA = (ga.Domestic || 0) + (ga.International || 0);
+          var pR = pen[k], rR = rat[k];
+          var a = { gb: gTotA,
+                    pen: pR && pR.den ? pR.num / pR.den : b.pen,
+                    regla: rR && rR.den ? rR.num / rR.den : b.regla,
+                    take: gTotA ? (ufA[k] || 0) / gTotA : b.take,
+                    ssp: sspR[ym] && sspR[ym].ssp_facturacion != null ? Math.abs(+sspR[ym].ssp_facturacion) : b.ssp };
+          if (!b.gb) { b.pen = a.pen; b.regla = a.regla; b.take = a.take; }   // producto sin budget: solo efecto GB
+          var d = { gb: b.gb, pen: b.pen, regla: b.regla, take: b.take, ssp: b.ssp }, v0 = varPdV(d);
+          Ld.bud += v0;
+          [['gb', 'Pasaporte D!: GB'], ['pen', 'Pasaporte D!: penetración'], ['regla', 'Pasaporte D!: regla de acumulación'],
+           ['take', 'Pasaporte D!: margen (UF + Fees + Desc.)'], ['ssp', 'Pasaporte D!: SSP']].forEach(function(st) {
+            d[st[0]] = a[st[0]]; var v1 = varPdV(d); addEff(Ld, st[1], v1 - v0); v0 = v1;
+          });
+          modelReal += v0;
+        });
+        // real medido (Datalake) vs fórmula con drivers reales
+        var meas = 0, pd = ((R.ac[dk] || {})[ym] || {})['Pasaporte D!'] || {};
+        Object.keys(pd).forEach(function(code){ meas += pd[code].usd; });
+        meas = Math.abs(meas);
+        Ld.real += meas;
+        addEff(Ld, 'Pasaporte D!: real medido vs fórmula', meas - modelReal);
+      });
+
+      // ===== Redenciones: Deferred revenue out (Pasaporte D! + Puntos Manuales) y R&B cost (IFOOD + Acciones Marketing)
+      [['reden', 'Pasaporte D!', ['Pasaporte D!']], ['reden', 'Puntos Manuales', ['Puntos R&B']],
+       ['rb', 'IFOOD', ['IFOOD']], ['rb', 'Acciones Marketing', ['FORTUNE', 'PONTOSBR']]].forEach(function(t) {
+        var L = line(t[0]);
+        months.forEach(function(ym) {
+          var r = (((R.rd[dk] || {})[ym] || {})[t[1]] || {})[''] || { pts: 0, usd: 0 };
+          var qb = 0; t[2].forEach(function(k){ qb += (((idx.reden || {})[dk] || {})[k] || {})[ym] || 0; });
+          var pb = pv('ssp', dk, 'SSP_Red', ym) || 0;
+          L.bud += qb * pb; L.real += r.usd;
+          var e = varEff(r.pts, r.pts ? r.usd / r.pts : 0, qb, pb);
+          addEff(L, t[1] + ': volumen de puntos', e.vol);
+          addEff(L, t[1] + ': precio por punto', e.pre);
+          addEff(L, t[1] + ': cruzado', e.cru);
+        });
+      });
+
+      // ===== Breakage: país × mes (precio pasivo real pendiente -> se usa el del Budget)
+      var Lb = line('bk'), bkR = breakageMonthlyMap(co), bkB = ((idx.breakage || {})[dk] || {})[''] || {};
+      months.forEach(function(ym) {
+        var pb = pv('ssp', dk, 'Precio Punto Pasivo', ym) || 0, pa = pb;
+        var qa = bkR[ym] || 0, qb = bkB[ym] || 0;
+        Lb.bud += qb * pb; Lb.real += qa * pa;
+        var e = varEff(qa, pa, qb, pb);
+        addEff(Lb, 'Volumen de puntos vencidos', e.vol);
+        addEff(Lb, 'Precio pasivo (real pendiente)', e.pre);
+        addEff(Lb, 'Cruzado', e.cru);
       });
     });
-    out.bk = { real: { pts: kp, usd: ku }, bud: { pts: kbp, usd: kbu } };
-    out.bank = { real: { pts: sumMap(acm('Cobrand', 'pts'), months), usd: sumMap(acm('Cobrand', 'br'), months) },
-                 bud:  { pts: sumMap(cob.pts, months), usd: sumMap(cob.br, months) } };
-    out.partner = { real: { pts: sumMap(acm('Partners', 'pts'), months), usd: sumMap(acm('Partners', 'br'), months) },
-                    bud:  { pts: sumMap(par.pts, months), usd: sumMap(par.br, months) } };
+    Object.keys(out).forEach(function(k) {
+      var L = out[k];
+      L.eff = L.order.map(function(lb){ return { label: lb, val: L.effMap[lb] }; })
+                     .filter(function(e){ return Math.abs(e.val) >= 500; });   // oculta efectos < USD 500
+    });
     return out;
   } finally {
     METRICS_CMP = prevCmp;
@@ -2686,51 +2838,49 @@ function renderVariaciones() {
   h += '<div class="cc" style="margin-bottom:16px"><div class="ct">TOTAL LOYALTY: Budget → variación por línea → Actual</div>'
      + '<div class="cw" style="height:380px"><canvas id="ch-var-wf"></canvas></div></div>';
 
-  // ---- el porqué
+  // ---- el porqué (granular: cada efecto se calcula por país × mes × programa/partner/producto y se suma)
   var met = closed.length ? varMetrics(country, closed) : null;
   h += '<div class="bk-card"><div class="bk-hdr">Por qué varía cada línea — apertura en meses cerrados'
      + (closed.length ? ' (' + fmtMonthLbl(closed[0]) + (closed.length > 1 ? ' a ' + fmtMonthLbl(closed[closed.length - 1]) : '') + ')' : '') + '</div>'
      + '<div class="tbl-scroll"><table class="pnl var-tbl"><thead><tr>'
-     + '<th class="lc">Línea P&amp;L</th><th>Budget</th><th>Actual</th><th>Δ</th><th class="sep"></th>'
-     + '<th>Efecto volumen</th><th>Efecto precio</th><th>Efecto cruzado</th><th>No explicado</th><th class="sep"></th><th>Δ meses Run Rate</th>'
+     + '<th class="lc">Línea P&amp;L / efecto</th><th>Budget</th><th>Actual</th><th>Δ</th><th class="sep"></th>'
+     + '<th>Explicado por métricas</th><th>No explicado</th><th class="sep"></th><th>Δ meses Run Rate</th>'
      + '</tr></thead><tbody>';
-  var sum = { b: 0, a: 0, d: 0, v: 0, p: 0, x: 0, r: 0, o: 0 };
+  var sum = { b: 0, a: 0, d: 0, e: 0, r: 0, o: 0 };
   function cell(v, signed) { return '<td class="' + (v ? vc(v) : 'vz') + '">' + (v ? fmtPnl(v, signed) : '—') + '</td>'; }
+  function empty(n) { var t = ''; for (var i = 0; i < n; i++) t += '<td></td>'; return t; }
   order.forEach(function(l) {
     var b = bud[l] || 0, a = act[l] || 0, d = a - b;
     var dC = (actC[l] || 0) - (budC[l] || 0), dO = d - dC;
-    var mk = VAR_METRIC[l], v = 0, pr = 0, cx = 0, detail = '';
-    if (mk && met) {
+    var mk = VAR_METRIC[l], expl = 0, sub = '', detail = '';
+    if (mk && met && met[mk.key]) {
       var x = met[mk.key], sg = (b || a) < 0 ? -1 : 1;
-      var pb = x.bud.pts ? x.bud.usd / x.bud.pts : 0, pa = x.real.pts ? x.real.usd / x.real.pts : 0;
-      var expl = sg * (x.real.usd - x.bud.usd);
-      var dQ = x.real.pts - x.bud.pts;
-      // Sin precio de un lado (0 puntos), no hay Δ precio medible: todo el Δ va a volumen.
-      var dP = (x.real.pts && x.bud.pts) ? pa - pb : 0;
-      v  = sg * dQ * pb;
-      pr = sg * dP * x.bud.pts;
-      cx = sg * dQ * dP;
-      if (!(x.real.pts && x.bud.pts)) { v = expl; pr = 0; cx = 0; }
-      detail = '<div class="var-detail">Puntos ' + fmtPts(x.real.pts) + ' real vs ' + fmtPts(x.bud.pts) + ' budget ('
-        + fmtPct(x.real.pts, x.bud.pts) + ') · $/pt ' + (pa ? fmtPricePerPt(pa) : '—') + ' vs ' + (pb ? fmtPricePerPt(pb) : '—')
-        + ' · <span title="' + mk.desc + '">métrica: ' + mk.desc.split(' · ')[0] + '</span></div>';
+      x.eff.forEach(function(e) {
+        expl += sg * e.val;
+        sub += '<tr class="var-sub"><td class="lc">' + e.label + '</td>' + empty(3) + '<td class="sep"></td>'
+             + cell(sg * e.val, true) + '<td></td><td class="sep"></td><td></td></tr>';
+      });
+      // efectos que no son del Δ de la métrica (precio fijo en bank/partner): la diferencia va a no explicado
+      detail = '<div class="var-detail">' + mk.desc + ' · métrica: budget ' + fmtPnl(sg * x.bud) + ' → real ' + fmtPnl(sg * x.real) + '</div>';
     } else if (!mk) {
       detail = '<div class="var-detail">Sin métrica de negocio detrás: toda la variación queda como no explicada.</div>';
     }
-    var r = dC - v - pr - cx;
-    sum.b += b; sum.a += a; sum.d += d; sum.v += v; sum.p += pr; sum.x += cx; sum.r += r; sum.o += dO;
-    h += '<tr><td class="lc">' + varShort(l) + detail + '</td>' + cell(b) + cell(a) + cell(d, true) + '<td class="sep"></td>'
-       + cell(v, true) + cell(pr, true) + cell(cx, true) + cell(r, true) + '<td class="sep"></td>' + cell(dO, true) + '</tr>';
+    var r = dC - expl;
+    sum.b += b; sum.a += a; sum.d += d; sum.e += expl; sum.r += r; sum.o += dO;
+    h += '<tr class="var-line"><td class="lc">' + varShort(l) + detail + '</td>' + cell(b) + cell(a) + cell(d, true) + '<td class="sep"></td>'
+       + cell(expl, true) + cell(r, true) + '<td class="sep"></td>' + cell(dO, true) + '</tr>' + sub;
   });
   h += '<tr class="grand-total"><td class="lc">TOTAL LOYALTY</td>' + cell(sum.b) + cell(sum.a) + cell(sum.d, true) + '<td class="sep"></td>'
-     + cell(sum.v, true) + cell(sum.p, true) + cell(sum.x, true) + cell(sum.r, true) + '<td class="sep"></td>' + cell(sum.o, true) + '</tr>';
+     + cell(sum.e, true) + cell(sum.r, true) + '<td class="sep"></td>' + cell(sum.o, true) + '</tr>';
   h += '</tbody></table></div></div>';
-  h += '<div class="proj-note"><strong>Efecto volumen</strong> = Δ puntos × $/pt budget · '
-     + '<strong>Efecto precio</strong> = Δ $/pt × puntos budget · '
-     + '<strong>Efecto cruzado</strong> = Δ puntos × Δ $/pt (los tres suman el Δ de la métrica) · '
-     + '<strong>No explicado</strong> = Δ del P&amp;L en meses cerrados − (volumen + precio + cruzado): diferencia entre la contabilidad y la valuación de las métricas del Datalake, '
-     + 'o líneas sin métrica detrás (flag revenue, marketing, personnel). Rewards &amp; benefits cost se explica con la redención de iFood (ahí se registra). Signo: el de la línea en el P&amp;L. '
-     + '<strong>Δ meses Run Rate</strong> = variación de los meses todavía abiertos (Actual = Run Rate), sin apertura.</div>';
+  h += '<div class="proj-note">Cada efecto se calcula en la <strong>celda más chica disponible</strong> (país × mes × programa / partner / producto) y se suma — '
+     + 'así los cambios de mix no se esconden en el precio. Volumen = Δ puntos × precio budget · Precio = Δ precio × puntos budget · Cruzado = Δ puntos × Δ precio. '
+     + '<strong>Deferred revenue in (Pasaporte D!)</strong>: por país × mes × producto, sustituyendo de a un driver de budget a real en este orden: '
+     + 'GB → penetración → regla de acumulación → margen (UF + Fees + Desc.) → SSP, con la fórmula (pts × SSP) / (pts × SSP + GB × pen × margen) × (GB × pen × margen); '
+     + '"real medido vs fórmula" = valor diferido real del Datalake − fórmula con drivers reales. Drivers reales: GB y margen del P&amp;L Baseline, penetración y regla del Datalake, SSP de facturación. '
+     + '<strong>Bank / Partner revenue</strong>: precio fijo, solo volumen de puntos por partner. '
+     + '<strong>No explicado</strong> = Δ del P&amp;L en meses cerrados − explicado (contabilidad vs métricas, líneas sin métrica). Signo: el de la línea en el P&amp;L. '
+     + '<strong>Δ meses Run Rate</strong> = meses abiertos (Actual = Run Rate), sin apertura.</div>';
   el.innerHTML = h;
 
   // ---- waterfall
