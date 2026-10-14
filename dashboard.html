@@ -2547,8 +2547,10 @@ function renderPasivo() {
 var VAR_STATE = { mode: 'fy', months: [], q: 'Q1', h: 'H1', country: 'total' };
 // línea del P&L (P&L N1 en minúscula) -> métrica que la explica
 var VAR_METRIC = {
-  'loyalty - deferred revenue in':     { key: 'acum',    desc: 'Valor diferido de la acumulación: Pasaporte D! (fórmula GB × pen × regla, margen, SSP) + Cobrand/Partners (pts × SSP)' },
-  'loyalty - deferred revenue out':    { key: 'reden',   desc: 'Redención Pasaporte D! (con Cobrand/Partners) + Puntos Manuales · budget: pts × SSP_Red' },
+  // DRO = Deferred Revenue OUT = lo que se difiere al ACUMULAR (definición de Control de Gestión,
+  // 13-oct). Deferred revenue IN = el reconocimiento al REDIMIR.
+  'loyalty - deferred revenue out':    { key: 'acum',    desc: 'DRO: valor diferido de la acumulación — Pasaporte D! (fórmula GB × pen × regla, margen, SSP) + Cobrand/Partners (pts × SSP)' },
+  'loyalty - deferred revenue in':     { key: 'reden',   desc: 'Reconocimiento al redimir: Pasaporte D! (con Cobrand/Partners) + Puntos Manuales · budget: pts × SSP_Red' },
   // iFood y Acciones Marketing: su redención se registra en Rewards & Benefits cost (12-oct:
   // BR H1 iFood redimido ≈ $5,9M vs R&B cost -$6,2M; budget $2,0M vs -$2,1M).
   'loyalty - rewards & benefits cost': { key: 'rb',      desc: 'Redención IFOOD + Acciones Marketing · budget: pts × SSP_Red' },
@@ -2651,7 +2653,7 @@ function varMetrics(country, months) {
       var co = varCountryObj(dk), iso = (COUNTRY_ISO[dk] || '').toUpperCase();
 
       // ===== Bank revenue (Cobrand) y Partner revenue: precio fijo -> solo volumen por partner
-      // ===== + la parte Cobrand/Partners de Deferred revenue in (pts × SSP): volumen / SSP / cruzado
+      // ===== + la parte Cobrand/Partners de Deferred revenue OUT = DRO (pts × SSP): volumen / SSP / cruzado
       [['Cobrand', 'bank'], ['Partners', 'partner']].forEach(function(pp) {
         var prog = pp[0], Lr = line(pp[1]), Ld = line('acum');
         months.forEach(function(ym) {
@@ -2683,7 +2685,7 @@ function varMetrics(country, months) {
         });
       });
 
-      // ===== Deferred revenue in — Pasaporte D!: país × mes × producto, sustitución secuencial
+      // ===== Deferred revenue OUT (DRO) — Pasaporte D!: país × mes × producto, sustitución secuencial
       var Ld = line('acum');
       // Budget por producto (ponderando Domestic/International) desde la proyección + P&L de Budget
       var gbB = {}, ufB = {}, gbA = {}, ufA = {};
@@ -2877,7 +2879,7 @@ function renderVariaciones() {
   h += '</tbody></table></div></div>';
   h += '<div class="proj-note">Cada efecto se calcula en la <strong>celda más chica disponible</strong> (país × mes × programa / partner / producto) y se suma — '
      + 'así los cambios de mix no se esconden en el precio. Volumen = Δ puntos × precio budget · Precio = Δ precio × puntos budget · Cruzado = Δ puntos × Δ precio. '
-     + '<strong>Deferred revenue in (Pasaporte D!)</strong>: por país × mes × producto, sustituyendo de a un driver de budget a real en este orden: '
+     + '<strong>Deferred revenue out = DRO (Pasaporte D!)</strong>: por país × mes × producto, sustituyendo de a un driver de budget a real en este orden: '
      + 'GB → penetración → regla de acumulación → margen (UF + Fees + Desc.) → SSP, con la fórmula (pts × SSP) / (pts × SSP + GB × pen × margen) × (GB × pen × margen); '
      + '"real medido vs fórmula" = valor diferido real del Datalake − fórmula con drivers reales. Drivers reales: GB y margen del P&amp;L Baseline, penetración y regla del Datalake, SSP de facturación. '
      + '<strong>Bank / Partner revenue</strong>: precio fijo, solo volumen de puntos por partner. '
@@ -2985,7 +2987,7 @@ function orIdx() {
       var n1 = (r['P&L N1'] || '').toLowerCase(), pr = (r['Producto'] || '').toLowerCase().trim(), v = parseFloat(r['Monto USD']) || 0;
       if (n1 === 'gross bookings domestic' || n1 === 'gross bookings international') c(dk, ym, pr).gb += v;
       else if (n1 === 'up front incentives' || n1 === 'fees' || n1 === 'commercial discounts') c(dk, ym, pr).uf += v;
-      else if (n1 === 'loyalty - deferred revenue in') c(dk, ym, pr).defin += v;
+      else if (n1 === 'loyalty - deferred revenue out') c(dk, ym, pr).defin += v;   // DRO = deferred revenue OUT
     });
   });
   expand(RAW.penet).forEach(function(r) {
@@ -3063,7 +3065,7 @@ function renderOneRevenue() {
      + '<div class="tbl-scroll"><table class="pnl or-tbl"><thead><tr><th class="lc">' + (showCountry ? 'País / producto' : 'Producto') + '</th>'
      + '<th>GB</th><th>Penetración</th><th>Ratio acum.</th><th>SSP</th><th>Margen %</th><th>Breakage esp.</th>'
      + '<th class="sep"></th><th>Valor puntos</th><th>Margen $</th><th>DRO</th><th>DRO esperado</th><th>DRO %GB esp.</th>'
-     + '<th class="sep"></th><th>Deferred in P&amp;L</th><th>Calc. − P&amp;L</th></tr></thead><tbody>';
+     + '<th class="sep"></th><th>Deferred out P&amp;L</th><th>Calc. − P&amp;L</th></tr></thead><tbody>';
   function pct(v, d) { return v === null || !isFinite(v) ? '—' : (v * 100).toFixed(d === undefined ? 1 : d) + '%'; }
   function row(label, a, cls) {
     if (!a.n) return '';
@@ -3091,7 +3093,7 @@ function renderOneRevenue() {
   h += '</tbody></table></div></div>';
   h += '<div class="proj-note">Penetración, ratio, SSP, margen % y breakage de los totales son ponderados (no promedios simples): penetración = GB penetrado / GB, '
      + 'ratio = puntos / GB penetrado, SSP = valor / puntos, margen % = margen / GB penetrado. '
-     + '<strong>Deferred in P&amp;L</strong> = línea "loyalty - deferred revenue in" del P&amp;L por producto (en positivo) — incluye también la parte de Cobrand/Partners, '
+     + '<strong>Deferred out P&amp;L</strong> = línea "loyalty - deferred revenue out" (DRO contabilizado) del P&amp;L por producto, en positivo — incluye también la parte de Cobrand/Partners, '
      + 'que esta regla no calcula. Celdas sin GB, penetración o ratio quedan afuera.</div>';
 
   // ---- evolución mensual
