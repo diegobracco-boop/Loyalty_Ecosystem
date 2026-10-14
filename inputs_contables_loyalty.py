@@ -21,6 +21,7 @@ Composición (misma que Inputs_Planning_PnL, leída de su config.py):
   runrate  = plana_runrate.csv
   forecast = plana_forecast.csv, con FORECAST_ACTUALS_MONTHS reemplazados por actuals
   baseline = actuals (meses <= LAST_CLOSED_MONTH) + runrate (RUNRATE_MONTHS) + forecast (FORECAST_MONTHS)
+  actuals_prev = actuals del FY anterior completo (opcional, para la evolución de One Revenue)
 
 Validación: antes de filtrar, reconstruye TODAS las marcas y compara (por país × N1 × mes,
 solo las líneas de Loyalty/Drivers) contra los JSON canónicos PUBLICADOS en Drive. Si
@@ -29,7 +30,7 @@ difieren, avisa. Causa típica: el actuals_fy*.csv local no tiene el último mes
 `py plana_actuals_builder.py <FY>` y volver a correr este script.
 
 Salida (folder Drive de Loyalty): loyalty_pnl_baseline.json, loyalty_pnl_budget.json,
-loyalty_pnl_forecast.json, loyalty_pnl_runrate.json — mismo formato {meta,cols,rows} que
+loyalty_pnl_forecast.json, loyalty_pnl_runrate.json, loyalty_pnl_actuals_prev.json — mismo formato {meta,cols,rows} que
 los canónicos. Los lee Código.js (getLoyBaseline/Budget/Forecast/Runrate); si alguno
 falta, cae al canónico de B2B (todas las marcas).
 
@@ -125,7 +126,18 @@ def build_all():
     baseline = pd.concat([act[act["Fecha"].isin(act_months)],
                           runrate[runrate["Fecha"].isin(cfg.RUNRATE_MONTHS)],
                           forecast[forecast["Fecha"].isin(cfg.FORECAST_MONTHS)]], ignore_index=True)
-    return {"baseline": baseline, "budget": budget, "forecast": forecast, "runrate": runrate}
+    out = {"baseline": baseline, "budget": budget, "forecast": forecast, "runrate": runrate}
+    # FY anterior (actuals completos): lo usa la pestaña "Reglas One Revenue" para la
+    # evolución FY en curso vs FY anterior. Opcional: si la plana no está, se omite
+    # (se genera en Inputs_Planning_PnL con `py plana_actuals_builder.py <FY-1>`).
+    fy_prev = cfg.CURRENT_FY - 1
+    prev_file = f"actuals_fy{str(fy_prev)[-2:]}_abr{fy_prev - 1}_mar{fy_prev}.csv"
+    if (B2B_DIR / prev_file).exists():
+        out["actuals_prev"] = _process(_read(prev_file))
+        CANONICOS["actuals_prev"] = f"actuals_previos_fy{str(fy_prev)[-2:]}.json"
+    else:
+        print(f"  [WARN] sin {prev_file}: no se arma loyalty_pnl_actuals_prev.json")
+    return out
 
 
 def _key_sums(df):
