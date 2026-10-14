@@ -80,7 +80,7 @@ function getAllRaw() {
     penet: getRawPenetracionGb, acum_channel: getRawAcumChannel,
     stock_ifood: getRawStockIfood, proy: getRawProyecciones,
     baseline: getLoyBaseline, budget: getLoyBudget, forecast: getLoyForecast,
-    runrate: getLoyRunrate
+    runrate: getLoyRunrate, pnl_prev: getLoyPnlPrev
   };
   Object.keys(getters).forEach(function(k) {
     try { out[k] = { ok: true, data: getters[k]() }; }
@@ -105,6 +105,8 @@ function getLoyForecast() { return _loyPnlDespegar('forecast', 'forecast.json');
 // Run Rate: runrate.json de Inputs_Planning_PnL (12 meses del FY), misma vista Despegar.
 // loyalty_runrate.json (armado a mano el 22-sep, solo LE NA) queda en Drive sin uso.
 function getLoyRunrate()  { return _loyPnlDespegar('runrate',  'runrate.json'); }
+// FY anterior (actuals, solo Despegar): para la evolución de "Reglas One Revenue".
+function getLoyPnlPrev()  { return _load(LOYALTY_FOLDER_ID, 'loyalty_pnl_actuals_prev.json', 'loy_pnl_prev'); }
 
 // ---- Internal helpers ----
 

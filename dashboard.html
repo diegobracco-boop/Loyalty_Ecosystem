@@ -199,6 +199,8 @@ table.pnl tr.grand-total td.sep { background: #1b1533 !important; border-bottom-
 
 /* ---- Program index chips (saltos rapidos a cada programa) ---- */
 .prog-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+.or-tbl td.or-key { font-weight: 700; color: var(--accent); }
+.or-tbl tr.or-prod td.lc { padding-left: 40px; }
 .var-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-bottom: 10px; }
 .var-months { display: flex; flex-wrap: wrap; gap: 4px; }
 .var-chip { border: 1px solid var(--border); border-radius: 999px; }
@@ -657,7 +659,7 @@ var RAW = { acum_cy: null, acum_ly: null, reden_cy: null, reden_ly: null, breaka
             baseline: null, budget: null, forecast: null, dict: null, ssp: null, ratio_acum: null,
             ratio_acum_tier: null, acum_tier: null };
 var LOADED = 0;
-var TOTAL  = 21;  // = cantidad de claves que devuelve getAllRaw() en Código.js
+var TOTAL  = 22;  // = cantidad de claves que devuelve getAllRaw() en Código.js
 var ACTIVE_COUNTRY = 'total';
 var CHARTS = {};
 
@@ -2545,8 +2547,10 @@ function renderPasivo() {
 var VAR_STATE = { mode: 'fy', months: [], q: 'Q1', h: 'H1', country: 'total' };
 // línea del P&L (P&L N1 en minúscula) -> métrica que la explica
 var VAR_METRIC = {
-  'loyalty - deferred revenue in':     { key: 'acum',    desc: 'Valor diferido de la acumulación: Pasaporte D! (fórmula GB × pen × regla, margen, SSP) + Cobrand/Partners (pts × SSP)' },
-  'loyalty - deferred revenue out':    { key: 'reden',   desc: 'Redención Pasaporte D! (con Cobrand/Partners) + Puntos Manuales · budget: pts × SSP_Red' },
+  // DRO = Deferred Revenue OUT = lo que se difiere al ACUMULAR (definición de Control de Gestión,
+  // 13-oct). Deferred revenue IN = el reconocimiento al REDIMIR.
+  'loyalty - deferred revenue out':    { key: 'acum',    desc: 'DRO: valor diferido de la acumulación — Pasaporte D! (fórmula GB × pen × regla, margen, SSP) + Cobrand/Partners (pts × SSP)' },
+  'loyalty - deferred revenue in':     { key: 'reden',   desc: 'Reconocimiento al redimir: Pasaporte D! (con Cobrand/Partners) + Puntos Manuales · budget: pts × SSP_Red' },
   // iFood y Acciones Marketing: su redención se registra en Rewards & Benefits cost (12-oct:
   // BR H1 iFood redimido ≈ $5,9M vs R&B cost -$6,2M; budget $2,0M vs -$2,1M).
   'loyalty - rewards & benefits cost': { key: 'rb',      desc: 'Redención IFOOD + Acciones Marketing · budget: pts × SSP_Red' },
@@ -2649,7 +2653,7 @@ function varMetrics(country, months) {
       var co = varCountryObj(dk), iso = (COUNTRY_ISO[dk] || '').toUpperCase();
 
       // ===== Bank revenue (Cobrand) y Partner revenue: precio fijo -> solo volumen por partner
-      // ===== + la parte Cobrand/Partners de Deferred revenue in (pts × SSP): volumen / SSP / cruzado
+      // ===== + la parte Cobrand/Partners de Deferred revenue OUT = DRO (pts × SSP): volumen / SSP / cruzado
       [['Cobrand', 'bank'], ['Partners', 'partner']].forEach(function(pp) {
         var prog = pp[0], Lr = line(pp[1]), Ld = line('acum');
         months.forEach(function(ym) {
@@ -2681,7 +2685,7 @@ function varMetrics(country, months) {
         });
       });
 
-      // ===== Deferred revenue in — Pasaporte D!: país × mes × producto, sustitución secuencial
+      // ===== Deferred revenue OUT (DRO) — Pasaporte D!: país × mes × producto, sustitución secuencial
       var Ld = line('acum');
       // Budget por producto (ponderando Domestic/International) desde la proyección + P&L de Budget
       var gbB = {}, ufB = {}, gbA = {}, ufA = {};
@@ -2875,7 +2879,7 @@ function renderVariaciones() {
   h += '</tbody></table></div></div>';
   h += '<div class="proj-note">Cada efecto se calcula en la <strong>celda más chica disponible</strong> (país × mes × programa / partner / producto) y se suma — '
      + 'así los cambios de mix no se esconden en el precio. Volumen = Δ puntos × precio budget · Precio = Δ precio × puntos budget · Cruzado = Δ puntos × Δ precio. '
-     + '<strong>Deferred revenue in (Pasaporte D!)</strong>: por país × mes × producto, sustituyendo de a un driver de budget a real en este orden: '
+     + '<strong>Deferred revenue out = DRO (Pasaporte D!)</strong>: por país × mes × producto, sustituyendo de a un driver de budget a real en este orden: '
      + 'GB → penetración → regla de acumulación → margen (UF + Fees + Desc.) → SSP, con la fórmula (pts × SSP) / (pts × SSP + GB × pen × margen) × (GB × pen × margen); '
      + '"real medido vs fórmula" = valor diferido real del Datalake − fórmula con drivers reales. Drivers reales: GB y margen del P&amp;L Baseline, penetración y regla del Datalake, SSP de facturación. '
      + '<strong>Bank / Partner revenue</strong>: precio fijo, solo volumen de puntos por partner. '
@@ -2931,6 +2935,203 @@ function renderVariaciones() {
       scales: { x: { grid: { display: false }, ticks: { font: { size: 11 } } },
                 y: { grid: { color: '#f1f5f9' }, ticks: { callback: function(v){ return fmtPnl(v); } } } } }
   });
+}
+
+
+// ============================================================
+// Reglas One Revenue — DRO %GB esperado con datos REALES, por país × producto × mes
+// (canal SITE/APP/OFFLINE pendiente: hoy la penetración no viene abierta por canal).
+//   Valor de puntos   = GB × penetración × ratio de acumulación × SSP (calculado, antes de breakage)
+//   Margen            = GB × penetración × (Up Front + Fees + Desc.) / GB
+//   DRO               = Valor / (Valor + Margen) × Margen
+//   DRO esperado      = DRO × (1 − breakage esperado)
+//   DRO %GB esperado  = DRO esperado / GB
+// Fuentes: GB y margen = P&L (actuals, solo Despegar, B2C) — FY en curso de RAW.baseline (meses
+// cerrados), FY anterior de RAW.pnl_prev; penetración = loyalty_penetracion_gb (GB con puntos /
+// GB total); ratio = loyalty_ratio_acumulacion (puntos / GB); SSP calculado y breakage esperado =
+// loyalty_ssp. Cada celda país × producto × mes se calcula sola y después se suma.
+// ============================================================
+var OR_STATE = { mode: 'fy', months: [], q: 'Q1', h: 'H1', country: 'total' };
+var OR_PRODUCTS = ['Flights', 'Hotels', 'Packages General', 'Vacation Rentals', 'Cars', 'Insurance', 'Dest. Serv.'];
+function orSet(k, v) {
+  if (k === 'month') {
+    var i = OR_STATE.months.indexOf(v);
+    if (i === -1) OR_STATE.months.push(v); else OR_STATE.months.splice(i, 1);
+  } else {
+    OR_STATE[k] = v;
+    if (k === 'mode' && v === 'mes' && !OR_STATE.months.length) OR_STATE.months = [proyLastClosedYm()];
+  }
+  renderOneRevenue();
+}
+// Meses del FY en curso con real (cerrados), según el selector.
+function orSelMonths() {
+  var last = proyLastClosedYm(), all = varFyMonths().filter(function(ym){ return ym <= last; });
+  if (OR_STATE.mode === 'mes') return all.filter(function(ym){ return OR_STATE.months.indexOf(ym) !== -1; });
+  if (OR_STATE.mode === 'q') return all.filter(function(ym){ return PNL_Q[ym.substring(5, 7)] === OR_STATE.q; });
+  if (OR_STATE.mode === 'h') return all.filter(function(ym){ return PNL_H[PNL_Q[ym.substring(5, 7)]] === OR_STATE.h; });
+  return all;
+}
+// Índice de drivers reales por celda 'dk|ym|producto' (minúscula). Cacheado.
+var _ORIDX = null;
+function orIdx() {
+  if (_ORIDX && _ORIDX.b === RAW.baseline && _ORIDX.p === RAW.pnl_prev) return _ORIDX.idx;
+  var idx = {};
+  function c(dk, ym, pr) { var k = dk + '|' + ym + '|' + pr; return (idx[k] = idx[k] || { gb: 0, uf: 0, defin: 0, penN: 0, penD: 0, rP: 0, rG: 0 }); }
+  var last = proyLastClosedYm();
+  [[RAW.baseline, true], [RAW.pnl_prev, false]].forEach(function(src) {
+    expandBaseline(src[0]).forEach(function(r) {
+      var ym = (r['Fecha'] || '').substring(0, 7);
+      if (src[1] && ym > last) return;   // FY en curso: solo meses cerrados (actuals), no Run Rate
+      var dk = (r['Pais'] || '').toLowerCase();
+      if (COUNTRY_DATAKEYS.indexOf(dk) === -1) return;
+      var n1 = (r['P&L N1'] || '').toLowerCase(), pr = (r['Producto'] || '').toLowerCase().trim(), v = parseFloat(r['Monto USD']) || 0;
+      if (n1 === 'gross bookings domestic' || n1 === 'gross bookings international') c(dk, ym, pr).gb += v;
+      else if (n1 === 'up front incentives' || n1 === 'fees' || n1 === 'commercial discounts') c(dk, ym, pr).uf += v;
+      else if (n1 === 'loyalty - deferred revenue out') c(dk, ym, pr).defin += v;   // DRO = deferred revenue OUT
+    });
+  });
+  expand(RAW.penet).forEach(function(r) {
+    var dk = ISO_TO_DATAKEY[(r.country_code || '').toLowerCase()]; if (!dk) return;
+    var o = c(dk, (r.ym || '').substring(0, 7), (r.grupo_pnl || '').toLowerCase());
+    o.penN += +r.gb_con_puntos || 0; o.penD += +r.gb_total || 0;
+  });
+  expand(RAW.ratio_acum).forEach(function(r) {
+    var dk = ISO_TO_DATAKEY[(r.country_code || '').toLowerCase()]; if (!dk) return;
+    var o = c(dk, (r.processing_date || '').substring(0, 7), (r.grupo_pnl || '').toLowerCase());
+    o.rP += +r.points || 0; o.rG += +r.gb || 0;
+  });
+  _ORIDX = { b: RAW.baseline, p: RAW.pnl_prev, idx: idx };
+  return idx;
+}
+// Cálculo de una celda; devuelve null si falta algún driver (sin GB, sin penetración o sin ratio).
+function orCell(dk, ym, pr) {
+  var x = orIdx()[dk + '|' + ym + '|' + pr.toLowerCase()];
+  if (!x || !x.gb || !x.penD || !x.rG) return null;
+  var s = (((RAW.ssp || {}).data || {})[dk] || {})[ym] || {};
+  var ssp = Math.abs(+s.ssp_calculado || 0), bk = +s.breakage_esperado || 0;
+  var pen = x.penN / x.penD, ratio = x.rP / x.rG, take = x.uf / x.gb;
+  var pts = x.gb * pen * ratio, valor = pts * ssp, margen = x.gb * pen * take;
+  var dro = (valor + margen) ? valor / (valor + margen) * margen : 0;
+  return { gb: x.gb, penGB: x.gb * pen, pts: pts, valor: valor, margen: margen, dro: dro,
+           droEsp: dro * (1 - bk), defin: -x.defin };
+}
+function orAdd(a, c) {
+  ['gb', 'penGB', 'pts', 'valor', 'margen', 'dro', 'droEsp', 'defin'].forEach(function(k){ a[k] = (a[k] || 0) + c[k]; });
+  return a;
+}
+function orAgg(keys, months, products) {
+  var a = { n: 0 };
+  keys.forEach(function(dk) { months.forEach(function(ym) { products.forEach(function(pr) {
+    var c = orCell(dk, ym, pr); if (c) { orAdd(a, c); a.n++; }
+  }); }); });
+  return a;
+}
+
+function renderOneRevenue() {
+  var el = document.getElementById('panel-onerevenue');
+  if (!el) return;
+  var fy = fyYears(), last = proyLastClosedYm();
+  var closedAll = varFyMonths().filter(function(ym){ return ym <= last; });
+  var sel = orSelMonths(), keys = goalKeys(varCountryObj(OR_STATE.country));
+  function seg(k, opts) {
+    return '<div class="seg seg-sm">' + opts.map(function(o){
+      return '<button class="seg-btn' + (OR_STATE[k] === o[0] ? ' active' : '') + '" type="button" onclick="orSet(\'' + k + '\',\'' + o[0] + '\')">' + o[1] + '</button>';
+    }).join('') + '</div>';
+  }
+  var h = '<div class="stitle">Reglas One Revenue — DRO %GB esperado con datos reales, ' + fyLbl(fy.cy) + '</div>';
+  h += '<div class="var-ctl"><span class="ratio-controls-lbl">Período</span>'
+     + seg('mode', [['mes', 'Mes'], ['q', 'Quarter'], ['h', 'Half'], ['fy', 'Año fiscal (YTD)']]);
+  if (OR_STATE.mode === 'mes') {
+    h += '<div class="var-months">' + closedAll.map(function(ym){
+      return '<button class="seg-btn var-chip' + (OR_STATE.months.indexOf(ym) !== -1 ? ' active' : '') + '" type="button" onclick="orSet(\'month\',\'' + ym + '\')">' + fmtMonthLbl(ym) + '</button>';
+    }).join('') + '</div>';
+  } else if (OR_STATE.mode === 'q') h += seg('q', [['Q1', 'Q1'], ['Q2', 'Q2'], ['Q3', 'Q3'], ['Q4', 'Q4']]);
+  else if (OR_STATE.mode === 'h') h += seg('h', [['H1', 'H1'], ['H2', 'H2']]);
+  h += '<span class="ratio-controls-lbl" style="margin-left:12px">País</span><select class="ratio-sel" onchange="orSet(\'country\', this.value)">'
+     + COUNTRIES.map(function(c){ return '<option value="' + c.dataKey + '"' + (c.dataKey === OR_STATE.country ? ' selected' : '') + '>' + c.label + '</option>'; }).join('')
+     + '</select></div>';
+  h += '<div class="proj-note"><strong>Valor de puntos</strong> = GB × penetración × ratio de acumulación × SSP · '
+     + '<strong>Margen</strong> = GB × penetración × (Up Front + Fees + Desc.) / GB · '
+     + '<strong>DRO</strong> = Valor / (Valor + Margen) × Margen · '
+     + '<strong>DRO %GB esperado</strong> = DRO × (1 − breakage esperado) / GB. '
+     + 'Solo meses cerrados (reales, hasta ' + fmtMonthLbl(last) + '); marca Despegar, B2C. Se calcula por país × producto × mes y se suma. '
+     + 'SSP = SSP calculado (el breakage se aplica aparte). Apertura por canal (Site / App / Offline): pendiente. El filtro de fechas de arriba no aplica acá.</div>';
+  if (!sel.length) { el.innerHTML = h + '<div class="empty">Elegí al menos un mes cerrado.</div>'; return; }
+
+  // ---- tabla de reglas
+  var showCountry = keys.length > 1;
+  h += '<div class="bk-card"><div class="bk-hdr">Reglas por ' + (showCountry ? 'país y producto' : 'producto') + ' — '
+     + fmtMonthLbl(sel[0]) + (sel.length > 1 ? ' a ' + fmtMonthLbl(sel[sel.length - 1]) : '') + '</div>'
+     + '<div class="tbl-scroll"><table class="pnl or-tbl"><thead><tr><th class="lc">' + (showCountry ? 'País / producto' : 'Producto') + '</th>'
+     + '<th>GB</th><th>Penetración</th><th>Ratio acum.</th><th>SSP</th><th>Margen %</th><th>Breakage esp.</th>'
+     + '<th class="sep"></th><th>Valor puntos</th><th>Margen $</th><th>DRO</th><th>DRO esperado</th><th>DRO %GB esp.</th>'
+     + '<th class="sep"></th><th>Deferred out P&amp;L</th><th>Calc. − P&amp;L</th></tr></thead><tbody>';
+  function pct(v, d) { return v === null || !isFinite(v) ? '—' : (v * 100).toFixed(d === undefined ? 1 : d) + '%'; }
+  function row(label, a, cls) {
+    if (!a.n) return '';
+    var pen = a.gb ? a.penGB / a.gb : null, ratio = a.penGB ? a.pts / a.penGB : null, ssp = a.pts ? a.valor / a.pts : null;
+    var take = a.penGB ? a.margen / a.penGB : null, bk = a.dro ? 1 - a.droEsp / a.dro : null;
+    var dif = a.droEsp - a.defin;
+    return '<tr' + (cls ? ' class="' + cls + '"' : '') + '><td class="lc">' + label + '</td>'
+      + '<td class="vf">' + fmtPnl(a.gb) + '</td><td class="vf">' + pct(pen) + '</td><td class="vf">' + (ratio !== null ? ratio.toFixed(3) : '—') + '</td>'
+      + '<td class="vf">' + (ssp !== null ? fmtPricePerPt(ssp) : '—') + '</td><td class="vf">' + pct(take) + '</td><td class="vf">' + pct(bk) + '</td>'
+      + '<td class="sep"></td><td class="vf">' + fmtPnl(a.valor) + '</td><td class="vf">' + fmtPnl(a.margen) + '</td><td class="vf">' + fmtPnl(a.dro) + '</td>'
+      + '<td class="vf">' + fmtPnl(a.droEsp) + '</td><td class="vf or-key">' + pct(a.gb ? a.droEsp / a.gb : null, 2) + '</td>'
+      + '<td class="sep"></td><td class="vf">' + (a.defin ? fmtPnl(a.defin) : '—') + '</td><td class="' + vc(dif) + '">' + (a.defin ? fmtPnl(dif, true) : '—') + '</td></tr>';
+  }
+  keys.forEach(function(dk) {
+    if (showCountry) {
+      var tot = orAgg([dk], sel, OR_PRODUCTS);
+      if (!tot.n) return;
+      h += row(varCountryObj(dk).label, tot, 'subtotal');
+    }
+    OR_PRODUCTS.forEach(function(pr) {
+      h += row((showCountry ? '<span class="or-ind"></span>' : '') + pr, orAgg([dk], sel, [pr]), showCountry ? 'or-prod' : '');
+    });
+  });
+  h += row('TOTAL', orAgg(keys, sel, OR_PRODUCTS), 'grand-total');
+  h += '</tbody></table></div></div>';
+  h += '<div class="proj-note">Penetración, ratio, SSP, margen % y breakage de los totales son ponderados (no promedios simples): penetración = GB penetrado / GB, '
+     + 'ratio = puntos / GB penetrado, SSP = valor / puntos, margen % = margen / GB penetrado. '
+     + '<strong>Deferred out P&amp;L</strong> = línea "loyalty - deferred revenue out" (DRO contabilizado) del P&amp;L por producto, en positivo — incluye también la parte de Cobrand/Partners, '
+     + 'que esta regla no calcula. Celdas sin GB, penetración o ratio quedan afuera.</div>';
+
+  // ---- evolución mensual
+  h += '<div class="cc" style="margin-top:16px"><div class="ct">DRO %GB esperado por mes — ' + fyLbl(fy.cy) + ' vs ' + fyLbl(fy.ly) + '</div>'
+     + '<div class="cw"><canvas id="ch-or-evo"></canvas></div>'
+     + '<div class="dtable-row"><div class="dtable-label">Δ pp</div><div class="yoy-row" id="or-evo-pp"></div></div></div>'
+     + '<div class="proj-note">' + fyLbl(fy.ly) + ': sep–dic 2025 sin dato del P&amp;L con apertura por marca (el armado de actuals del FY anterior en Inputs_Planning_PnL no los trae).</div>';
+  el.innerHTML = h;
+
+  function series(startYear) {
+    return FISCAL_MONTHS.map(function(mm) {
+      var ym = fiscalCalYear(mm, startYear) + '-' + mm;
+      if (startYear === fy.cy && ym > last) return null;
+      var a = orAgg(keys, [ym], OR_PRODUCTS);
+      return a.n && a.gb ? a.droEsp / a.gb * 100 : null;
+    });
+  }
+  var cy = series(fy.cy), ly = series(fy.ly);
+  var fmt = function(v){ return v === null || v === undefined ? '' : v.toFixed(2) + '%'; };
+  var ctx = document.getElementById('ch-or-evo');
+  if (CHARTS['ch-or-evo']) CHARTS['ch-or-evo'].destroy();
+  var dl = { anchor: 'end', align: 'top', clamp: true, font: { size: 10, weight: '700' }, color: '#475569', formatter: function(v){ return fmt(v); } };
+  CHARTS['ch-or-evo'] = new Chart(ctx, {
+    type: 'bar',
+    data: { labels: FISCAL_LABELS, datasets: [
+      { label: fyLbl(fy.ly), data: ly, backgroundColor: 'rgba(100,116,139,.3)', borderRadius: 3, datalabels: dl },
+      { label: fyLbl(fy.cy), data: cy, backgroundColor: 'rgba(85,15,237,.75)', borderRadius: 3, datalabels: dl }
+    ] },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { font: { size: 12 }, boxWidth: 10 } },
+                 tooltip: { callbacks: { label: function(c){ return c.dataset.label + ': ' + fmt(c.parsed.y); } } } },
+      scales: { x: { grid: { display: false } }, y: { grid: { color: '#f1f5f9' }, ticks: { callback: function(v){ return v.toFixed(2) + '%'; } } } } }
+  });
+  document.getElementById('or-evo-pp').innerHTML = FISCAL_LABELS.map(function(lbl, i) {
+    var d = (cy[i] !== null && ly[i] !== null) ? cy[i] - ly[i] : null;
+    return '<div class="yoy-cell"><div class="yoy-m">' + lbl + '</div>' + (d === null ? '<span class="neu">—</span>'
+      : '<span class="' + (d >= 0 ? 'pos' : 'neg') + '">' + (d >= 0 ? '+' : '') + d.toFixed(2) + 'pp</span>') + '</div>';
+  }).join('');
 }
 
 // Fila debajo del YoY (solo Redenciones): precio/pt de LY + variacion YoY de ese precio.
@@ -3612,6 +3813,16 @@ function buildPanels() {
   vbtn.addEventListener('click', function(){ switchCountry('variaciones'); });
   vbtn.setAttribute('aria-selected', 'false');
   tabsEl.appendChild(vbtn);
+
+  // Pestaña "Reglas One Revenue" — DRO %GB esperado con datos reales
+  var obtn = document.createElement('button');
+  obtn.className = 'ctab';
+  obtn.dataset.key = 'onerevenue';
+  obtn.setAttribute('role', 'tab');
+  obtn.textContent = '📐 Reglas One Revenue';
+  obtn.addEventListener('click', function(){ switchCountry('onerevenue'); });
+  obtn.setAttribute('aria-selected', 'false');
+  tabsEl.appendChild(obtn);
   tabsEl.setAttribute('role', 'tablist');
 
   var pdiv = document.createElement('div');
@@ -3622,6 +3833,10 @@ function buildPanels() {
   vdiv.id = 'panel-variaciones';
   vdiv.classList.add('hidden');
   panelsEl.appendChild(vdiv);
+  var odiv = document.createElement('div');
+  odiv.id = 'panel-onerevenue';
+  odiv.classList.add('hidden');
+  panelsEl.appendChild(odiv);
 
   // Botón al Manual — pegado al extremo derecho de la barra de pestañas
   var man = document.createElement('a');
@@ -3647,12 +3862,15 @@ function switchCountry(key) {
   if (pp) pp.classList.toggle('hidden', key !== 'pasivo');
   var pv2 = document.getElementById('panel-variaciones');
   if (pv2) pv2.classList.toggle('hidden', key !== 'variaciones');
+  var por = document.getElementById('panel-onerevenue');
+  if (por) por.classList.toggle('hidden', key !== 'onerevenue');
   renderCountry(key);
 }
 
 function renderCountry(key) {
   if (key === 'pasivo') { renderPasivo(); return; }
   if (key === 'variaciones') { renderVariaciones(); return; }
+  if (key === 'onerevenue') { renderOneRevenue(); return; }
   var c = COUNTRIES.filter(function(x){ return x.key === key; })[0];
   if (!c) return;
   renderPnl('pnl-' + key, c);
@@ -3686,7 +3904,7 @@ function onLoaded(key, data) {
 // "carga incompleta" — hoy solo ratio_acum (loyalty_ratio_acumulacion.json aun
 // no se subio a Drive con una sync real; el resto del codigo ya degrada a "Sin
 // datos" sin romper nada, ver ratioRows/buildRatioBarChart).
-var RAW_OPTIONAL = { ratio_acum: 1, ratio_acum_tier: 1, acum_tier: 1, penet: 1, acum_channel: 1, stock_ifood: 1, runrate: 1, proy: 1 };
+var RAW_OPTIONAL = { ratio_acum: 1, ratio_acum_tier: 1, acum_tier: 1, penet: 1, acum_channel: 1, stock_ifood: 1, runrate: 1, proy: 1, pnl_prev: 1 };
 function checkStale() {
   var el = document.getElementById('stale-banner');
   var txt = document.getElementById('stale-banner-text');
