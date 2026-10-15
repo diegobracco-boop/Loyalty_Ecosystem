@@ -1866,6 +1866,8 @@ _VIAJE = {"DOMESTIC": "Domestic", "INTERNATIONAL": "International"}
 
 
 def _inputs_dims(d: pd.DataFrame, by_name: dict, by_code: dict) -> pd.DataFrame:
+    if d.empty:  # apply(axis=1) sobre un frame vacío devuelve un DataFrame y rompe la asignación
+        return d.assign(ym=[], producto=[], viaje=[], canal=[])
     d["ym"] = d["processing_date"].str.slice(0, 7)
     d["producto"] = d.apply(lambda r: _grupo_pnl(r, by_name, by_code), axis=1).fillna("Sin clasificar")
     d["viaje"] = d["business"].astype(str).str.strip().str.upper().map(_VIAJE).fillna("N/D")
@@ -1877,8 +1879,14 @@ def build_inputs_real_json(acum_pre_dfs, reden_clean_dfs, by_name: dict, by_code
     keys = ["ym", "country_code", "producto", "viaje", "canal"]
     parts = []
 
-    r = pd.concat([x for x in reden_clean_dfs if x is not None and len(x)], ignore_index=True)
+    def _frames(dfs):
+        fr = [x for x in dfs if x is not None and len(x)]
+        return pd.concat(fr, ignore_index=True) if fr else pd.DataFrame(
+            columns=["processing_date", "country_code", "point_type", "points", "business", "channel_condition"])
+
+    r = _frames(reden_clean_dfs)
     r = r[r["point_type"].astype(str).str.lower().isin(PASAPORTE_D_REDEN)].copy()
+    r["descuento_consumo_puntos_usd"] = r.get("descuento_consumo_puntos_usd", 0)
     r["num"] = pd.to_numeric(r["descuento_consumo_puntos_usd"], errors="coerce").fillna(0).abs()
     r["den"] = pd.to_numeric(r["points"], errors="coerce").fillna(0).abs()
     r = _inputs_dims(r, by_name, by_code)
@@ -1886,10 +1894,10 @@ def build_inputs_real_json(acum_pre_dfs, reden_clean_dfs, by_name: dict, by_code
     g["factor"] = "ssp_red"
     parts.append(g)
 
-    a = pd.concat([x for x in acum_pre_dfs if x is not None and len(x)], ignore_index=True)
+    a = _frames(acum_pre_dfs)
     a = a[a["point_type"].astype(str).str.lower() == _PASAPORTE_GENERAL_POINT_TYPE].copy()
     a["num"] = pd.to_numeric(a["points"], errors="coerce").fillna(0)
-    a["den"] = pd.to_numeric(a.get("gb_basebi_2", 0), errors="coerce").fillna(0)
+    a["den"] = pd.to_numeric(a["gb_basebi_2"], errors="coerce").fillna(0) if "gb_basebi_2" in a else 0.0
     a = _inputs_dims(a, by_name, by_code)
     g = a.groupby(keys, as_index=False).agg(num=("num", "sum"), den=("den", "sum"))
     g["factor"] = "regla"
@@ -1900,18 +1908,25 @@ def build_inputs_real_json(acum_pre_dfs, reden_clean_dfs, by_name: dict, by_code
     out["num"] = out["num"].round(2)
     out["den"] = out["den"].round(2)
 
-    # Control: el total por país × mes tiene que dar lo mismo que los JSON que ya se publican
+    # Control de la agregación: el total por país × mes del JSON tiene que dar lo mismo que
+    # las filas de origen (detecta filas perdidas al agrupar). La base de origen es la misma
+    # de ssp_calculado (build_ssp_json) y de ratio_acum (aggregate_ratio_acum).
     for fac, src in (("ssp_red", r), ("regla", a)):
+        if src.empty:
+            print(f"  [WARN] inputs {fac}: 0 filas de origen")
+            continue
         t = out[out["factor"] == fac].groupby(["ym", "country_code"])[["num", "den"]].sum()
         o = src.groupby(["ym", "country_code"])[["num", "den"]].sum()
         dif = (t - o.reindex(t.index)).abs().max().max()
         msg = "OK" if dif < 1 else f"[WARN] diferencia máx {dif:,.2f}"
-        print(f"  [INPUTS] {fac:8s} {len(out[out['factor'] == fac]):>6} filas · control vs país×mes: {msg}")
-    for fac, col in (("ssp_red", "canal"), ("regla", "canal"), ("regla", "viaje")):
-        nd = out[(out["factor"] == fac) & (out[col] == "N/D")]["den"].sum()
+        print(f"  [INPUTS] {fac:8s} {len(out[out['factor'] == fac]):>6} filas · control de agregación país×mes: {msg}")
+    for fac, col, nd_val in (("ssp_red", "canal", "N/D"), ("regla", "canal", "N/D"), ("regla", "viaje", "N/D"),
+                             ("ssp_red", "producto", "Sin clasificar"), ("regla", "producto", "Sin clasificar")):
+        nd = out[(out["factor"] == fac) & (out[col] == nd_val)]["den"].sum()
         tot = out[out["factor"] == fac]["den"].sum()
         if tot and nd / tot > 0.01:
-            print(f"  [WARN] inputs {fac}: {nd / tot:.1%} del denominador con {col} N/D")
+            print(f"  [WARN] inputs {fac}: {nd / tot:.1%} del denominador con {col} '{nd_val}' "
+                  f"(revisar la pestaña 'regla producto' del Sheet Config si es producto)")
 
     cols = ["ym", "country_code", "factor", "producto", "viaje", "canal", "num", "den"]
     payload = {

@@ -3889,7 +3889,6 @@ function ipRealTable(B, groups, months, tf) {
     return months.map(function(ym){ var v = val(o, ym, dk); return '<td class="vf' + (v === null ? ' neu' : '') + '">' + ipFmt(B.unit, v) + '</td>'; }).join('')
          + '<td class="sep"></td><td class="vf ip-tot">' + ipFmt(B.unit, period(o, dk)) + '</td>';
   }
-  var multi = groups.length > 1 || IP_STATE.country === 'total';
   var h = '<div class="tbl-scroll"><table class="pnl ip-tbl"><thead><tr><th class="lc">' + B.col + '</th>'
         + months.map(function(ym){ return '<th>' + fmtMonthLbl(ym) + '</th>'; }).join('')
         + '<th class="sep"></th><th>' + (B.kind === 'sum' ? 'Total período' : 'Período') + '</th></tr></thead><tbody>';
@@ -3900,7 +3899,7 @@ function ipRealTable(B, groups, months, tf) {
       h += '<tr class="or-prod"><td class="lc">' + s.parts.map(ipEsc).join(' · ') + '</td>' + cells(s.v, g.dk) + '</tr>';
     });
   });
-  if (B.kind === 'sum' && multi && groups.length > 1) {
+  if (B.kind === 'sum' && groups.length > 1) {
     var all = {};
     groups.forEach(function(g){ Object.keys(g.tot).forEach(function(ym){ var c = (all[ym] = all[ym] || { n: 0, d: 0 }); c.n += g.tot[ym].n; c.d += g.tot[ym].d; }); });
     h += '<tr class="grand-total"><td class="lc">TOTAL</td>' + cells(all, null) + '</tr>';
@@ -3946,11 +3945,11 @@ function ipRenderReal(h) {
   var dims = ['producto', 'viaje', 'canal'].filter(function(d){ return IP_STATE.ap[d]; });
   var dimLbl = { producto: 'producto', viaje: 'viaje', canal: 'canal' };
   var col = 'País' + (dims.length ? ' / ' + dims.map(function(d){ return dimLbl[d]; }).join(' · ') : '');
+  if (!months.length) return h + '<div class="empty">Todavía no hay meses cerrados en el año fiscal en curso.</div>';
   h += '<div class="proj-note">Valores <strong>reales</strong> del Datalake de ' + fmtMonthLbl(months[0]) + ' a ' + fmtMonthLbl(last)
      + ' (último mes cerrado), para actualizar los supuestos de <code>Input_budget.xlsx</code> / <code>Input_runrate.xlsx</code>. '
      + 'Cada celda se calcula sumando numerador y denominador (nunca promediando ratios); <strong>Período</strong> = ponderado de los meses mostrados. '
      + 'Canal: Offline = Call Center + Sucursales. Viaje = Domestic / International de cada línea de producto. La apertura no aplica a Cobrand / Partners (no hay reserva detrás).</div>';
-  if (!months.length) return h + '<div class="empty">Todavía no hay meses cerrados en el año fiscal en curso.</div>';
 
   var real = RAW.inputs_real ? ipRealRows() : null;
   var noReal = '<div class="empty">Falta <code>loyalty_inputs_real.json</code> en Drive: se genera en la próxima corrida de <code>loyalty_sync.py</code>.</div>';
