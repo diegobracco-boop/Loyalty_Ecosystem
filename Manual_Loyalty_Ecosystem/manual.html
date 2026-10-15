@@ -603,12 +603,13 @@ a.ext-link:hover { text-decoration: underline; }
           <tr><td>loyalty_acum_tier.json</td><td><code>_ACUM_TIER_SQL</code> — acumulación Pasaporte D! por mes × país × tier. El USD (<code>acum_usd_base</code>) se prorratea en <code>enrich_acum_tier_usd()</code> desde la acumulación general (sin SQL extra: <code>_ACUM_SQL</code> está en el límite de 60 stages).</td><td>Pasaporte D! → Por Tier (Q / $) + mix por tier</td></tr>
           <tr><td>loyalty_ratio_acum_tier.json</td><td><code>_RATIO_ACUM_TIER_SQL</code> — <code>SUM(points)/SUM(gb)</code> por tier. Descarta transacciones sin tier resuelto.</td><td>Pasaporte D! → ratio de acumulación por tier</td></tr>
           <tr><td>loyalty_acum_channel.json</td><td><code>_ACUM_CHANNEL_SQL</code> — acumulación Pasaporte D! por channel (iFood vs resto), vía <code>bi_transactional_fact_transactions</code>.</td><td>Pasaporte D! → Pasaporte D! vía iFood (BR + TOTAL)</td></tr>
+          <tr><td>loyalty_inputs_real.json</td><td><code>build_inputs_real_json()</code> — sin SQL nuevo, desde los mismos DataFrames de acumulación y redención: numerador y denominador por mes × país × producto × viaje × canal de <code>ssp_red</code> (USD / puntos redimidos) y <code>regla</code> (puntos / GB). Controla que el total por país × mes cierre contra SSP y ratio.</td><td>Input proyecciones → Datos reales</td></tr>
           <tr><td>loyalty_stock_ifood.json</td><td><code>_STOCK_IFOOD_SQL</code> — flujo mensual de acumulación / redención / vencimiento iFood. Welcome Clube neto (CA + PC).</td><td>IFOOD → Flujo y stock de puntos</td></tr>
           <tr><td>loyalty_proyecciones.json</td><td><code>proyecciones.py</code> — lee <code>Input_budget.xlsx</code> / <code>Input_runrate.xlsx</code> (sin Datalake). Escenario × bloque (acum_partner, precio_partner, reden, breakage, ssp, ratio, penet) × país × clave × mes. Lo sube el sync o <code>py proyecciones.py --upload</code>.</td><td>Métricas → tercera barra "Budget FY27" / "Run Rate FY27" y KPIs "vs Budget"</td></tr>
           <tr><td class="note" colspan="3">Valuación del Budget en $ (definida por Control de Gestión): Cobrand/Partners = puntos × precio de facturación (Bank/Partner Revenue = puntos × (precio − SSP)) · Redenciones = puntos × SSP_Red · Pasaporte D! acumulación: puntos = regla × penetración × GB por producto y viaje; $ = (pts × SSP) / (pts × SSP + GB × pen × take) × (GB × pen × take), con take = (Up Front + Fees + Commercial Discounts) / GB del P&amp;L de Budget (vista Despegar). Breakage en $: pendiente (falta definir el precio pasivo del real).</td></tr>
           <tr><td class="note" colspan="3">ℹ️ <code>loyalty_runrate.json</code> (Run Rate armado a mano el 22-sep, solo Sep-Mar) quedó <strong>en desuso</strong>: el Goal "Run Rate" sale ahora de la misma fuente que Budget/Forecast.</td></tr>
           <tr><td class="note" colspan="3">ℹ️ <code>loyalty_pnl_actuals_prev.json</code> (no lo sube el sync): P&amp;L actuals del FY anterior, solo Despegar, que usa Reglas One Revenue. Lo arma <code>inputs_contables_loyalty.py</code> desde <code>actuals_fy26_*.csv</code> de Inputs_Planning_PnL (generarlo allá con <code>py plana_actuals_builder.py 2026</code>). Ese CSV no trae sep–dic 2025 y el script avisa <code>[WARN] actuals_prev</code>.</td></tr>
-          <tr><td class="note" colspan="3">⚠️ <strong>Agregar un JSON nuevo al dashboard:</strong> sumarlo a <code>getAllRaw()</code> en <code>Código.js</code> (carga todo en una sola ejecución, en secuencia) y actualizar <code>TOTAL</code> en <code>dashboard.html</code> (claves que espera antes de ocultar el loading; hoy 22). Nunca agregar un <code>google.script.run</code> suelto en el init: las llamadas en paralelo agotan la cuota de Drive y fallan archivos al azar (incidente 16-sep).</td></tr>
+          <tr><td class="note" colspan="3">⚠️ <strong>Agregar un JSON nuevo al dashboard:</strong> sumarlo a <code>getAllRaw()</code> en <code>Código.js</code> (carga todo en una sola ejecución, en secuencia) y actualizar <code>TOTAL</code> en <code>dashboard.html</code> (claves que espera antes de ocultar el loading; hoy 23). Nunca agregar un <code>google.script.run</code> suelto en el init: las llamadas en paralelo agotan la cuota de Drive y fallan archivos al azar (incidente 16-sep).</td></tr>
         </tbody>
       </table>
     </div>
@@ -640,7 +641,7 @@ a.ext-link:hover { text-decoration: underline; }
     <div class="page-header">
       <div class="page-tag">Referencia operativa</div>
       <div class="page-title">Input <span>proyecciones</span></div>
-      <div class="page-sub">Los supuestos de puntos que carga <strong>Control de Gestión</strong> para el Budget y el Run Rate: puntos de Cobrand/Partners y su precio, redenciones, breakage, SSP, regla de acumulación y penetración del GB. Viven en dos Excel con las mismas solapas; el pipeline los convierte en <code>loyalty_proyecciones.json</code> y el dashboard los muestra en la pestaña <strong>📥 Input proyecciones</strong>.</div>
+      <div class="page-sub">Los supuestos de puntos que carga <strong>Control de Gestión</strong> para el Budget y el Run Rate: puntos de Cobrand/Partners y su precio, redenciones, breakage, SSP, regla de acumulación y penetración del GB. Viven en dos Excel con las mismas solapas; el pipeline los convierte en <code>loyalty_proyecciones.json</code>. La pestaña <strong>📥 Input proyecciones</strong> del dashboard tiene dos vistas: <strong>Datos reales</strong> (default), con esos mismos inputs medidos en el Datalake para actualizar las proyecciones, y <strong>Cargado en el Excel</strong>, con lo que hoy tiene cada escenario. No compara una contra la otra: el real vs Budget se sigue en Métricas de Negocio de cada país.</div>
     </div>
 
     <div class="card">
@@ -667,6 +668,25 @@ a.ext-link:hover { text-decoration: underline; }
         </tbody>
       </table>
       <div class="step-desc" style="margin-top:10px">Las demás solapas del Excel se ignoran. Los mapeos a programas del dashboard están en <code>PROY_PARTNER_PROG</code> (ICBC / INVEX → Cobrand, el resto → Partners) y <code>PROY_REDEN_PROG</code> en <code>dashboard.html</code>.</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📊 Vista "Datos reales"</div>
+      <div class="step-desc" style="margin-bottom:10px">Del inicio del año fiscal en curso al último mes cerrado. Selector de país y de apertura (<strong>Producto</strong>, <strong>Viaje</strong>, <strong>Canal</strong>, combinables). Cada celda se calcula sumando numerador y denominador de la apertura elegida, nunca promediando ratios; la columna <strong>Período</strong> es el ponderado de los meses mostrados.</div>
+      <table class="doc-table">
+        <thead><tr><th>Input</th><th>Cómo se calcula</th><th>Apertura</th><th>Fuente</th></tr></thead>
+        <tbody>
+          <tr><td>SSP de redención</td><td>USD de descuento / puntos redimidos (Pasaporte D! + Cobrand + Partners, misma base que <code>ssp_calculado</code>)</td><td>País · producto · viaje · canal</td><td><code>loyalty_inputs_real.json</code> (<code>ssp_red</code>)</td></tr>
+          <tr><td>SSP</td><td>SSP de redención × (1 − breakage esperado del país y mes)</td><td>País · producto · viaje · canal</td><td>ídem + <code>loyalty_ssp.json</code></td></tr>
+          <tr><td>Regla de acumulación</td><td>Puntos acumulados / GB de las reservas que acumularon (point_type <code>general</code>, misma base que el ratio de acumulación)</td><td>País · producto · viaje · canal</td><td><code>loyalty_inputs_real.json</code> (<code>regla</code>)</td></tr>
+          <tr><td>Penetración del GB</td><td>GB con acumulación / GB total</td><td>País · producto (viaje y canal: pendiente)</td><td><code>loyalty_penetracion_gb.json</code></td></tr>
+          <tr><td>Puntos Cobrand por cobrand</td><td>Puntos acumulados netos de cancelaciones</td><td>País · cobrand</td><td>acumulaciones</td></tr>
+          <tr><td>Precio de puntos Cobrand / Partners</td><td>USD a precio de facturación (<code>Input_Precios.xlsx</code> con FX del mes) / puntos acumulados</td><td>País · partner</td><td>acumulaciones (<code>acum_usd_precio</code>)</td></tr>
+          <tr><td>Precio del punto pasivo</td><td colspan="3"><strong>Pendiente</strong>: falta que Control de Gestión defina cómo se calcula el real.</td></tr>
+          <tr><td>Órdenes con puntos redimidos · puntos promedio por orden</td><td colspan="3"><strong>Pendiente</strong>: la query de redenciones todavía no trae el conteo de órdenes.</td></tr>
+        </tbody>
+      </table>
+      <div class="step-desc" style="margin-top:10px"><strong>Canal</strong>: Site, App y Offline (= Call Center + Sucursales), agrupando el <code>channel_condition</code> de las queries de acumulación y redención. <strong>Viaje</strong>: Domestic / International de cada línea de producto (<code>business</code>); en un paquete, cada línea va por su lado. <strong>Producto</strong>: grupo del P&amp;L con la misma regla que el ratio de acumulación (pestaña <code>regla producto</code> del Sheet Config). La apertura no aplica a Cobrand / Partners: es consumo con tarjeta, no hay reserva detrás.</div>
     </div>
 
     <div class="card">

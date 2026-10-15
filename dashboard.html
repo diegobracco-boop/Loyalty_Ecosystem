@@ -662,7 +662,7 @@ var RAW = { acum_cy: null, acum_ly: null, reden_cy: null, reden_ly: null, breaka
             baseline: null, budget: null, forecast: null, dict: null, ssp: null, ratio_acum: null,
             ratio_acum_tier: null, acum_tier: null };
 var LOADED = 0;
-var TOTAL  = 22;  // = cantidad de claves que devuelve getAllRaw() en Código.js
+var TOTAL  = 23;  // = cantidad de claves que devuelve getAllRaw() en Código.js
 var ACTIVE_COUNTRY = 'total';
 var CHARTS = {};
 
@@ -3765,10 +3765,11 @@ function syncSegPressed(root) {
 
 // Pestaña "Input proyecciones" — los supuestos que cargó Control de Gestión en
 // Input_budget.xlsx / Input_runrate.xlsx, tal como llegan en loyalty_proyecciones.json
-// (una tabla por solapa, meses del Excel en columnas). Solo muestra: no calcula nada
+// (una tabla por solapa, meses del Excel en columnas) y, como vista principal, los mismos
+// inputs medidos en el Datalake (loyalty_inputs_real.json + acum + penet + ssp). Solo muestra: no calcula nada
 // nuevo. Lo que se compara contra el real vive en Métricas de Negocio (3ra barra).
 // ============================================================
-var IP_STATE = { esc: 'budget', country: 'total' };
+var IP_STATE = { fuente: 'real', esc: 'budget', country: 'total', ap: { producto: true, viaje: false, canal: false } };
 // sum: el bloque es aditivo (puntos) → subtotal por país, TOTAL y columna Total FY.
 // Precios, ratios y penetración no se suman: columna Promedio (simple, meses con dato).
 var IP_BLOQUES = [
@@ -3782,6 +3783,7 @@ var IP_BLOQUES = [
 ];
 var IP_UNIT_LBL = { pts: 'puntos', usdpt: 'USD por punto', ratio: 'puntos por USD de GB', pct: '% del GB que acumula' };
 function ipSet(k, v) { IP_STATE[k] = v; renderInputProy(); }
+function ipToggleAp(dim) { IP_STATE.ap[dim] = !IP_STATE.ap[dim]; renderInputProy(); }
 function ipEsc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function ipFmt(unit, v) {
   if (v === null || v === undefined || !isFinite(v)) return '—';
@@ -3808,17 +3810,208 @@ function ipIdx() {
 function renderInputProy() {
   var el = document.getElementById('panel-inputproy');
   if (!el) return;
+  var h = '<div class="stitle">Input proyecciones</div>';
+  h += '<div class="var-ctl"><span class="ratio-controls-lbl">Ver</span><div class="seg seg-sm">'
+     + [['real', 'Datos reales'], ['excel', 'Cargado en el Excel']].map(function(o) {
+         return '<button class="seg-btn' + (IP_STATE.fuente === o[0] ? ' active' : '') + '" type="button" onclick="ipSet(\'fuente\',\'' + o[0] + '\')">' + o[1] + '</button>';
+       }).join('') + '</div>'
+     + '<span class="ratio-controls-lbl" style="margin-left:12px">País</span><select class="ratio-sel" onchange="ipSet(\'country\', this.value)">'
+     + COUNTRIES.map(function(c){ return '<option value="' + c.dataKey + '"' + (c.dataKey === IP_STATE.country ? ' selected' : '') + '>' + (c.dataKey === 'total' ? 'Todos los países' : c.label) + '</option>'; }).join('')
+     + '</select>';
+  if (IP_STATE.fuente === 'real') {
+    h += '<span class="ratio-controls-lbl" style="margin-left:12px">Apertura</span><div class="seg seg-sm">'
+       + [['producto', 'Producto'], ['viaje', 'Viaje'], ['canal', 'Canal']].map(function(o) {
+           return '<button class="seg-btn' + (IP_STATE.ap[o[0]] ? ' active' : '') + '" type="button" aria-pressed="' + !!IP_STATE.ap[o[0]] + '" onclick="ipToggleAp(\'' + o[0] + '\')">' + o[1] + '</button>';
+         }).join('') + '</div>';
+  }
+  h += '</div>';
+  el.innerHTML = IP_STATE.fuente === 'real' ? ipRenderReal(h) : ipRenderExcel(h);
+}
+
+// ---- Datos reales: los inputs de la proyección medidos en el Datalake, del inicio
+// del FY en curso al último mes cerrado. Cada valor se calcula sumando numerador y
+// denominador de la celda (nunca promediando ratios), así cualquier apertura cierra.
+var IP_ORD = {
+  viaje: ['Domestic', 'International', 'N/D'],
+  canal: ['Site', 'App', 'Offline', 'N/D']
+};
+function ipOrd(dim, v) {
+  if (dim === 'producto') { var i = OR_PRODUCTS.indexOf(v); return i !== -1 ? i : (v === 'Sin clasificar' ? 98 : 50); }
+  if (!IP_ORD[dim]) return 0;   // partner: alfabético (lo resuelve el desempate de ipGroups)
+  var j = IP_ORD[dim].indexOf(v); return j !== -1 ? j : 99;
+}
+// Agrupa filas {dk, ym, dims..., n, d} en grupos por país con sub-filas por combinación de dims.
+function ipGroups(rows, dims, countries) {
+  var by = {};
+  rows.forEach(function(r) {
+    if (countries.indexOf(r.dk) === -1) return;
+    var g = (by[r.dk] = by[r.dk] || { tot: {}, sub: {} });
+    var key = dims.map(function(d){ return r[d]; }).join('|');
+    var s = (g.sub[key] = g.sub[key] || { parts: dims.map(function(d){ return r[d]; }), v: {} });
+    [g.tot, s.v].forEach(function(o) {
+      var c = (o[r.ym] = o[r.ym] || { n: 0, d: 0 }); c.n += r.n; c.d += r.d;
+    });
+  });
+  return countries.filter(function(dk){ return by[dk]; }).map(function(dk) {
+    var subs = Object.keys(by[dk].sub).map(function(k){ return by[dk].sub[k]; });
+    subs.sort(function(a, b) {
+      for (var i = 0; i < dims.length; i++) {
+        var x = ipOrd(dims[i], a.parts[i]), y = ipOrd(dims[i], b.parts[i]);
+        if (x !== y) return x - y;
+        if (a.parts[i] !== b.parts[i]) return a.parts[i] < b.parts[i] ? -1 : 1;
+      }
+      return 0;
+    });
+    return { dk: dk, tot: by[dk].tot, subs: dims.length ? subs : [] };
+  });
+}
+// Tabla: meses en columnas + columna del período. kind: 'ratio' (n/d) o 'sum' (n).
+// tf(dk, ym, v) transforma el valor (ej. SSP de facturación = SSP red × (1 − breakage)).
+function ipRealTable(B, groups, months, tf) {
+  function val(o, ym, dk) {
+    var c = o[ym];
+    if (!c) return null;
+    var v = B.kind === 'sum' ? c.n : (c.d ? c.n / c.d : null);
+    return v !== null && tf ? tf(dk, ym, v) : v;
+  }
+  function period(o, dk) {
+    if (B.kind === 'sum') return months.reduce(function(a, ym){ return a + (o[ym] ? o[ym].n : 0); }, 0);
+    if (tf) {  // ponderado por denominador del valor ya transformado
+      var n = 0, d = 0;
+      months.forEach(function(ym){ var c = o[ym]; if (c && c.d) { n += tf(dk, ym, c.n / c.d) * c.d; d += c.d; } });
+      return d ? n / d : null;
+    }
+    var n2 = 0, d2 = 0;
+    months.forEach(function(ym){ if (o[ym]) { n2 += o[ym].n; d2 += o[ym].d; } });
+    return d2 ? n2 / d2 : null;
+  }
+  function cells(o, dk) {
+    return months.map(function(ym){ var v = val(o, ym, dk); return '<td class="vf' + (v === null ? ' neu' : '') + '">' + ipFmt(B.unit, v) + '</td>'; }).join('')
+         + '<td class="sep"></td><td class="vf ip-tot">' + ipFmt(B.unit, period(o, dk)) + '</td>';
+  }
+  var multi = groups.length > 1 || IP_STATE.country === 'total';
+  var h = '<div class="tbl-scroll"><table class="pnl ip-tbl"><thead><tr><th class="lc">' + B.col + '</th>'
+        + months.map(function(ym){ return '<th>' + fmtMonthLbl(ym) + '</th>'; }).join('')
+        + '<th class="sep"></th><th>' + (B.kind === 'sum' ? 'Total período' : 'Período') + '</th></tr></thead><tbody>';
+  groups.forEach(function(g) {
+    var lbl = varCountryObj(g.dk).label;
+    h += '<tr' + (g.subs.length ? ' class="subtotal"' : '') + '><td class="lc">' + lbl + '</td>' + cells(g.tot, g.dk) + '</tr>';
+    g.subs.forEach(function(s) {
+      h += '<tr class="or-prod"><td class="lc">' + s.parts.map(ipEsc).join(' · ') + '</td>' + cells(s.v, g.dk) + '</tr>';
+    });
+  });
+  if (B.kind === 'sum' && multi && groups.length > 1) {
+    var all = {};
+    groups.forEach(function(g){ Object.keys(g.tot).forEach(function(ym){ var c = (all[ym] = all[ym] || { n: 0, d: 0 }); c.n += g.tot[ym].n; c.d += g.tot[ym].d; }); });
+    h += '<tr class="grand-total"><td class="lc">TOTAL</td>' + cells(all, null) + '</tr>';
+  }
+  return h + '</tbody></table></div>';
+}
+function ipCard(title, sub, body) {
+  return '<div class="bk-card"><div class="bk-hdr">' + title + (sub ? ' <span class="ip-unit">· ' + sub + '</span>' : '') + '</div>' + body + '</div>';
+}
+function ipPending(title, why) {
+  return ipCard(title, 'pendiente', '<div class="empty">' + why + '</div>');
+}
+var _IPREAL = null;
+function ipRealRows() {
+  if (_IPREAL && _IPREAL.src === RAW.inputs_real) return _IPREAL.rows;
+  var rows = expand(RAW.inputs_real).map(function(r) {
+    return { factor: r.factor, dk: ISO_TO_DATAKEY[(r.country_code || '').toLowerCase()], ym: r.ym,
+             producto: r.producto, viaje: r.viaje, canal: r.canal, n: +r.num || 0, d: +r.den || 0 };
+  }).filter(function(r){ return r.dk; });
+  _IPREAL = { src: RAW.inputs_real, rows: rows };
+  return rows;
+}
+// Puntos y USD de Cobrand / Partners por país × partner, desde acumulaciones (con signo:
+// las cancelaciones netean). n = puntos, d = USD a precio de facturación (acum_usd_precio).
+function ipPartnerRows(prog) {
+  var out = [];
+  [RAW.acum_ly, RAW.acum_cy].forEach(function(src) {
+    expand(src).forEach(function(r) {
+      if (getProgramFromAcum(r) !== prog) return;
+      var dk = ISO_TO_DATAKEY[(r.country_code || '').toLowerCase()];
+      if (!dk) return;
+      out.push({ dk: dk, ym: (r.processing_date || '').substring(0, 7), partner: r.partner || 'N/D',
+                 pts: +r.points || 0, usd: +r.acum_usd_precio || 0 });
+    });
+  });
+  return out;
+}
+
+function ipRenderReal(h) {
+  var last = proyLastClosedYm();
+  var months = varFyMonths().filter(function(ym){ return ym <= last; });
+  var countries = IP_STATE.country === 'total' ? COUNTRY_DATAKEYS : [IP_STATE.country];
+  var dims = ['producto', 'viaje', 'canal'].filter(function(d){ return IP_STATE.ap[d]; });
+  var dimLbl = { producto: 'producto', viaje: 'viaje', canal: 'canal' };
+  var col = 'País' + (dims.length ? ' / ' + dims.map(function(d){ return dimLbl[d]; }).join(' · ') : '');
+  h += '<div class="proj-note">Valores <strong>reales</strong> del Datalake de ' + fmtMonthLbl(months[0]) + ' a ' + fmtMonthLbl(last)
+     + ' (último mes cerrado), para actualizar los supuestos de <code>Input_budget.xlsx</code> / <code>Input_runrate.xlsx</code>. '
+     + 'Cada celda se calcula sumando numerador y denominador (nunca promediando ratios); <strong>Período</strong> = ponderado de los meses mostrados. '
+     + 'Canal: Offline = Call Center + Sucursales. Viaje = Domestic / International de cada línea de producto. La apertura no aplica a Cobrand / Partners (no hay reserva detrás).</div>';
+  if (!months.length) return h + '<div class="empty">Todavía no hay meses cerrados en el año fiscal en curso.</div>';
+
+  var real = RAW.inputs_real ? ipRealRows() : null;
+  var noReal = '<div class="empty">Falta <code>loyalty_inputs_real.json</code> en Drive: se genera en la próxima corrida de <code>loyalty_sync.py</code>.</div>';
+  function factorGroups(f) {
+    return ipGroups(real.filter(function(r){ return r.factor === f && months.indexOf(r.ym) !== -1; }), dims, countries);
+  }
+  var ssp = (RAW.ssp || {}).data || {};
+  function bk(dk, ym) { return +((ssp[dk] || {})[ym] || {}).breakage_esperado || 0; }
+
+  // 1-2. SSP de redención y SSP de facturación
+  if (real) {
+    var gs = factorGroups('ssp_red');
+    h += ipCard('SSP de redención', 'USD de descuento / puntos redimidos (Pasaporte D! + Cobrand + Partners) · USD por punto',
+                ipRealTable({ unit: 'usdpt', kind: 'ratio', col: col }, gs, months));
+    h += ipCard('SSP', 'SSP de redención × (1 − breakage esperado del país) · USD por punto',
+                ipRealTable({ unit: 'usdpt', kind: 'ratio', col: col }, gs, months, function(dk, ym, v){ return v * (1 - bk(dk, ym)); }));
+  } else {
+    h += ipCard('SSP de redención y SSP', '', noReal);
+  }
+  // 3. Precio del pasivo
+  h += ipPending('Precio del punto pasivo', 'Sin definición del valor real todavía: falta que Control de Gestión defina cómo se calcula.');
+  // 4. Penetración GB (por ahora solo país × producto)
+  var pen = expand(RAW.penet).map(function(r) {
+    return { dk: ISO_TO_DATAKEY[(r.country_code || '').toLowerCase()], ym: (r.ym || '').substring(0, 7),
+             producto: r.grupo_pnl || 'Sin clasificar', n: +r.gb_con_puntos || 0, d: +r.gb_total || 0 };
+  }).filter(function(r){ return r.dk && months.indexOf(r.ym) !== -1; });
+  var penDims = dims.indexOf('producto') !== -1 ? ['producto'] : [];
+  h += ipCard('Penetración del GB', '% del GB con acumulación de puntos'
+              + (dims.some(function(d){ return d !== 'producto'; }) ? ' · viaje y canal todavía no disponibles (se muestra por producto)' : ''),
+              pen.length ? ipRealTable({ unit: 'pct', kind: 'ratio', col: 'País' + (penDims.length ? ' / producto' : '') }, ipGroups(pen, penDims, countries), months)
+                         : '<div class="empty">Sin datos de penetración.</div>');
+  // 5-6. Órdenes con puntos redimidos
+  h += ipPending('Cantidad de órdenes con puntos redimidos · Promedio de puntos redimidos por orden',
+                 'La query de redenciones todavía no trae el conteo de órdenes (próximo cambio del pipeline).');
+  // 7. Regla de acumulación
+  h += ipCard('Regla de acumulación', 'puntos acumulados / GB de las reservas que acumularon (Pasaporte D!) · puntos por USD',
+              real ? ipRealTable({ unit: 'ratio', kind: 'ratio', col: col }, factorGroups('regla'), months) : noReal);
+  // 8-10. Cobrand / Partners: puntos y precio por partner
+  ['Cobrand', 'Partners'].forEach(function(prog) {
+    var rows = ipPartnerRows(prog).filter(function(r){ return months.indexOf(r.ym) !== -1 && countries.indexOf(r.dk) !== -1; });
+    var gp = ipGroups(rows.map(function(r){ return { dk: r.dk, ym: r.ym, partner: r.partner, n: r.pts, d: 0 }; }), ['partner'], countries);
+    var gu = ipGroups(rows.map(function(r){ return { dk: r.dk, ym: r.ym, partner: r.partner, n: r.usd, d: r.pts }; }), ['partner'], countries);
+    if (prog === 'Cobrand') {
+      h += ipCard('Puntos Cobrand por cobrand', 'puntos acumulados netos de cancelaciones',
+                  gp.length ? ipRealTable({ unit: 'pts', kind: 'sum', col: 'País / cobrand' }, gp, months) : '<div class="empty">Sin acumulación Cobrand en el período.</div>');
+    }
+    h += ipCard('Precio de puntos ' + prog, 'USD a precio de facturación (Input_Precios.xlsx, con FX del mes) / puntos acumulados · USD por punto',
+                gu.length ? ipRealTable({ unit: 'usdpt', kind: 'ratio', col: 'País / ' + (prog === 'Cobrand' ? 'cobrand' : 'partner') }, gu, months) : '<div class="empty">Sin acumulación ' + prog + ' en el período.</div>');
+  });
+  return h;
+}
+
+// ---- Cargado en el Excel: los supuestos tal como están en Input_budget / Input_runrate
+function ipRenderExcel(h) {
   var meta = (RAW.proy || {}).meta || {}, ix = ipIdx();
-  var h = '<div class="stitle">Input proyecciones — supuestos de puntos de Control de Gestión</div>';
   h += '<div class="var-ctl"><span class="ratio-controls-lbl">Escenario</span><div class="seg seg-sm">'
      + ['budget', 'runrate'].map(function(e) {
          var dis = !ix.idx[e];
          return '<button class="seg-btn' + (IP_STATE.esc === e ? ' active' : '') + '" type="button"' + (dis ? ' disabled title="Sin archivo cargado"' : '')
               + ' onclick="ipSet(\'esc\',\'' + e + '\')">' + scenarioLabel(e) + '</button>';
-       }).join('') + '</div>'
-     + '<span class="ratio-controls-lbl" style="margin-left:12px">País</span><select class="ratio-sel" onchange="ipSet(\'country\', this.value)">'
-     + COUNTRIES.map(function(c){ return '<option value="' + c.dataKey + '"' + (c.dataKey === IP_STATE.country ? ' selected' : '') + '>' + (c.dataKey === 'total' ? 'Todos los países' : c.label) + '</option>'; }).join('')
-     + '</select></div>';
+       }).join('') + '</div></div>';
 
   // Fuente: OneDrive (lo que edita Control de Gestión) o la copia del repo (fallback)
   var src = (meta.fuentes || {})[IP_STATE.esc] || '';
@@ -3827,14 +4020,13 @@ function renderInputProy() {
   h += '<div class="proj-note"><strong>' + file + '</strong> · ' + origen
      + (meta.generated_at ? ' · leído el ' + meta.generated_at.replace('T', ' ').substring(0, 16) : '')
      + '. Se edita en OneDrive (<code>Control de Gestión - Loyalty/Loyalty_Ecosystem/</code>); el sync lo levanta en la próxima corrida, o al momento con <code>py proyecciones.py --upload</code>. '
-     + 'Filas de "Other Countries" no se muestran (no tienen pestaña de país). Estos valores son la 3ra barra de Métricas de Negocio y el Budget de Análisis variaciones.</div>';
+     + 'Filas de "Other Countries" no se muestran (no tienen pestaña de país).</div>';
   if ((meta.warnings || []).length) {
     h += '<div class="banner warning"><div class="bt"><strong>Avisos de la última lectura:</strong> ' + meta.warnings.map(ipEsc).join(' · ') + '</div></div>';
   }
   var data = ix.idx[IP_STATE.esc];
   if (!data) {
-    el.innerHTML = h + '<div class="empty">' + file + ' todavía no está cargado. Cuando Control de Gestión lo suba a OneDrive con las mismas solapas que Input_budget.xlsx, aparece acá en la próxima corrida del sync.</div>';
-    return;
+    return h + '<div class="empty">' + file + ' todavía no está cargado. Cuando Control de Gestión lo suba a OneDrive con las mismas solapas que Input_budget.xlsx, aparece acá en la próxima corrida del sync.</div>';
   }
   var months = Object.keys(ix.months[IP_STATE.esc] || {}).sort();
   var countries = IP_STATE.country === 'total' ? COUNTRY_DATAKEYS : [IP_STATE.country];
@@ -3895,7 +4087,7 @@ function renderInputProy() {
   h += '<div class="proj-note">Ratio y penetración vienen solo para <strong>B2C-SITE</strong> (el GB de Budget no viene abierto por canal). '
      + 'El Promedio de precios, ratios y penetración es simple sobre los meses con dato (no ponderado por volumen): sirve para leer el supuesto, no para valuar. '
      + 'Las filas en 0 todos los meses no se muestran.</div>';
-  el.innerHTML = h;
+  return h;
 }
 
 // ============================================================
@@ -4060,7 +4252,7 @@ function onLoaded(key, data) {
 // "carga incompleta" — hoy solo ratio_acum (loyalty_ratio_acumulacion.json aun
 // no se subio a Drive con una sync real; el resto del codigo ya degrada a "Sin
 // datos" sin romper nada, ver ratioRows/buildRatioBarChart).
-var RAW_OPTIONAL = { ratio_acum: 1, ratio_acum_tier: 1, acum_tier: 1, penet: 1, acum_channel: 1, stock_ifood: 1, runrate: 1, proy: 1, pnl_prev: 1 };
+var RAW_OPTIONAL = { ratio_acum: 1, ratio_acum_tier: 1, acum_tier: 1, penet: 1, acum_channel: 1, stock_ifood: 1, runrate: 1, proy: 1, pnl_prev: 1, inputs_real: 1 };
 function checkStale() {
   var el = document.getElementById('stale-banner');
   var txt = document.getElementById('stale-banner-text');
