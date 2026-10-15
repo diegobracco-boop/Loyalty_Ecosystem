@@ -159,6 +159,7 @@ a.ext-link:hover { text-decoration: underline; }
   <div class="sidebar-section">Referencia operativa</div>
   <a class="nav-item" onclick="showSection('pipeline')"><span class="nav-icon">🐍</span> El pipeline</a>
   <a class="nav-item" onclick="showSection('datos')"><span class="nav-icon">📦</span> Los datos (JSON)</a>
+  <a class="nav-item" onclick="showSection('input-proy')"><span class="nav-icon">📥</span> Input proyecciones</a>
   <a class="nav-item" onclick="showSection('deploy')"><span class="nav-icon">🚀</span> Deploy</a>
   <a class="nav-item" onclick="showSection('archivos')"><span class="nav-icon">📁</span> Archivos &amp; rutas</a>
   <a class="nav-item" onclick="showSection('agentes')"><span class="nav-icon">🔍</span> Agentes de auditoría</a>
@@ -433,6 +434,7 @@ a.ext-link:hover { text-decoration: underline; }
           <tr><td>Qué % del GB generó acumulación de puntos, por producto</td><td>Dentro de <strong>"Pasaporte D!"</strong> → Penetración GB Acum</td><td>Heatmap producto × mes fiscal. Mide si la reserva tuvo un evento de <strong>acumulación</strong> — NO si se pagó con puntos (eso es otra cosa, ver Glosario).</td></tr>
           <tr><td>Por qué el P&amp;L se desvía del Budget</td><td>Pestaña <strong>📊 Análisis variaciones</strong></td><td>Selector de período (meses múltiples / Quarter / Half / Año fiscal) y país. Arriba el waterfall del TOTAL LOYALTY con la flecha del Δ; abajo, cada línea con sus efectos como sub-filas, "Explicado por métricas", "No explicado" y el Δ de los meses en Run Rate. Actual = Baseline (actuals en meses cerrados + Run Rate en abiertos). El filtro de fechas de arriba no aplica acá.</td></tr>
           <tr><td>Si el DRO contabilizado coincide con las reglas de One Revenue</td><td>Pestaña <strong>📐 Reglas One Revenue</strong></td><td>DRO %GB esperado con datos reales por país × producto × mes, FY en curso y evolución del FY anterior, contra el DRO contabilizado del P&amp;L. El FY anterior sale de <code>loyalty_pnl_actuals_prev.json</code> y tiene un hueco en sep–dic 2025 (el CSV de actuals de B2B no trae esos meses). Pendiente: apertura por canal (Site / App / Offline).</td></tr>
+          <tr><td>Qué supuestos cargó Control de Gestión en el Budget / Run Rate</td><td>Pestaña <strong>📥 Input proyecciones</strong></td><td>Escenario y país arriba. Una tabla por solapa de <code>Input_budget.xlsx</code> / <code>Input_runrate.xlsx</code> con los meses en columnas. Ver la sección "Input proyecciones" del manual.</td></tr>
           <tr><td>Todo sumado (los 8 países)</td><td>Pestaña <strong>TOTAL</strong></td><td>Primera pestaña, es el default.</td></tr>
         </tbody>
       </table>
@@ -629,6 +631,63 @@ a.ext-link:hover { text-decoration: underline; }
         <tr><td>Pestaña TOTAL</td><td>Pseudo-país <code>dataKey='total'</code>. Suma sobre los 8 países (<code>COUNTRY_DATAKEYS</code>), no "todo lo que haya" — así no se cuela un <code>Pais</code> agregado del P&amp;L.</td></tr>
         <tr><td>Banner de datos viejos</td><td><code>checkStale()</code> mira el <code>generated_at</code> más viejo de todos los JSON + avisa si están desparejos o si un archivo no cargó.</td></tr>
         <tr><td>Límite de 50 MB</td><td>Por eso acum/reden se suben agregados por mes. Si un JSON lo supera, la serie LY de los charts se cae a cero.</td></tr>
+      </tbody></table>
+    </div>
+  </div>
+
+  <!-- ══════════════════ INPUT PROYECCIONES ══════════════════ -->
+  <div class="section" id="sec-input-proy">
+    <div class="page-header">
+      <div class="page-tag">Referencia operativa</div>
+      <div class="page-title">Input <span>proyecciones</span></div>
+      <div class="page-sub">Los supuestos de puntos que carga <strong>Control de Gestión</strong> para el Budget y el Run Rate: puntos de Cobrand/Partners y su precio, redenciones, breakage, SSP, regla de acumulación y penetración del GB. Viven en dos Excel con las mismas solapas; el pipeline los convierte en <code>loyalty_proyecciones.json</code> y el dashboard los muestra en la pestaña <strong>📥 Input proyecciones</strong>.</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📁 Los archivos</div>
+      <table class="doc-table"><tbody>
+        <tr><td><strong>Input_budget.xlsx</strong></td><td>Escenario <strong>Budget</strong>. OneDrive <code>Control de Gestión - Loyalty/Loyalty_Ecosystem/</code> (mismo folder que <code>Input_Precios.xlsx</code>). Copia en el repo como fallback.</td></tr>
+        <tr><td><strong>Input_runrate.xlsx</strong></td><td>Escenario <strong>Run Rate</strong>, mismas solapas y formato. <strong>Todavía no existe</strong>: hasta que se cargue, el selector Run Rate aparece deshabilitado y Métricas muestra "no cargada".</td></tr>
+        <tr><td><strong>Orden de lectura</strong></td><td>Por escenario: variable de entorno (<code>BUDGET_XLSX</code> / <code>RUNRATE_XLSX</code>) → OneDrive → copia del repo. Si usa la copia del repo, el log avisa <code>[WARN]</code> y la pestaña lo indica ("copia del repo, puede estar desactualizada").</td></tr>
+        <tr><td><strong>Formato</strong></td><td>Una fila por país × clave; los meses del año fiscal (abr → mar) en columnas, con el encabezado como <strong>fecha</strong>. Las columnas se buscan por <strong>nombre</strong> de encabezado, no por posición: se pueden reordenar, pero no renombrar.</td></tr>
+      </tbody></table>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🗂️ Las solapas</div>
+      <table class="doc-table">
+        <thead><tr><th>Solapa</th><th>Columnas clave</th><th>Qué es · unidad</th><th>Dónde se usa</th></tr></thead>
+        <tbody>
+          <tr><td><code>Cobrands_Partners</code></td><td>Pais, Metrica, Partner</td><td><strong>Cantidad puntos</strong>: puntos acumulados por partner. <strong>Precio_Facturacion</strong>: USD por punto (Partner <code>Todos</code> = precio del resto de los partners del país).</td><td>3ra barra de Cobrand / Partners (Q y $), Bank / Partner Revenue, Análisis variaciones</td></tr>
+          <tr><td><code>Redenciones</code></td><td>Pais, Metrica, Tipo_punto</td><td>Puntos redimidos por tipo (<code>Pasaporte D!</code>, <code>IFOOD</code>, <code>Puntos R&amp;B</code>, <code>FORTUNE</code>, <code>PONTOSBR</code>).</td><td>3ra barra de Redenciones; $ = puntos × SSP_Red</td></tr>
+          <tr><td><code>Breakage</code></td><td>Pais, Metrica</td><td>Puntos vencidos.</td><td>3ra barra de Breakage; $ pendiente (falta el precio pasivo del real)</td></tr>
+          <tr><td><code>SSP_PrecioPasivo</code></td><td>Pais, Metrica</td><td><code>SSP_Red</code>, <code>SSP</code> y <code>Precio Punto Pasivo</code>, en USD por punto.</td><td>Valuación en $ de la proyección; breakage en Análisis variaciones</td></tr>
+          <tr><td><code>Ratio_acumulacion</code></td><td>LOB-Canal, Pais, Producto, Metrica, Viaje</td><td>Regla de acumulación: puntos por USD de GB, por producto y Domestic / International. <strong>Solo se lee B2C-SITE.</strong></td><td>Acumulación de Pasaporte D! del Budget; ratio por producto</td></tr>
+          <tr><td><code>Penetracion_GB</code></td><td>LOB-Canal, Pais, Producto, Metrica, Viaje</td><td>% del GB que acumula puntos (como fracción). <strong>Solo se lee B2C-SITE</strong> (el GB del Budget no viene abierto por canal).</td><td>Acumulación de Pasaporte D! del Budget</td></tr>
+        </tbody>
+      </table>
+      <div class="step-desc" style="margin-top:10px">Las demás solapas del Excel se ignoran. Los mapeos a programas del dashboard están en <code>PROY_PARTNER_PROG</code> (ICBC / INVEX → Cobrand, el resto → Partners) y <code>PROY_REDEN_PROG</code> en <code>dashboard.html</code>.</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🔁 Cómo se actualiza</div>
+      <div class="steps">
+        <div class="step"><div class="step-num">1</div><div><div class="step-title">Control de Gestión edita el Excel en OneDrive</div><div class="step-desc">Mismas solapas y encabezados. Para un escenario nuevo (Run Rate), copiar <code>Input_budget.xlsx</code> como <code>Input_runrate.xlsx</code> y cambiar los valores.</div></div></div>
+        <div class="step"><div class="step-num">2</div><div><div class="step-title">Se sube a Drive</div><div class="step-desc">Solo, en la próxima corrida de <code>loyalty_sync.py</code>, o al momento con <code>py proyecciones.py --upload</code> (segundos, sin Datalake; necesita <code>token_drive.json</code>). Sin <code>--upload</code> solo muestra el resumen por bloque.</div></div></div>
+        <div class="step"><div class="step-num">3</div><div><div class="step-title">Se revisa en el dashboard</div><div class="step-desc">Pestaña <strong>📥 Input proyecciones</strong>: arriba dice qué archivo se leyó (OneDrive o copia del repo), cuándo, y los avisos de la lectura. Una tabla por solapa, por país, con los meses en columnas.</div></div></div>
+        <div class="step"><div class="step-num">4</div><div><div class="step-title">Se actualiza la copia del repo</div><div class="step-desc"><code>cp</code> del Excel al repo + commit, para que el fallback no quede viejo (la máquina del Task Scheduler puede no tener OneDrive).</div></div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">⚠️ Qué tener en cuenta</div>
+      <table class="doc-table"><tbody>
+        <tr><td>Si no sale ninguna fila</td><td>No se sube nada y queda en Drive el <code>loyalty_proyecciones.json</code> anterior: nunca se pisa con uno vacío.</td></tr>
+        <tr><td>Celdas sin dato</td><td><code>#missing</code>, <code>#N/A</code>, <code>#VALUE!</code>, <code>#DIV/0!</code> y <code>-</code> se ignoran sin aviso. Cualquier otro texto en una celda de mes avisa <code>[WARN] valor no numérico</code>.</td></tr>
+        <tr><td>Países</td><td>Las filas de "Other Countries" se descartan (no hay pestaña de país; hoy están en 0). Chile no tiene Budget.</td></tr>
+        <tr><td>Solapa o columna faltante</td><td>Avisa <code>[WARN]</code> (en el log y en la pestaña) y sigue con las demás solapas.</td></tr>
+        <tr><td>Excel abierto o sin descargar</td><td>Si OneDrive no lo puede leer, pasa a la copia del repo y lo avisa.</td></tr>
+        <tr><td>Promedios en la pestaña</td><td>En precios, ratios y penetración la columna Promedio es simple sobre los meses con dato, no ponderada: sirve para leer el supuesto, no para valuar.</td></tr>
       </tbody></table>
     </div>
   </div>

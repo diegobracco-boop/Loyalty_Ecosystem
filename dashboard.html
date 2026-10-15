@@ -201,6 +201,9 @@ table.pnl tr.grand-total td.sep { background: #1b1533 !important; border-bottom-
 .prog-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
 .or-tbl td.or-key { font-weight: 700; color: var(--accent); }
 .or-tbl tr.or-prod td.lc { padding-left: 40px; }
+.ip-tbl tr.or-prod td.lc { padding-left: 40px; }
+.ip-tbl td.ip-tot { font-weight: 700; }
+.bk-hdr .ip-unit { text-transform: none; letter-spacing: 0; font-weight: 400; }
 .var-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-bottom: 10px; }
 .var-months { display: flex; flex-wrap: wrap; gap: 4px; }
 .var-chip { border: 1px solid var(--border); border-radius: 999px; }
@@ -3760,6 +3763,142 @@ function syncSegPressed(root) {
   });
 }
 
+// Pestaña "Input proyecciones" — los supuestos que cargó Control de Gestión en
+// Input_budget.xlsx / Input_runrate.xlsx, tal como llegan en loyalty_proyecciones.json
+// (una tabla por solapa, meses del Excel en columnas). Solo muestra: no calcula nada
+// nuevo. Lo que se compara contra el real vive en Métricas de Negocio (3ra barra).
+// ============================================================
+var IP_STATE = { esc: 'budget', country: 'total' };
+// sum: el bloque es aditivo (puntos) → subtotal por país, TOTAL y columna Total FY.
+// Precios, ratios y penetración no se suman: columna Promedio (simple, meses con dato).
+var IP_BLOQUES = [
+  { k: 'acum_partner',   t: 'Cobrand / Partners — puntos acumulados',          sol: 'Cobrands_Partners', unit: 'pts',   sum: true,  lbl: 'Partner' },
+  { k: 'precio_partner', t: 'Cobrand / Partners — precio de facturación',      sol: 'Cobrands_Partners', unit: 'usdpt', sum: false, lbl: 'Partner' },
+  { k: 'reden',          t: 'Redenciones — puntos por tipo',                    sol: 'Redenciones',       unit: 'pts',   sum: true,  lbl: 'Tipo de punto' },
+  { k: 'breakage',       t: 'Breakage — puntos vencidos',                       sol: 'Breakage',          unit: 'pts',   sum: true,  lbl: '' },
+  { k: 'ssp',            t: 'SSP y precio del punto pasivo',                    sol: 'SSP_PrecioPasivo',  unit: 'usdpt', sum: false, lbl: 'Métrica' },
+  { k: 'ratio',          t: 'Regla de acumulación — B2C-SITE',                  sol: 'Ratio_acumulacion', unit: 'ratio', sum: false, lbl: 'Producto · viaje' },
+  { k: 'penet',          t: 'Penetración del GB — B2C-SITE',                    sol: 'Penetracion_GB',    unit: 'pct',   sum: false, lbl: 'Producto · viaje' }
+];
+var IP_UNIT_LBL = { pts: 'puntos', usdpt: 'USD por punto', ratio: 'puntos por USD de GB', pct: '% del GB que acumula' };
+function ipSet(k, v) { IP_STATE[k] = v; renderInputProy(); }
+function ipEsc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+function ipFmt(unit, v) {
+  if (v === null || v === undefined || !isFinite(v)) return '—';
+  if (unit === 'pts')   return fmtCount(v);
+  if (unit === 'usdpt') return fmtPricePerPt(v);
+  if (unit === 'ratio') return v.toFixed(3).replace('.', ',');
+  return (v * 100).toFixed(1).replace('.', ',') + '%';
+}
+// Índice escenario → bloque → país → clave → ym → valor, conservando el orden del Excel.
+var _IPIDX = null;
+function ipIdx() {
+  if (_IPIDX && _IPIDX.src === RAW.proy) return _IPIDX;
+  var idx = {}, months = {};
+  expand(RAW.proy).forEach(function(p) {
+    var b = ((idx[p.escenario] = idx[p.escenario] || {})[p.bloque] = idx[p.escenario][p.bloque] || {});
+    var c = (b[p.pais] = b[p.pais] || {});
+    (c[p.clave] = c[p.clave] || {})[p.ym] = +p.valor;
+    (months[p.escenario] = months[p.escenario] || {})[p.ym] = 1;
+  });
+  _IPIDX = { src: RAW.proy, idx: idx, months: months };
+  return _IPIDX;
+}
+
+function renderInputProy() {
+  var el = document.getElementById('panel-inputproy');
+  if (!el) return;
+  var meta = (RAW.proy || {}).meta || {}, ix = ipIdx();
+  var h = '<div class="stitle">Input proyecciones — supuestos de puntos de Control de Gestión</div>';
+  h += '<div class="var-ctl"><span class="ratio-controls-lbl">Escenario</span><div class="seg seg-sm">'
+     + ['budget', 'runrate'].map(function(e) {
+         var dis = !ix.idx[e];
+         return '<button class="seg-btn' + (IP_STATE.esc === e ? ' active' : '') + '" type="button"' + (dis ? ' disabled title="Sin archivo cargado"' : '')
+              + ' onclick="ipSet(\'esc\',\'' + e + '\')">' + scenarioLabel(e) + '</button>';
+       }).join('') + '</div>'
+     + '<span class="ratio-controls-lbl" style="margin-left:12px">País</span><select class="ratio-sel" onchange="ipSet(\'country\', this.value)">'
+     + COUNTRIES.map(function(c){ return '<option value="' + c.dataKey + '"' + (c.dataKey === IP_STATE.country ? ' selected' : '') + '>' + (c.dataKey === 'total' ? 'Todos los países' : c.label) + '</option>'; }).join('')
+     + '</select></div>';
+
+  // Fuente: OneDrive (lo que edita Control de Gestión) o la copia del repo (fallback)
+  var src = (meta.fuentes || {})[IP_STATE.esc] || '';
+  var file = IP_STATE.esc === 'budget' ? 'Input_budget.xlsx' : 'Input_runrate.xlsx';
+  var origen = !src ? 'sin archivo' : /onedrive/i.test(src) ? 'OneDrive de Control de Gestión' : 'copia del repo (fallback, puede estar desactualizada)';
+  h += '<div class="proj-note"><strong>' + file + '</strong> · ' + origen
+     + (meta.generated_at ? ' · leído el ' + meta.generated_at.replace('T', ' ').substring(0, 16) : '')
+     + '. Se edita en OneDrive (<code>Control de Gestión - Loyalty/Loyalty_Ecosystem/</code>); el sync lo levanta en la próxima corrida, o al momento con <code>py proyecciones.py --upload</code>. '
+     + 'Filas de "Other Countries" no se muestran (no tienen pestaña de país). Estos valores son la 3ra barra de Métricas de Negocio y el Budget de Análisis variaciones.</div>';
+  if ((meta.warnings || []).length) {
+    h += '<div class="banner warning"><div class="bt"><strong>Avisos de la última lectura:</strong> ' + meta.warnings.map(ipEsc).join(' · ') + '</div></div>';
+  }
+  var data = ix.idx[IP_STATE.esc];
+  if (!data) {
+    el.innerHTML = h + '<div class="empty">' + file + ' todavía no está cargado. Cuando Control de Gestión lo suba a OneDrive con las mismas solapas que Input_budget.xlsx, aparece acá en la próxima corrida del sync.</div>';
+    return;
+  }
+  var months = Object.keys(ix.months[IP_STATE.esc] || {}).sort();
+  var countries = IP_STATE.country === 'total' ? COUNTRY_DATAKEYS : [IP_STATE.country];
+
+  IP_BLOQUES.forEach(function(B) {
+    var blk = data[B.k] || {};
+    var ks = countries.filter(function(dk){ return blk[dk]; });
+    h += '<div class="bk-card"><div class="bk-hdr">' + B.t + ' <span class="ip-unit">· solapa ' + B.sol + ' · ' + IP_UNIT_LBL[B.unit] + '</span></div>';
+    if (!ks.length) { h += '<div class="empty">Sin datos para ' + (IP_STATE.country === 'total' ? 'ningún país' : varCountryObj(IP_STATE.country).label) + ' en esta solapa.</div></div>'; return; }
+    h += '<div class="tbl-scroll"><table class="pnl ip-tbl"><thead><tr><th class="lc">' + (countries.length > 1 ? 'País' + (B.lbl ? ' / ' + B.lbl.toLowerCase() : '') : (B.lbl || 'País')) + '</th>'
+       + months.map(function(ym){ return '<th>' + fmtMonthLbl(ym) + '</th>'; }).join('')
+       + '<th class="sep"></th><th>' + (B.sum ? 'Total FY' : 'Promedio') + '</th></tr></thead><tbody>';
+    function cells(vals) {
+      var tot = 0, n = 0;
+      var out = months.map(function(ym) {
+        var v = vals[ym];
+        if (v === undefined) return '<td class="vf neu">—</td>';
+        tot += v; n++;
+        return '<td class="vf">' + ipFmt(B.unit, v) + '</td>';
+      }).join('');
+      return out + '<td class="sep"></td><td class="vf ip-tot">' + (n ? ipFmt(B.unit, B.sum ? tot : tot / n) : '—') + '</td>';
+    }
+    function sumVals(objs) {
+      var s = {};
+      objs.forEach(function(o){ Object.keys(o).forEach(function(ym){ s[ym] = (s[ym] || 0) + o[ym]; }); });
+      return s;
+    }
+    var all = [];
+    ks.forEach(function(dk) {
+      // Claves en 0 todos los meses (ej. IFOOD en México) no aportan: se ocultan
+      var byKey = blk[dk], claves = Object.keys(byKey).filter(function(c){
+        return Object.keys(byKey[c]).some(function(ym){ return byKey[c][ym] !== 0; });
+      });
+      if (!claves.length) return;
+      var lblOf = function(c){ return c ? ipEsc(c.split('|').join(' · ')) : 'Puntos vencidos'; };
+      var multi = countries.length > 1;
+      // Breakage tiene una sola fila por país: en vista de todos los países va directo como fila del país
+      if (multi && claves.length === 1 && !claves[0]) {
+        h += '<tr><td class="lc">' + varCountryObj(dk).label + '</td>' + cells(byKey[claves[0]]) + '</tr>';
+        all.push(byKey[claves[0]]);
+        return;
+      }
+      if (multi) {
+        h += B.sum
+          ? '<tr class="subtotal"><td class="lc">' + varCountryObj(dk).label + '</td>' + cells(sumVals(claves.map(function(c){ return byKey[c]; }))) + '</tr>'
+          : '<tr class="grp-hdr"><td class="lc" colspan="' + (months.length + 3) + '">' + varCountryObj(dk).label + '</td></tr>';
+      }
+      claves.forEach(function(c) {
+        h += '<tr' + (multi ? ' class="or-prod"' : '') + '><td class="lc">' + lblOf(c) + '</td>' + cells(byKey[c]) + '</tr>';
+        all.push(byKey[c]);
+      });
+    });
+    if (B.sum && all.length > 1) {
+      h += '<tr class="grand-total"><td class="lc">TOTAL</td>' + cells(sumVals(all)) + '</tr>';
+    }
+    h += '</tbody></table></div></div>';
+  });
+  h += '<div class="proj-note">Ratio y penetración vienen solo para <strong>B2C-SITE</strong> (el GB de Budget no viene abierto por canal). '
+     + 'El Promedio de precios, ratios y penetración es simple sobre los meses con dato (no ponderado por volumen): sirve para leer el supuesto, no para valuar. '
+     + 'Las filas en 0 todos los meses no se muestran.</div>';
+  el.innerHTML = h;
+}
+
+// ============================================================
 // Build panels (once on load)
 // ============================================================
 function buildPanels() {
@@ -3823,6 +3962,16 @@ function buildPanels() {
   obtn.addEventListener('click', function(){ switchCountry('onerevenue'); });
   obtn.setAttribute('aria-selected', 'false');
   tabsEl.appendChild(obtn);
+
+  // Pestaña "Input proyecciones" — supuestos de Input_budget / Input_runrate
+  var ibtn = document.createElement('button');
+  ibtn.className = 'ctab';
+  ibtn.dataset.key = 'inputproy';
+  ibtn.setAttribute('role', 'tab');
+  ibtn.textContent = '📥 Input proyecciones';
+  ibtn.addEventListener('click', function(){ switchCountry('inputproy'); });
+  ibtn.setAttribute('aria-selected', 'false');
+  tabsEl.appendChild(ibtn);
   tabsEl.setAttribute('role', 'tablist');
 
   var pdiv = document.createElement('div');
@@ -3837,6 +3986,10 @@ function buildPanels() {
   odiv.id = 'panel-onerevenue';
   odiv.classList.add('hidden');
   panelsEl.appendChild(odiv);
+  var idiv = document.createElement('div');
+  idiv.id = 'panel-inputproy';
+  idiv.classList.add('hidden');
+  panelsEl.appendChild(idiv);
 
   // Botón al Manual — pegado al extremo derecho de la barra de pestañas
   var man = document.createElement('a');
@@ -3864,6 +4017,8 @@ function switchCountry(key) {
   if (pv2) pv2.classList.toggle('hidden', key !== 'variaciones');
   var por = document.getElementById('panel-onerevenue');
   if (por) por.classList.toggle('hidden', key !== 'onerevenue');
+  var pip = document.getElementById('panel-inputproy');
+  if (pip) pip.classList.toggle('hidden', key !== 'inputproy');
   renderCountry(key);
 }
 
@@ -3871,6 +4026,7 @@ function renderCountry(key) {
   if (key === 'pasivo') { renderPasivo(); return; }
   if (key === 'variaciones') { renderVariaciones(); return; }
   if (key === 'onerevenue') { renderOneRevenue(); return; }
+  if (key === 'inputproy') { renderInputProy(); return; }
   var c = COUNTRIES.filter(function(x){ return x.key === key; })[0];
   if (!c) return;
   renderPnl('pnl-' + key, c);
