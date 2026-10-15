@@ -1,0 +1,489 @@
+<title>Loyalty Ecosystem en 4 minutos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: un "escenario" 16:9 que se reproduce solo, como un video, con el guion de narración debajo. */
+:root{
+  --lila:#550fed; --lila-deep:#3d00d1; --lila-soft:#976cf6; --lila-wash:#efe9ff;
+  --verde:#029687; --verde-wash:#ccf3ee; --rojo:#ff5454; --rojo-wash:#fff2f2;
+  --bg:#f6f4fb; --stage:#ffffff; --ink:#1b1530; --muted:#5e5874; --line:#e2dcf2;
+  --display:'Bricolage Grotesque', 'Segoe UI', system-ui, sans-serif;
+  --body:'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
+  --mono:'IBM Plex Mono', ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --lila:#a780ff; --lila-deep:#c2a6ff; --lila-soft:#976cf6; --lila-wash:#2a1f4d;
+    --verde:#4bb8aa; --verde-wash:#123b37; --rojo:#ff7a7a; --rojo-wash:#3a1d22;
+    --bg:#110d1d; --stage:#1a1529; --ink:#f1edfb; --muted:#aaa3c2; --line:#342b4f;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --lila:#a780ff; --lila-deep:#c2a6ff; --lila-soft:#976cf6; --lila-wash:#2a1f4d;
+  --verde:#4bb8aa; --verde-wash:#123b37; --rojo:#ff7a7a; --rojo-wash:#3a1d22;
+  --bg:#110d1d; --stage:#1a1529; --ink:#f1edfb; --muted:#aaa3c2; --line:#342b4f;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5;
+  padding-block:24px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+.topline{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px}
+.topline h1{font-family:var(--display);font-weight:800;font-size:1.35rem;margin:0;letter-spacing:-.01em}
+.topline span{color:var(--muted);font-size:.85rem}
+.back{color:var(--lila);font-size:.85rem;text-decoration:none;font-weight:500}
+.back:hover{text-decoration:underline}
+.back:focus-visible{outline:2px solid var(--lila);outline-offset:2px}
+
+/* ---------- escenario ---------- */
+.stage{position:relative;aspect-ratio:16/9;max-width:100%;background:var(--stage);border:1px solid var(--line);
+  border-radius:14px;overflow:hidden;container-type:inline-size}
+.scene{position:absolute;inset:0;padding:5.5cqw 6cqw 9cqw;display:flex;flex-direction:column;gap:2.2cqw;
+  opacity:0;visibility:hidden;transition:opacity .5s ease, visibility 0s linear .5s}
+.scene.active{opacity:1;visibility:visible;transition:opacity .5s ease}
+.eyebrow{font-family:var(--mono);font-size:1.15cqw;letter-spacing:.14em;text-transform:uppercase;color:var(--lila)}
+.h{font-family:var(--display);font-weight:700;font-size:3.6cqw;line-height:1.08;margin:0;letter-spacing:-.02em;text-wrap:balance;max-width:80%}
+.lead{font-size:1.7cqw;color:var(--muted);margin:0;max-width:62%}
+.r{opacity:1;transform:none}
+.scene.anim .r{opacity:0;transform:translateY(1.2cqw);transition:opacity .6s ease, transform .6s ease}
+.scene.anim.go .r{opacity:1;transform:none}
+.scene.anim.go .r.d1{transition-delay:.6s}.scene.anim.go .r.d2{transition-delay:1.6s}
+.scene.anim.go .r.d3{transition-delay:2.8s}.scene.anim.go .r.d4{transition-delay:4s}
+.scene.anim.go .r.d5{transition-delay:5.4s}.scene.anim.go .r.d6{transition-delay:7s}
+
+/* escena 1 */
+.s-title{justify-content:center;background:radial-gradient(60cqw 40cqw at 85% 110%, var(--lila-wash), transparent 70%)}
+.s-title .big{font-family:var(--display);font-weight:800;font-size:8.4cqw;line-height:.95;letter-spacing:-.035em;margin:0}
+.s-title .big em{font-style:normal;color:var(--lila)}
+.countries{display:flex;flex-wrap:wrap;gap:.8cqw;margin-top:1cqw}
+.chip{font-family:var(--mono);font-size:1.2cqw;padding:.45cqw 1cqw;border:1px solid var(--line);border-radius:99px;color:var(--muted)}
+.chip.on{border-color:var(--lila);color:var(--lila)}
+.stats{display:flex;gap:4cqw;margin-top:1.5cqw}
+.stat b{display:block;font-family:var(--display);font-size:4.4cqw;line-height:1;color:var(--ink)}
+.stat span{font-size:1.3cqw;color:var(--muted)}
+
+/* escena 2: preguntas */
+.qs{display:grid;grid-template-columns:repeat(2,1fr);gap:1.6cqw 3cqw;margin-top:1cqw}
+.q{display:grid;grid-template-columns:4.2cqw 1fr;gap:1.2cqw;align-items:start}
+.q .tag{font-family:var(--mono);font-size:1.1cqw;color:var(--lila);border-top:2px solid var(--lila);padding-top:.5cqw}
+.q h3{font-family:var(--display);font-weight:700;font-size:2cqw;margin:0 0 .3cqw;line-height:1.15}
+.q p{margin:0;font-size:1.35cqw;color:var(--muted)}
+
+/* escena 3: flujo */
+.flow{display:grid;grid-template-columns:1.25fr .25fr 1fr .25fr 1fr .25fr 1fr;align-items:center;margin-top:1.2cqw;gap:0}
+.srcs{display:flex;flex-direction:column;gap:1cqw}
+.box{border:1px solid var(--line);border-radius:1cqw;padding:1cqw 1.3cqw;background:var(--stage)}
+.box b{display:block;font-family:var(--display);font-size:1.55cqw;line-height:1.15}
+.box span{font-size:1.15cqw;color:var(--muted);display:block;line-height:1.35}
+.box.hub{border-color:var(--lila);background:var(--lila-wash)}
+.box.end{background:var(--lila);border-color:var(--lila)}
+.box.end b,.box.end span{color:#fff}
+:root[data-theme="dark"] .box.end b, :root[data-theme="dark"] .box.end span{color:#120a24}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .box.end b,:root:not([data-theme="light"]) .box.end span{color:#120a24}}
+.arrow{height:2px;background:var(--lila-soft);position:relative;margin:0 .4cqw}
+.arrow::after{content:"";position:absolute;right:-1px;top:-.45cqw;border-left:.9cqw solid var(--lila-soft);border-top:.5cqw solid transparent;border-bottom:.5cqw solid transparent}
+.scene.go .arrow{background:linear-gradient(90deg,var(--lila-soft) 40%,var(--lila) 50%,var(--lila-soft) 60%);background-size:300% 100%;animation:pulse 2.4s linear infinite}
+@keyframes pulse{from{background-position:100% 0}to{background-position:0 0}}
+.who{font-family:var(--mono);font-size:1cqw;color:var(--verde);margin-top:.3cqw;display:block}
+.cadence{display:flex;gap:2.5cqw;margin-top:1.4cqw;font-size:1.25cqw;color:var(--muted)}
+.cadence b{color:var(--ink);font-weight:600}
+
+/* escena 4: P&L */
+.pnl{display:grid;grid-template-columns:1.1fr 1fr;gap:3cqw;align-items:start}
+.tbl{width:100%;border-collapse:collapse;font-size:1.3cqw;font-variant-numeric:tabular-nums}
+.tbl th{font-family:var(--mono);font-weight:500;font-size:1cqw;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);text-align:right;padding:.5cqw .8cqw;border-bottom:1px solid var(--line)}
+.tbl th:first-child,.tbl td:first-child{text-align:left}
+.tbl td{padding:.55cqw .8cqw;border-bottom:1px solid var(--line);text-align:right}
+.tbl tr.grp td{font-family:var(--mono);font-size:.95cqw;color:var(--lila);letter-spacing:.08em;text-transform:uppercase;border-bottom:none;padding-top:1cqw}
+.tbl tr.tot td{font-weight:600;border-top:2px solid var(--ink)}
+.bar{display:inline-block;height:.8cqw;border-radius:.2cqw;background:var(--line);vertical-align:middle}
+.bar.base{background:var(--lila)} .bar.goal{background:var(--lila-soft);opacity:.55}
+.pts{display:flex;flex-direction:column;gap:1.1cqw}
+.pt{display:grid;grid-template-columns:2.4cqw 1fr;gap:1cqw;font-size:1.35cqw}
+.pt i{font-style:normal;font-family:var(--mono);color:var(--lila);font-size:1.2cqw}
+.pt b{font-weight:600}
+.note{font-size:1.05cqw;color:var(--muted);font-family:var(--mono)}
+
+/* escena 5: ciclo del punto */
+.cycle{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;align-items:center;gap:1.2cqw;margin-top:.6cqw}
+.stage-pt{border-radius:1.2cqw;padding:1.4cqw;border:1px solid var(--line)}
+.stage-pt h3{font-family:var(--display);font-size:2.1cqw;margin:0 0 .4cqw}
+.stage-pt p{font-size:1.2cqw;margin:0;color:var(--muted)}
+.stage-pt.acc{background:var(--lila-wash);border-color:transparent}
+.stage-pt.stk{background:var(--stage)}
+.exits{display:flex;flex-direction:column;gap:1cqw}
+.stage-pt.red{background:var(--verde-wash);border-color:transparent}
+.stage-pt.brk{background:var(--rojo-wash);border-color:transparent}
+.chev{font-family:var(--display);font-size:3cqw;color:var(--lila-soft)}
+.progs{display:flex;flex-wrap:wrap;gap:.7cqw;margin-top:.6cqw}
+.prog{font-size:1.15cqw;padding:.4cqw .9cqw;border-radius:.6cqw;background:var(--lila-wash);color:var(--lila-deep);font-weight:500}
+.prog small{color:var(--muted);font-weight:400;margin-left:.4cqw}
+
+/* escena 6: valuación */
+.vals{display:grid;grid-template-columns:repeat(3,1fr);gap:1.8cqw;margin-top:.8cqw}
+.val{border-top:3px solid var(--lila);padding-top:1cqw;display:flex;flex-direction:column;gap:.7cqw}
+.val:nth-child(2){border-color:var(--verde)} .val:nth-child(3){border-color:var(--lila-deep)}
+.val h3{font-family:var(--display);font-size:1.9cqw;margin:0;line-height:1.1}
+.val .who2{font-size:1.15cqw;color:var(--muted)}
+.formula{font-family:var(--mono);font-size:1.3cqw;background:var(--bg);border-radius:.6cqw;padding:.8cqw 1cqw;line-height:1.5}
+.formula em{font-style:normal;color:var(--lila)}
+
+/* escena 7: waterfall */
+.wf-wrap{display:grid;grid-template-columns:1.5fr 1fr;gap:3cqw;align-items:end}
+.wf{display:flex;align-items:flex-end;gap:1.1cqw;height:22cqw;border-bottom:1px solid var(--line);padding-bottom:0}
+.col{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%;position:relative}
+.col .blk{width:100%;border-radius:.3cqw .3cqw 0 0}
+.col .lbl{position:absolute;bottom:-3.2cqw;font-size:1cqw;color:var(--muted);text-align:center;line-height:1.15;width:120%}
+.blk.b{background:var(--lila-soft)} .blk.a{background:var(--lila)}
+.blk.up{background:var(--verde)} .blk.dn{background:var(--rojo)} .blk.gap{background:transparent}
+.scene.anim .wf .blk{transform:scaleY(0);transform-origin:bottom;transition:transform .7s cubic-bezier(.2,.7,.2,1)}
+.scene.anim.go .wf .blk{transform:scaleY(1)}
+.scene.anim.go .wf .col:nth-child(2) .blk{transition-delay:.5s}.scene.anim.go .wf .col:nth-child(3) .blk{transition-delay:1s}
+.scene.anim.go .wf .col:nth-child(4) .blk{transition-delay:1.5s}.scene.anim.go .wf .col:nth-child(5) .blk{transition-delay:2s}
+.scene.anim.go .wf .col:nth-child(6) .blk{transition-delay:2.6s}
+.eff{display:flex;flex-direction:column;gap:1cqw}
+.eff div{display:grid;grid-template-columns:8cqw 1fr;gap:1cqw;font-size:1.25cqw;align-items:baseline}
+.eff b{font-family:var(--display);font-size:1.6cqw}
+.eff span{color:var(--muted)}
+
+/* escena 8: One Revenue */
+.chain{display:flex;flex-wrap:wrap;align-items:center;gap:.8cqw;margin-top:.6cqw}
+.tok{font-family:var(--mono);font-size:1.35cqw;padding:.7cqw 1.1cqw;border-radius:.6cqw;background:var(--lila-wash);color:var(--lila-deep);display:flex;flex-direction:column;line-height:1.2}
+.tok small{font-family:var(--body);font-size:.95cqw;color:var(--muted)}
+.op{font-family:var(--display);font-size:2cqw;color:var(--muted)}
+.tok.res{background:var(--lila);color:#fff}
+.tok.res small{color:#fff;opacity:.85}
+:root[data-theme="dark"] .tok.res, :root[data-theme="dark"] .tok.res small{color:#120a24}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .tok.res,:root:not([data-theme="light"]) .tok.res small{color:#120a24}}
+.vs{display:grid;grid-template-columns:1fr auto 1fr;gap:2cqw;align-items:center;margin-top:1.6cqw;max-width:75%}
+.vs .box b{font-size:1.8cqw}
+
+/* escena 9: cierre */
+.close-grid{display:grid;grid-template-columns:1fr 1fr;gap:3.5cqw}
+.list{display:flex;flex-direction:column;gap:.9cqw}
+.list h3{font-family:var(--mono);font-size:1.05cqw;letter-spacing:.12em;text-transform:uppercase;color:var(--lila);margin:0 0 .3cqw;font-weight:500}
+.li{display:grid;grid-template-columns:1.6cqw 1fr;gap:.8cqw;font-size:1.3cqw;align-items:baseline}
+.li::before{content:"";width:.8cqw;height:.8cqw;border-radius:50%;background:var(--verde);transform:translateY(-.1cqw)}
+.li.pend::before{background:transparent;border:2px solid var(--rojo)}
+.li b{font-weight:600}
+
+/* subtítulo + barra de control dentro del escenario */
+.caption{position:absolute;left:6cqw;right:6cqw;bottom:3.6cqw;font-size:1.35cqw;line-height:1.4;color:var(--ink);
+  background:color-mix(in srgb,var(--stage) 88%,transparent);border-left:3px solid var(--lila);padding:.6cqw 1.2cqw;max-width:72cqw}
+.caption[hidden]{display:none}
+.prog-bar{position:absolute;left:0;right:0;bottom:0;height:.55cqw;background:var(--line);display:flex;gap:2px}
+.prog-bar i{flex:1;background:var(--line);position:relative;overflow:hidden}
+.prog-bar i b{position:absolute;inset:0;background:var(--lila);transform-origin:left;transform:scaleX(0)}
+.ctrl{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.ctrl button{font:500 .9rem var(--body);border:1px solid var(--line);background:var(--stage);color:var(--ink);border-radius:8px;padding:8px 14px;cursor:pointer}
+.ctrl button:hover{border-color:var(--lila)}
+.ctrl button.primary{background:var(--lila);border-color:var(--lila);color:#fff}
+:root[data-theme="dark"] .ctrl button.primary{color:#120a24}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .ctrl button.primary{color:#120a24}}
+.ctrl button:focus-visible{outline:2px solid var(--lila);outline-offset:2px}
+.ctrl .time{font-family:var(--mono);font-size:.85rem;color:var(--muted);font-variant-numeric:tabular-nums;margin-left:auto}
+.ctrl label{font-size:.85rem;color:var(--muted);display:flex;gap:6px;align-items:center}
+
+/* guion */
+.script{display:flex;flex-direction:column;gap:6px}
+.script h2{font-family:var(--display);font-size:1.15rem;margin:8px 0 4px}
+.script p.help{color:var(--muted);margin:0 0 8px;max-width:70ch;font-size:.9rem}
+.sc{display:grid;grid-template-columns:110px 1fr;gap:16px;padding:12px 0;border-top:1px solid var(--line);cursor:pointer}
+.sc:focus-visible{outline:2px solid var(--lila);outline-offset:2px}
+.sc.cur{background:var(--lila-wash);border-radius:8px;padding-inline:10px}
+.sc .t{font-family:var(--mono);font-size:.8rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.sc .t b{display:block;color:var(--lila);font-weight:500}
+.sc p{margin:0;max-width:72ch}
+@media (max-width:640px){.sc{grid-template-columns:1fr;gap:4px}}
+@media (prefers-reduced-motion: reduce){
+  .scene,.scene.anim .r,.scene.anim .wf .blk{transition:none!important}
+  .scene.go .arrow{animation:none}
+}
+</style>
+
+<div class="wrap">
+  <div class="topline">
+    <h1>Loyalty Ecosystem en 4 minutos</h1>
+    <span>9 escenas · 4:00 · <a class="back" href="https://script.google.com/a/macros/despegar.com/s/AKfycbyjLwtf88NdVdoruWH0BAOFnCFS35JrYPDE5eCTUFEwT76oIpNctrMxF-6etUCGs04k6g/exec" target="_top">← Volver al manual</a></span>
+  </div>
+
+  <div class="stage" id="stage" aria-live="polite">
+
+    <!-- 1 -->
+    <section class="scene s-title active" data-dur="20" data-say="Loyalty Ecosystem es el tablero donde vemos, en un solo lugar, cuánto vale el programa de puntos para Despegar: el P&L contable del programa contra el Budget, y las métricas de negocio que lo explican. Cubre los ocho países y los siete programas.">
+      <div class="eyebrow r">Despegar · Loyalty · Control de Gestión</div>
+      <p class="big r d1">Cuánto vale<br>un <em>punto</em>.</p>
+      <p class="lead r d2">El P&amp;L de Loyalty contra el Goal y las métricas de negocio que lo explican, en un solo tablero.</p>
+      <div class="stats r d3">
+        <div class="stat"><b>8</b><span>países + vista TOTAL</span></div>
+        <div class="stat"><b>7</b><span>programas de puntos</span></div>
+        <div class="stat"><b>FY27</b><span>vs FY26 y vs Budget</span></div>
+      </div>
+      <div class="countries r d4">
+        <span class="chip on">TOTAL</span><span class="chip">Brasil</span><span class="chip">México</span><span class="chip">Argentina</span><span class="chip">Colombia</span><span class="chip">Chile</span><span class="chip">Perú</span><span class="chip">Ecuador</span><span class="chip">Uruguay</span>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="scene" data-dur="24" data-say="El tablero responde cuatro preguntas. Cómo viene el P&L de Loyalty contra el Goal. Qué pasa con los puntos: cuántos se acumulan, cuántos se canjean y cuántos vencen. Por qué nos desviamos del Budget, separando volumen de precio. Y si el diferimiento contable que registramos coincide con lo que dicen las reglas del programa.">
+      <div class="eyebrow r">Qué resuelve</div>
+      <h2 class="h r">Cuatro preguntas que antes tomaban días de planillas</h2>
+      <div class="qs">
+        <div class="q r d1"><div class="tag">P&amp;L</div><div><h3>¿Cómo viene el P&amp;L de Loyalty contra el Goal?</h3><p>Baseline contra Budget, Run Rate o Forecast, por mes, Q o Half.</p></div></div>
+        <div class="q r d2"><div class="tag">PUNTOS</div><div><h3>¿Cuántos puntos se acumulan, se canjean y vencen?</h3><p>Por programa y país, FY27 contra FY26 y contra la proyección.</p></div></div>
+        <div class="q r d3"><div class="tag">Δ</div><div><h3>¿Por qué nos desviamos del Budget?</h3><p>Cada línea del P&amp;L abierta en volumen, precio y cruzado.</p></div></div>
+        <div class="q r d4"><div class="tag">DRO</div><div><h3>¿El diferimiento contable es el que dicen las reglas?</h3><p>DRO esperado con datos reales, contra lo contabilizado.</p></div></div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="scene" data-dur="30" data-say="Los números salen de cuatro fuentes. El Datalake, con cada acumulación, canje y vencimiento de Comarch y las reservas que los generan. El P&L contable, que viene del mismo proceso de planning que usa B2B, filtrado a la marca Despegar. Los inputs de Control de Gestión: precios de facturación de Cobrand y Partners, tipo de cambio, Budget y Run Rate de puntos. Y una planilla de configuración con el breakage esperado y el mapeo de programas. Una sincronización automática junta todo, lo deja en Drive y el tablero lo lee de ahí. Nadie copia números a mano.">
+      <div class="eyebrow r">De dónde salen los números</div>
+      <h2 class="h r">Cuatro fuentes, un proceso automático, un tablero</h2>
+      <div class="flow">
+        <div class="srcs">
+          <div class="box r d1"><b>Datalake</b><span>Acumulaciones, canjes y vencimientos (Comarch) + reservas y GB</span><span class="who">automático</span></div>
+          <div class="box r d1"><b>P&amp;L contable</b><span>Inputs Planning P&amp;L, solo marca Despegar</span><span class="who">Planning / B2B</span></div>
+          <div class="box r d2"><b>Inputs de Control de Gestión</b><span>Precios Cobrand/Partners, FX, Budget y Run Rate de puntos</span><span class="who">Excel en OneDrive</span></div>
+          <div class="box r d2"><b>Planilla de configuración</b><span>Breakage esperado, mapeo de programas y productos</span><span class="who">Google Sheet</span></div>
+        </div>
+        <div class="arrow r d3"></div>
+        <div class="box hub r d3"><b>Sync de Loyalty</b><span>Agrega por mes, país, programa y producto. Valúa los puntos en USD.</span></div>
+        <div class="arrow r d4"></div>
+        <div class="box r d4"><b>Drive</b><span>Archivos de datos listos para leer, uno por métrica</span></div>
+        <div class="arrow r d5"></div>
+        <div class="box end r d5"><b>Tablero</b><span>Webapp interna de Google. Sin descargas, sin copiar y pegar.</span></div>
+      </div>
+      <div class="cadence r d6"><span><b>Agendado</b> en una máquina dedicada</span><span><b>Inputs de negocio</b> se editan en planilla, sin tocar código</span></div>
+    </section>
+
+    <!-- 4 -->
+    <section class="scene" data-dur="28" data-say="La primera vista es el P&L contable de Loyalty. A la izquierda el Baseline, que son los actuals en los meses cerrados y el Run Rate en los abiertos. A la derecha el Goal, que puede ser Budget, Run Rate o Forecast. Arriba están los drivers de B2C: órdenes, gross bookings y up front más fees, porque ahí se explica gran parte del resultado. Y cada línea muestra su peso sobre el GB, para comparar países de distinto tamaño.">
+      <div class="eyebrow r">Vista 1 · P&amp;L Contable</div>
+      <h2 class="h r">Baseline contra Goal, con los drivers arriba</h2>
+      <div class="pnl">
+        <table class="tbl r d1" aria-label="Estructura del P&L de Loyalty (ilustrativo, sin cifras)">
+          <thead><tr><th>Línea</th><th>Baseline</th><th>Goal</th><th>Δ</th></tr></thead>
+          <tbody>
+            <tr class="grp"><td colspan="4">Drivers B2C</td></tr>
+            <tr><td>Orders</td><td><span class="bar base" style="width:6cqw"></span></td><td><span class="bar goal" style="width:6.4cqw"></span></td><td>—</td></tr>
+            <tr><td>Gross Bookings</td><td><span class="bar base" style="width:8cqw"></span></td><td><span class="bar goal" style="width:7.6cqw"></span></td><td>—</td></tr>
+            <tr><td>Up Front + Fees</td><td><span class="bar base" style="width:4cqw"></span></td><td><span class="bar goal" style="width:4.4cqw"></span></td><td>—</td></tr>
+            <tr class="grp"><td colspan="4">Líneas Loyalty</td></tr>
+            <tr><td>Deferred revenue out (DRO)</td><td><span class="bar base" style="width:5cqw"></span></td><td><span class="bar goal" style="width:5.4cqw"></span></td><td>—</td></tr>
+            <tr><td>Deferred revenue in</td><td><span class="bar base" style="width:3.4cqw"></span></td><td><span class="bar goal" style="width:3cqw"></span></td><td>—</td></tr>
+            <tr><td>Bank / partner revenue</td><td><span class="bar base" style="width:2.6cqw"></span></td><td><span class="bar goal" style="width:2.8cqw"></span></td><td>—</td></tr>
+            <tr><td>Breakage · R&amp;B cost</td><td><span class="bar base" style="width:2cqw"></span></td><td><span class="bar goal" style="width:1.8cqw"></span></td><td>—</td></tr>
+            <tr class="tot"><td>TOTAL LOYALTY</td><td></td><td></td><td></td></tr>
+          </tbody>
+        </table>
+        <div class="pts">
+          <div class="pt r d2"><i>A</i><span><b>Baseline</b> = actuals en meses cerrados + Run Rate en los abiertos.</span></div>
+          <div class="pt r d3"><i>B</i><span><b>Goal</b> a elección: Budget, Run Rate o Forecast. Mes, Q o Half.</span></div>
+          <div class="pt r d4"><i>C</i><span><b>Solo marca Despegar.</b> Best Day, Viajanet y Viajes Falabella quedan afuera.</span></div>
+          <div class="pt r d5"><i>D</i><span>Cada línea con su <b>% sobre GB B2C</b>, comparable entre países.</span></div>
+          <p class="note r d5">Estructura ilustrativa, sin cifras reales</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="scene" data-dur="26" data-say="La segunda vista sigue la vida del punto en cada programa. Se acumula al comprar o por un partner, queda como pasivo, y sale de dos maneras: se canjea o vence, que es el breakage. Para cada programa vemos el año fiscal en curso contra el anterior y contra el Budget o el Run Rate de puntos, en cantidad y en dólares. En Pasaporte D! además vemos el mix por tier y qué porcentaje del GB genera puntos.">
+      <div class="eyebrow r">Vista 2 · Métricas de Negocio</div>
+      <h2 class="h r">La vida de un punto, programa por programa</h2>
+      <div class="cycle">
+        <div class="stage-pt acc r d1"><h3>Acumulación</h3><p>Al comprar en Despegar o vía un banco / partner</p></div>
+        <div class="chev r d2">›</div>
+        <div class="stage-pt stk r d2"><h3>Stock (pasivo)</h3><p>Puntos vivos que Despegar le debe al cliente</p></div>
+        <div class="chev r d3">›</div>
+        <div class="exits">
+          <div class="stage-pt red r d3"><h3>Redención</h3><p>Se canjea: se reconoce el ingreso</p></div>
+          <div class="stage-pt brk r d3"><h3>Breakage</h3><p>Vence sin usarse</p></div>
+        </div>
+      </div>
+      <div class="progs r d4">
+        <span class="prog">Pasaporte D!<small>tiers · penetración GB</small></span><span class="prog">Cobrand<small>MX AR CO</small></span><span class="prog">Partners</span><span class="prog">iFood<small>BR</small></span><span class="prog">Club Despegar<small>AR</small></span><span class="prog">Acciones Marketing</span><span class="prog">Puntos Manuales</span>
+      </div>
+      <p class="note r d5">Cada gráfico: FY26 | Budget o Run Rate | FY27 · KPIs YTD a mes cerrado · en puntos o en USD</p>
+    </section>
+
+    <!-- 6 -->
+    <section class="scene" data-dur="28" data-say="Para pasar de puntos a dólares usamos tres métodos, según quién paga el punto. Los puntos de bancos y partners se valúan al precio de facturación que acordamos con ellos. Los de iFood, campañas de marketing y Club Despegar, al valor de mercado del punto, el SSP, que sale de los canjes reales. Y los de Pasaporte D!, que son parte de una venta, se reparten entre el viaje y el punto por valor relativo, que es el criterio contable de deferred revenue.">
+      <div class="eyebrow r">Cómo se valúa un punto</div>
+      <h2 class="h r">Tres métodos, según quién paga el punto</h2>
+      <div class="vals">
+        <div class="val r d1"><h3>Lo paga un banco o partner</h3><span class="who2">Cobrand · Partners</span><div class="formula">USD = pts × <em>precio de facturación</em><br>× FX del mes</div></div>
+        <div class="val r d2"><h3>Lo regalamos</h3><span class="who2">iFood · Acciones Marketing · Club Despegar</span><div class="formula">USD = pts × <em>SSP</em><br>SSP = valor real de canje</div></div>
+        <div class="val r d3"><h3>Viene con una venta</h3><span class="who2">Pasaporte D!</span><div class="formula">DRO = <em>PV</em> / (PV + R) × R<br>PV = pts × SSP · R = margen</div></div>
+      </div>
+      <p class="note r d4">SSP de facturación = SSP calculado × (1 − breakage esperado)</p>
+    </section>
+
+    <!-- 7 -->
+    <section class="scene" data-dur="28" data-say="La tercera vista explica las desviaciones. Arranca en el Budget, suma o resta el delta de cada línea y llega al actual. Y abajo abre cada delta en volumen, precio y efecto cruzado. Lo calculamos en la celda más chica disponible, país, mes y producto, y después sumamos, porque si agregamos antes el efecto mix se esconde dentro del precio. Lo que no explican los drivers queda a la vista como no explicado.">
+      <div class="eyebrow r">Vista 3 · Análisis de variaciones</div>
+      <h2 class="h r">Del Budget al Actual, línea por línea</h2>
+      <div class="wf-wrap">
+        <div>
+          <div class="wf r d1" aria-label="Waterfall ilustrativo Budget a Actual">
+            <div class="col"><div class="blk b" style="height:62%"></div><span class="lbl">Budget</span></div>
+            <div class="col"><div class="blk gap" style="height:62%"></div><div class="blk up" style="height:12%;position:absolute;bottom:62%"></div><span class="lbl">DRO</span></div>
+            <div class="col"><div class="blk dn" style="height:7%;position:absolute;bottom:67%"></div><span class="lbl">Deferred in</span></div>
+            <div class="col"><div class="blk up" style="height:5%;position:absolute;bottom:67%"></div><span class="lbl">Bank / partner</span></div>
+            <div class="col"><div class="blk dn" style="height:3%;position:absolute;bottom:69%"></div><span class="lbl">Breakage</span></div>
+            <div class="col"><div class="blk a" style="height:69%"></div><span class="lbl">Actual</span></div>
+          </div>
+          <p class="note" style="margin-top:4.2cqw">Ilustrativo, sin cifras reales</p>
+        </div>
+        <div class="eff">
+          <div class="r d2"><b>Volumen</b><span>ΔQ × precio Budget</span></div>
+          <div class="r d3"><b>Precio</b><span>ΔP × cantidad Budget</span></div>
+          <div class="r d4"><b>Cruzado</b><span>ΔQ × ΔP</span></div>
+          <div class="r d5"><b>No explicado</b><span>Δ P&amp;L − lo explicado por drivers</span></div>
+          <p class="note r d5">Calculado por país × mes × producto y sumado, para no esconder el mix</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="scene" data-dur="26" data-say="La cuarta vista aplica las reglas de One Revenue con datos reales. Toma el GB, el porcentaje que genera puntos, cuántos puntos da cada dólar, y el valor del punto. Con eso calcula cuánto deberíamos estar difiriendo, ya neto del breakage esperado, como porcentaje del GB. Y lo pone al lado de lo que efectivamente se contabilizó. Si las dos cosas no coinciden, hay una pregunta para Contabilidad.">
+      <div class="eyebrow r">Vista 4 · Reglas One Revenue</div>
+      <h2 class="h r">¿Diferimos lo que dicen las reglas?</h2>
+      <div class="chain">
+        <div class="tok r d1">GB<small>P&amp;L actuals</small></div><span class="op r d1">×</span>
+        <div class="tok r d2">penetración<small>% GB que acumula</small></div><span class="op r d2">×</span>
+        <div class="tok r d2">ratio<small>pts por USD</small></div><span class="op r d3">×</span>
+        <div class="tok r d3">SSP<small>valor del punto</small></div><span class="op r d4">→</span>
+        <div class="tok res r d4">DRO %GB esperado<small>neto de breakage esperado</small></div>
+      </div>
+      <div class="vs">
+        <div class="box r d5"><b>DRO esperado</b><span>Reglas del programa + datos reales</span></div>
+        <span class="op r d5">vs</span>
+        <div class="box r d5"><b>DRO contabilizado</b><span>Línea deferred revenue out del P&amp;L</span></div>
+      </div>
+      <p class="note r d6">Por país × producto × mes · FY27 y evolución FY26</p>
+    </section>
+
+    <!-- 9 -->
+    <section class="scene" data-dur="30" data-say="Para cerrar: hoy el tablero se actualiza solo, cubre todo el P&L de Loyalty y las métricas de los siete programas, y Control de Gestión cambia supuestos sin tocar código. Lo que sigue: cerrar con Contabilidad la diferencia de DRO en México, definir el precio pasivo real del breakage, cargar el Run Rate de puntos y abrir la penetración por canal. Con eso, Planning puede usar el tablero como fuente única para el Budget del próximo año.">
+      <div class="eyebrow r">Dónde estamos</div>
+      <h2 class="h r">Fuente única del P&amp;L de Loyalty</h2>
+      <div class="close-grid">
+        <div class="list">
+          <h3 class="r d1">Funciona hoy</h3>
+          <div class="li r d1"><span><b>Actualización automática</b> desde el Datalake</span></div>
+          <div class="li r d1"><span><b>P&amp;L solo Despegar</b> contra Budget, Run Rate o Forecast</span></div>
+          <div class="li r d2"><span><b>7 programas × 8 países</b>, en puntos y en USD</span></div>
+          <div class="li r d2"><span><b>Variaciones</b> abiertas por volumen y precio</span></div>
+          <div class="li r d2"><span>Supuestos editables por <b>Control de Gestión</b></span></div>
+        </div>
+        <div class="list">
+          <h3 class="r d3">Próximos pasos</h3>
+          <div class="li pend r d3"><span>Cerrar con Contabilidad el <b>DRO de México</b></span></div>
+          <div class="li pend r d4"><span>Definir el <b>precio pasivo real</b> del breakage</span></div>
+          <div class="li pend r d4"><span>Cargar el <b>Run Rate de puntos</b></span></div>
+          <div class="li pend r d5"><span>Abrir la penetración <b>por canal</b> (Site / App / Offline)</span></div>
+        </div>
+      </div>
+    </section>
+
+    <div class="caption" id="caption"></div>
+    <div class="prog-bar" id="progbar"></div>
+  </div>
+
+  <div class="ctrl">
+    <button class="primary" id="play" type="button">▶ Reproducir</button>
+    <button id="prev" type="button" aria-label="Escena anterior">‹ Anterior</button>
+    <button id="next" type="button" aria-label="Escena siguiente">Siguiente ›</button>
+    <button id="restart" type="button">↺ Desde el inicio</button>
+    <label><input type="checkbox" id="subs" checked> Subtítulos</label>
+    <span class="time" id="time">0:00 / 0:00</span>
+  </div>
+
+  <div class="script">
+    <h2>Guion de narración</h2>
+    <p class="help">Para grabar: poné el navegador en pantalla completa, desactivá los subtítulos si vas a narrar en voz, iniciá la grabación (Teams, OBS o la grabadora de Windows con Win + Alt + R) y apretá Reproducir. Espacio pausa, las flechas cambian de escena. Hacé clic en una escena para saltar a ella.</p>
+    <div id="scriptList"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var scenes = Array.prototype.slice.call(document.querySelectorAll('.scene'));
+  var durs = scenes.map(function(s){ return +s.dataset.dur; });
+  var total = durs.reduce(function(a,b){return a+b;},0);
+  var cap = document.getElementById('caption'), bar = document.getElementById('progbar');
+  var playBtn = document.getElementById('play'), timeEl = document.getElementById('time');
+  var subs = document.getElementById('subs'), list = document.getElementById('scriptList');
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var idx = 0, elapsed = 0, playing = false, last = 0, raf = 0;
+
+  function fmt(s){ s = Math.max(0, Math.round(s)); return Math.floor(s/60) + ':' + ('0'+(s%60)).slice(-2); }
+  var titles = ['Apertura','Qué resuelve','De dónde salen los números','P&L Contable','Métricas de Negocio','Cómo se valúa un punto','Análisis de variaciones','Reglas One Revenue','Dónde estamos'];
+  var starts = []; durs.reduce(function(acc,d,i){ starts[i]=acc; return acc+d; },0);
+
+  bar.innerHTML = scenes.map(function(){ return '<i><b></b></i>'; }).join('');
+  list.innerHTML = scenes.map(function(s,i){
+    return '<div class="sc" tabindex="0" role="button" data-i="'+i+'"><div class="t"><b>'+titles[i]+'</b>'+fmt(starts[i])+' – '+fmt(starts[i]+durs[i])+'</div><p>'+s.dataset.say+'</p></div>';
+  }).join('');
+  var segs = bar.querySelectorAll('b'), rows = list.querySelectorAll('.sc');
+
+  function show(i, animate){
+    idx = Math.max(0, Math.min(scenes.length-1, i));
+    scenes.forEach(function(s,k){
+      s.classList.toggle('active', k===idx);
+      if (k!==idx){ s.classList.remove('go'); }
+    });
+    var s = scenes[idx];
+    if (animate && !reduce){
+      s.classList.add('anim'); s.classList.remove('go'); void s.offsetWidth;
+      requestAnimationFrame(function(){ s.classList.add('go'); });
+    } else { s.classList.add('go'); }
+    cap.textContent = s.dataset.say;
+    rows.forEach(function(r,k){ r.classList.toggle('cur', k===idx); });
+    paint();
+  }
+  function paint(){
+    var local = elapsed - starts[idx];
+    segs.forEach(function(b,k){
+      var f = k<idx ? 1 : k>idx ? 0 : Math.min(1, local/durs[k]);
+      b.style.transform = 'scaleX('+f+')';
+    });
+    timeEl.textContent = fmt(elapsed) + ' / ' + fmt(total);
+  }
+  function tick(t){
+    if (!playing) return;
+    var dt = (t - last)/1000; last = t; elapsed += dt;
+    if (elapsed >= starts[idx] + durs[idx]){
+      if (idx === scenes.length-1){ elapsed = total; pause(); paint(); return; }
+      show(idx+1, true);
+    }
+    paint(); raf = requestAnimationFrame(tick);
+  }
+  function play(){
+    if (elapsed >= total){ elapsed = 0; show(0, true); }
+    playing = true; playBtn.textContent = '❚❚ Pausa'; last = performance.now(); raf = requestAnimationFrame(tick);
+  }
+  function pause(){ playing = false; cancelAnimationFrame(raf); playBtn.textContent = '▶ Reproducir'; }
+  function jump(i){ elapsed = starts[Math.max(0,Math.min(scenes.length-1,i))]; show(i, true); }
+
+  playBtn.addEventListener('click', function(){ playing ? pause() : play(); });
+  document.getElementById('next').addEventListener('click', function(){ jump(idx+1); });
+  document.getElementById('prev').addEventListener('click', function(){ jump(idx-1); });
+  document.getElementById('restart').addEventListener('click', function(){ jump(0); if(!playing) play(); });
+  subs.addEventListener('change', function(){ cap.hidden = !subs.checked; });
+  rows.forEach(function(r){
+    r.addEventListener('click', function(){ jump(+r.dataset.i); });
+    r.addEventListener('keydown', function(e){ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); jump(+r.dataset.i); } });
+  });
+  document.addEventListener('keydown', function(e){
+    if (e.target.closest && e.target.closest('.sc, button, input')) return;
+    if (e.key===' '){ e.preventDefault(); playing ? pause() : play(); }
+    else if (e.key==='ArrowRight') jump(idx+1);
+    else if (e.key==='ArrowLeft') jump(idx-1);
+  });
+  show(0, false);
+})();
+</script>

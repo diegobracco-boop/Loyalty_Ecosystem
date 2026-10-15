@@ -43,6 +43,7 @@ ACUM_TIER_FILE      = "loyalty_acum_tier.json"
 ACUM_CHANNEL_FILE   = "loyalty_acum_channel.json"
 STOCK_IFOOD_FILE    = "loyalty_stock_ifood.json"
 PENET_FILE          = "loyalty_penetracion_gb.json"
+INPUTS_REAL_FILE    = "loyalty_inputs_real.json"
 # Fallbacks locales de la planilla de config: viven al lado de este script en todo
 # clon (ambos trackeados en git), asi que se resuelven relativos a el — antes eran la
 # ruta absoluta de una maquina y rompian el --dry-run del resto (no lee la planilla).
@@ -1791,6 +1792,38 @@ def load_regla_producto() -> tuple[dict, dict]:
     return by_name, by_code
 
 
+def _grupo_pnl(row, by_name: dict, by_code: dict):
+    """Grupo del P&L de una fila de acum/reden (ver load_regla_producto()):
+    purchase_type de la reserva -> product_type de la línea -> código Comarch.
+    None si no matchea ninguno."""
+    # FIX 11-sep: 'produto_original' (= b.purchase_type, a nivel de RESERVA
+    # completa) se chequea primero. Es la unica senial que distingue un
+    # combo/paquete (ej. "Carrito", "Bundles", "Escapadas") — estos valores
+    # NUNCA aparecen en 'produto' (array_agg de product_type, a nivel de
+    # LINEA de producto), porque "paquete" no es un product_type de linea,
+    # es una propiedad de la reserva completa. Sin este chequeo, un combo
+    # vuelo+hotel+seguro se clasificaba con el codigo Comarch del componente
+    # ancla (casi siempre FLIGHT), inflando Flights con puntos de paquetes
+    # completos sin su GB correspondiente (GB solo cuenta el JOIN del
+    # componente que matchea ese codigo) y dejando Packages General/Vacation
+    # Rentals siempre en cero pese a tener volumen real (confirmado con
+    # Rosario contra el datalake real, 11-sep).
+    original = str(row.get("produto_original", "")).strip()
+    if original in by_name:
+        return by_name[original]
+    # 'produto' viene de array_agg(product_type) en Presto SIN ORDER BY interno
+    # -> el orden de los elementos no esta garantizado entre corridas cuando una
+    # fila agrupa varios product_type distintos. sorted() hace que "el primero
+    # que matchea" sea determinístico (aunque arbitrario) en vez de depender del
+    # orden que devuelva Presto esa corrida.
+    nombres = sorted(n.strip() for n in str(row.get("produto", "")).split(",") if n.strip())
+    for n in nombres:
+        if n in by_name:
+            return by_name[n]
+    codigo = str(row.get("product", "")).strip().upper()
+    return by_code.get(codigo)
+
+
 def aggregate_ratio_acum(df: pd.DataFrame, by_name: dict, by_code: dict) -> pd.DataFrame:
     cols = ["processing_date", "country", "country_code", "grupo_pnl", "points", "gb"]
     d = df[df["point_type"].astype(str).str.lower() == _PASAPORTE_GENERAL_POINT_TYPE].copy()
@@ -1799,36 +1832,7 @@ def aggregate_ratio_acum(df: pd.DataFrame, by_name: dict, by_code: dict) -> pd.D
     d["processing_date"] = d["processing_date"].str.slice(0, 7) + "-01"
     d["points"] = pd.to_numeric(d["points"], errors="coerce").fillna(0)
     d["gb_basebi_2"] = pd.to_numeric(d.get("gb_basebi_2", 0), errors="coerce").fillna(0)
-
-    def _grupo(row):
-        # FIX 11-sep: 'produto_original' (= b.purchase_type, a nivel de RESERVA
-        # completa) se chequea primero. Es la unica senial que distingue un
-        # combo/paquete (ej. "Carrito", "Bundles", "Escapadas") — estos valores
-        # NUNCA aparecen en 'produto' (array_agg de product_type, a nivel de
-        # LINEA de producto), porque "paquete" no es un product_type de linea,
-        # es una propiedad de la reserva completa. Sin este chequeo, un combo
-        # vuelo+hotel+seguro se clasificaba con el codigo Comarch del componente
-        # ancla (casi siempre FLIGHT), inflando Flights con puntos de paquetes
-        # completos sin su GB correspondiente (GB solo cuenta el JOIN del
-        # componente que matchea ese codigo) y dejando Packages General/Vacation
-        # Rentals siempre en cero pese a tener volumen real (confirmado con
-        # Rosario contra el datalake real, 11-sep).
-        original = str(row.get("produto_original", "")).strip()
-        if original in by_name:
-            return by_name[original]
-        # 'produto' viene de array_agg(product_type) en Presto SIN ORDER BY interno
-        # -> el orden de los elementos no esta garantizado entre corridas cuando una
-        # fila agrupa varios product_type distintos. sorted() hace que "el primero
-        # que matchea" sea determinístico (aunque arbitrario) en vez de depender del
-        # orden que devuelva Presto esa corrida.
-        nombres = sorted(n.strip() for n in str(row.get("produto", "")).split(",") if n.strip())
-        for n in nombres:
-            if n in by_name:
-                return by_name[n]
-        codigo = str(row.get("product", "")).strip().upper()
-        return by_code.get(codigo)
-
-    d["grupo_pnl"] = d.apply(_grupo, axis=1)
+    d["grupo_pnl"] = d.apply(lambda r: _grupo_pnl(r, by_name, by_code), axis=1)
     sin_map = d[d["grupo_pnl"].isna()]
     if len(sin_map):
         combos = sorted(set(zip(sin_map["produto_original"], sin_map["produto"], sin_map["product"])))
@@ -1843,6 +1847,98 @@ def aggregate_ratio_acum(df: pd.DataFrame, by_name: dict, by_code: dict) -> pd.D
     out["points"] = out["points"].round(2)
     out["gb"] = out["gb"].round(2)
     return out[cols]
+
+
+# ------------------------------------------------------------------------------
+# Inputs reales para actualizar las proyecciones (pestaña "Input proyecciones", 14-oct)
+# ------------------------------------------------------------------------------
+# Numerador y denominador por mes × país × producto (grupo P&L) × viaje × canal, para
+# que el dashboard calcule cualquier apertura sumando y dividiendo (nunca promediando
+# ratios). Sale de los mismos DataFrames que ya se bajan: CERO SQL nuevo.
+#   ssp_red : USD de descuento / puntos redimidos — misma base que build_ssp_json
+#             (PASAPORTE_D_REDEN, abs por fila): sumado por país × mes da ssp_calculado.
+#   regla   : puntos / GB (gb_basebi_2) de point_type='general' — misma base que
+#             aggregate_ratio_acum: sumado por país × mes × producto da ratio_acum.
+# Viaje = `business` de la línea de producto (DOMESTIC / INTERNATIONAL). Canal =
+# channel_condition de _ACUM_SQL/_REDEN_SQL agrupado: Offline = Call Center + Sucursales.
+_CANAL_GRUPO = {"site": "Site", "app": "App", "call center": "Offline", "sucursales": "Offline"}
+_VIAJE = {"DOMESTIC": "Domestic", "INTERNATIONAL": "International"}
+
+
+def _inputs_dims(d: pd.DataFrame, by_name: dict, by_code: dict) -> pd.DataFrame:
+    if d.empty:  # apply(axis=1) sobre un frame vacío devuelve un DataFrame y rompe la asignación
+        return d.assign(ym=[], producto=[], viaje=[], canal=[])
+    d["ym"] = d["processing_date"].str.slice(0, 7)
+    d["producto"] = d.apply(lambda r: _grupo_pnl(r, by_name, by_code), axis=1).fillna("Sin clasificar")
+    d["viaje"] = d["business"].astype(str).str.strip().str.upper().map(_VIAJE).fillna("N/D")
+    d["canal"] = d["channel_condition"].astype(str).str.strip().str.lower().map(_CANAL_GRUPO).fillna("N/D")
+    return d
+
+
+def build_inputs_real_json(acum_pre_dfs, reden_clean_dfs, by_name: dict, by_code: dict) -> bytes:
+    keys = ["ym", "country_code", "producto", "viaje", "canal"]
+    parts = []
+
+    def _frames(dfs):
+        fr = [x for x in dfs if x is not None and len(x)]
+        return pd.concat(fr, ignore_index=True) if fr else pd.DataFrame(
+            columns=["processing_date", "country_code", "point_type", "points", "business", "channel_condition"])
+
+    r = _frames(reden_clean_dfs)
+    r = r[r["point_type"].astype(str).str.lower().isin(PASAPORTE_D_REDEN)].copy()
+    r["descuento_consumo_puntos_usd"] = r.get("descuento_consumo_puntos_usd", 0)
+    r["num"] = pd.to_numeric(r["descuento_consumo_puntos_usd"], errors="coerce").fillna(0).abs()
+    r["den"] = pd.to_numeric(r["points"], errors="coerce").fillna(0).abs()
+    r = _inputs_dims(r, by_name, by_code)
+    g = r.groupby(keys, as_index=False).agg(num=("num", "sum"), den=("den", "sum"))
+    g["factor"] = "ssp_red"
+    parts.append(g)
+
+    a = _frames(acum_pre_dfs)
+    a = a[a["point_type"].astype(str).str.lower() == _PASAPORTE_GENERAL_POINT_TYPE].copy()
+    a["num"] = pd.to_numeric(a["points"], errors="coerce").fillna(0)
+    a["den"] = pd.to_numeric(a["gb_basebi_2"], errors="coerce").fillna(0) if "gb_basebi_2" in a else 0.0
+    a = _inputs_dims(a, by_name, by_code)
+    g = a.groupby(keys, as_index=False).agg(num=("num", "sum"), den=("den", "sum"))
+    g["factor"] = "regla"
+    parts.append(g)
+
+    out = pd.concat(parts, ignore_index=True)
+    out = out[(out["num"] != 0) | (out["den"] != 0)].copy()
+    out["num"] = out["num"].round(2)
+    out["den"] = out["den"].round(2)
+
+    # Control de la agregación: el total por país × mes del JSON tiene que dar lo mismo que
+    # las filas de origen (detecta filas perdidas al agrupar). La base de origen es la misma
+    # de ssp_calculado (build_ssp_json) y de ratio_acum (aggregate_ratio_acum).
+    for fac, src in (("ssp_red", r), ("regla", a)):
+        if src.empty:
+            print(f"  [WARN] inputs {fac}: 0 filas de origen")
+            continue
+        t = out[out["factor"] == fac].groupby(["ym", "country_code"])[["num", "den"]].sum()
+        o = src.groupby(["ym", "country_code"])[["num", "den"]].sum()
+        dif = (t - o.reindex(t.index)).abs().max().max()
+        msg = "OK" if dif < 1 else f"[WARN] diferencia máx {dif:,.2f}"
+        print(f"  [INPUTS] {fac:8s} {len(out[out['factor'] == fac]):>6} filas · control de agregación país×mes: {msg}")
+    for fac, col, nd_val in (("ssp_red", "canal", "N/D"), ("regla", "canal", "N/D"), ("regla", "viaje", "N/D"),
+                             ("ssp_red", "producto", "Sin clasificar"), ("regla", "producto", "Sin clasificar")):
+        nd = out[(out["factor"] == fac) & (out[col] == nd_val)]["den"].sum()
+        tot = out[out["factor"] == fac]["den"].sum()
+        if tot and nd / tot > 0.01:
+            print(f"  [WARN] inputs {fac}: {nd / tot:.1%} del denominador con {col} '{nd_val}' "
+                  f"(revisar la pestaña 'regla producto' del Sheet Config si es producto)")
+
+    cols = ["ym", "country_code", "factor", "producto", "viaje", "canal", "num", "den"]
+    payload = {
+        "meta": {"generated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+                 "fuente": "redenciones (ssp_red) y acumulaciones point_type=general (regla) del Datalake",
+                 "factores": {"ssp_red": "num = USD descuento, den = puntos redimidos",
+                              "regla": "num = puntos acumulados, den = GB (gb_basebi_2)"},
+                 "canal": "Offline = Call Center + Sucursales"},
+        "cols": cols,
+        "rows": out[cols].values.tolist(),
+    }
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
 
 
 # ------------------------------------------------------------------------------
@@ -3198,6 +3294,11 @@ print("\n--- Construyendo SSP (precio del punto) ---")
 ssp_bytes = build_ssp_json(_reden_cy_clean, _reden_ly_clean)
 print(f"  SSP: {len(ssp_bytes)} bytes")
 
+print("\n--- Inputs reales para proyecciones (SSP y regla por producto × viaje × canal) ---")
+inputs_real_bytes = build_inputs_real_json((_acum_cy_pre, _acum_ly_pre), (_reden_cy_clean, _reden_ly_clean),
+                                           _regla_by_name, _regla_by_code)
+print(f"  Inputs reales: {len(inputs_real_bytes) // 1024} KB")
+
 print("\n--- Construyendo JSON ---")
 
 META_CY = {
@@ -3370,6 +3471,7 @@ _OUT = [
     (penet_bytes, PENET_FILE),
     (acum_channel_bytes, ACUM_CHANNEL_FILE),
     (stock_ifood_bytes, STOCK_IFOOD_FILE),
+    (inputs_real_bytes, INPUTS_REAL_FILE),
 ]
 if proy_bytes is not None:  # None = no se pudo leer ningún Excel: no pisar el JSON bueno de Drive
     _OUT.append((proy_bytes, PROYECCIONES_FILE))

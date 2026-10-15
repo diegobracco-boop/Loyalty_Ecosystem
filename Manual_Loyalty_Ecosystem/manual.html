@@ -147,6 +147,7 @@ a.ext-link:hover { text-decoration: underline; }
   <div class="sidebar-section">Para dirección</div>
   <a class="nav-item active" onclick="showSection('overview')"><span class="nav-icon">🧭</span> Panorama</a>
   <a class="nav-item" onclick="showSection('arquitectura')"><span class="nav-icon">🗺️</span> Cómo se conecta todo</a>
+  <a class="nav-item" href="https://script.google.com/a/macros/despegar.com/s/AKfycbyjLwtf88NdVdoruWH0BAOFnCFS35JrYPDE5eCTUFEwT76oIpNctrMxF-6etUCGs04k6g/exec?page=presentacion" target="_top"><span class="nav-icon">▶️</span> Presentación (4 min)</a>
 
   <div class="sidebar-section">Guía del equipo</div>
   <a class="nav-item" onclick="showSection('empezar')"><span class="nav-icon">📖</span> Empezá por acá</a>
@@ -158,6 +159,7 @@ a.ext-link:hover { text-decoration: underline; }
   <div class="sidebar-section">Referencia operativa</div>
   <a class="nav-item" onclick="showSection('pipeline')"><span class="nav-icon">🐍</span> El pipeline</a>
   <a class="nav-item" onclick="showSection('datos')"><span class="nav-icon">📦</span> Los datos (JSON)</a>
+  <a class="nav-item" onclick="showSection('input-proy')"><span class="nav-icon">📥</span> Input proyecciones</a>
   <a class="nav-item" onclick="showSection('deploy')"><span class="nav-icon">🚀</span> Deploy</a>
   <a class="nav-item" onclick="showSection('archivos')"><span class="nav-icon">📁</span> Archivos &amp; rutas</a>
   <a class="nav-item" onclick="showSection('agentes')"><span class="nav-icon">🔍</span> Agentes de auditoría</a>
@@ -177,12 +179,19 @@ a.ext-link:hover { text-decoration: underline; }
     </div>
 
     <div class="card">
+      <div class="card-title">▶️ Presentación del ecosistema</div>
+      <p style="margin:0 0 12px">Recorrido animado de 4 minutos, pensado para dirección: qué resuelve el tablero, de dónde salen los números, las cuatro vistas (P&amp;L Contable, Métricas de Negocio, Análisis variaciones, Reglas One Revenue), cómo se valúa un punto y próximos pasos. Se reproduce sola y trae el guion de narración por escena, para presentarla en vivo o grabarla.</p>
+      <a class="ext-link" style="font-size:14px;font-weight:600" href="https://script.google.com/a/macros/despegar.com/s/AKfycbyjLwtf88NdVdoruWH0BAOFnCFS35JrYPDE5eCTUFEwT76oIpNctrMxF-6etUCGs04k6g/exec?page=presentacion" target="_top">Abrir la presentación →</a>
+    </div>
+
+    <div class="card">
       <div class="card-title">🎯 Qué preguntas responde</div>
       <table class="doc-table"><tbody>
         <tr><td>¿Cómo viene el P&amp;L de Loyalty vs Budget / Run Rate / Forecast?</td><td>Por país, mes / trimestre / semestre, solo marca Despegar, con los Drivers B2C (Orders, GB, Up Front + Fees) y el % sobre GB de cada línea. → pestaña de país, sección <strong>P&amp;L Contable</strong></td></tr>
         <tr><td>¿Cuántos puntos se acumulan y se redimen por mes?</td><td>Por programa (Pasaporte D!, iFood, Cobrand, Partners, etc.), año fiscal FY27 vs FY26. → <strong>Métricas de negocio</strong></td></tr>
         <tr><td>¿Cómo vienen los puntos contra el Budget?</td><td>Tercera barra "Budget FY27" en los gráficos de Métricas (acumulación, redención, breakage, ratio), en puntos y en $, + KPIs "vs Budget" YTD a mes cerrado. Fuente: <code>Input_budget.xlsx</code> de Control de Gestión.</td></tr>
         <tr><td>¿Por qué el P&amp;L de Loyalty se desvía del Budget?</td><td>Waterfall Budget → Δ por línea → Actual y, debajo, el porqué de cada línea con las métricas de negocio (volumen, precio, cruzado y, en la acumulación, GB / penetración / regla / margen / SSP). → pestaña <strong>📊 Análisis variaciones</strong></td></tr>
+        <tr><td>¿Diferimos lo que dicen las reglas de One Revenue?</td><td>DRO %GB esperado calculado con datos reales (GB y margen del P&amp;L, penetración, ratio, SSP calculado y breakage esperado), por país × producto × mes, contra el DRO contabilizado (línea "deferred revenue out"). → pestaña <strong>📐 Reglas One Revenue</strong></td></tr>
         <tr><td>¿Cuánto breakage hay (puntos que expiran sin usarse)?</td><td>Por país y tier. → <strong>Métricas → Breakage</strong></td></tr>
         <tr><td>¿Cuánto vale un punto (SSP) por país y mes?</td><td>SSP Facturación = SSP Calculado × (1 − breakage esperado). → alimenta la valuación USD de la acumulación</td></tr>
         <tr><td>¿Cuántos miembros activos hay, por tier?</td><td>Padrón actual (foto de hoy). → <strong>Miembros del programa</strong></td></tr>
@@ -389,6 +398,7 @@ a.ext-link:hover { text-decoration: underline; }
       <table class="doc-table"><tbody>
         <tr><td><strong>FY27 / FY26</strong></td><td>Las Métricas de negocio trabajan por <strong>año fiscal</strong> (abril → marzo): <strong>FY27</strong> = abr-2026 a mar-2027 (el en curso), <strong>FY26</strong> = abr-2025 a mar-2026 (el anterior). El FY se nombra por el año en que termina. Los archivos del pipeline siguen siendo por año calendario (acum_2026 / acum_2025); el dashboard junta los dos para armar cada FY.</td></tr>
         <tr><td><strong>Efectos de la variación</strong></td><td>En Análisis variaciones, cada efecto se calcula en la celda más chica disponible (país × mes × programa / partner / producto) y se suma, para que el mix no se esconda en el precio. <strong>Volumen</strong> = Δ puntos × precio budget · <strong>Precio</strong> = Δ precio × puntos budget · <strong>Cruzado</strong> = Δ puntos × Δ precio. <strong>Deferred revenue out = DRO</strong> (lo que se difiere al acumular; Pasaporte D!) se abre por driver con la fórmula del valor diferido, cambiando de a uno de budget a real: GB → penetración → regla de acumulación → margen (UF + Fees + Desc.) → SSP. <strong>Bank / Partner revenue</strong>: precio fijo, solo volumen por partner. <strong>Deferred revenue in</strong> (reconocimiento al redimir) se explica con la redención de Pasaporte D! y Puntos Manuales. <strong>Rewards &amp; Benefits cost</strong> se explica con la redención de iFood y Acciones Marketing (ahí se registran). <strong>No explicado</strong> = Δ del P&amp;L − explicado (contabilidad vs métricas, o líneas sin métrica: flag revenue, marketing, personnel).</td></tr>
+        <tr><td><strong>DRO esperado (One Revenue)</strong></td><td>Lo que las reglas del programa dicen que habría que diferir, con datos reales, celda por celda (país × producto × mes) y sumado: <strong>valor de puntos</strong> = GB × penetración × ratio × SSP calculado · <strong>margen</strong> = GB × penetración × (UF+Fees+Desc)/GB · <strong>DRO</strong> = valor / (valor + margen) × margen · <strong>DRO esperado</strong> = DRO × (1 − breakage esperado) · <strong>DRO %GB</strong> = DRO esperado / GB. Usa el SSP <em>calculado</em> (no el de facturación) porque el breakage se aplica aparte. No incluye Cobrand/Partners (la regla no los calcula), que sí están en el DRO contabilizado.</td></tr>
         <tr><td><strong>YTD a mes cerrado</strong></td><td>Los KPIs "vs FY26" y "vs Budget" comparan los <strong>mismos meses cerrados</strong> del FY (ej. abr–sep), nunca un año a medio camino contra uno completo ni el mes en curso a medio cargar.</td></tr>
         <tr><td><strong>Budget de puntos</strong></td><td>Proyección de Control de Gestión en <code>Input_budget.xlsx</code> (OneDrive): puntos de Cobrand/Partners con su precio de facturación, redenciones por tipo, breakage, SSP (<code>SSP_Red</code>, <code>SSP</code>, <code>Precio Punto Pasivo</code>), regla de acumulación y penetración de GB (por producto y Domestic/International, se usa B2C-SITE). Un archivo igual <code>Input_runrate.xlsx</code> habilita la opción Run Rate.</td></tr>
         <tr><td>JSON <strong>canónico</strong> vs <strong>planas</strong></td><td>Canónicos = los archivos del P&amp;L (<code>baseline_actuals+projections.json</code>, <code>budget.json</code>, <code>forecast.json</code>, <code>runrate.json</code>) que publica <code>Inputs_Planning_PnL</code>, todas las marcas sumadas. Planas = sus CSV intermedios (<code>plana_*.csv</code>, <code>actuals_fy*.csv</code>), con la columna <code>Marca</code>. Loyalty lee las planas para su vista Despegar y usa los canónicos solo para validar (y como fallback).</td></tr>
@@ -418,8 +428,13 @@ a.ext-link:hover { text-decoration: underline; }
           <tr><td>Suscriptos a Club Despegar (AR)</td><td>Sección de programa <strong>"Club Despegar"</strong></td><td>Solo pestaña Argentina + TOTAL. Stock por plan + altas/bajas.</td></tr>
           <tr><td>Enrolados en iFood (BR)</td><td>Sección de programa <strong>"IFOOD"</strong></td><td>Solo pestaña Brasil + TOTAL.</td></tr>
           <tr><td>Cuántos puntos se dan por cada $ de venta, por producto</td><td>Dentro de <strong>"Pasaporte D!"</strong> → Ratio de acumulación</td><td>Selector Mes/Año. Barra clara = período anterior, de color = el elegido. Solo <code>point_type='general'</code> (no cobrand/partners).</td></tr>
+          <tr><td>Acumulación de Pasaporte D! por tier</td><td>Dentro de <strong>"Pasaporte D!"</strong> → toggle <strong>Por Tier</strong></td><td>Barras por tier en puntos o en $ (el $ se prorratea por participación de puntos de cada tier) y, debajo, el <strong>mix por tier</strong> (100% apilado, siempre en puntos). También el ratio de acumulación por tier.</td></tr>
+          <tr><td>Cuántos puntos de Pasaporte D! vienen de iFood</td><td>Dentro de <strong>"Pasaporte D!"</strong> → Pasaporte D! vía iFood</td><td>Participación del channel iFood por mes (100% apilado). Solo Brasil y TOTAL.</td></tr>
+          <tr><td>Stock de puntos iFood en la calle</td><td>Dentro de <strong>"IFOOD"</strong> → Flujo y stock de puntos</td><td>Saldo a fin de mes = acumulación − redención − vencimiento, acumulado. Welcome Clube se netea con su cancelación (es un saldo, no un flujo).</td></tr>
           <tr><td>Qué % del GB generó acumulación de puntos, por producto</td><td>Dentro de <strong>"Pasaporte D!"</strong> → Penetración GB Acum</td><td>Heatmap producto × mes fiscal. Mide si la reserva tuvo un evento de <strong>acumulación</strong> — NO si se pagó con puntos (eso es otra cosa, ver Glosario).</td></tr>
           <tr><td>Por qué el P&amp;L se desvía del Budget</td><td>Pestaña <strong>📊 Análisis variaciones</strong></td><td>Selector de período (meses múltiples / Quarter / Half / Año fiscal) y país. Arriba el waterfall del TOTAL LOYALTY con la flecha del Δ; abajo, cada línea con sus efectos como sub-filas, "Explicado por métricas", "No explicado" y el Δ de los meses en Run Rate. Actual = Baseline (actuals en meses cerrados + Run Rate en abiertos). El filtro de fechas de arriba no aplica acá.</td></tr>
+          <tr><td>Si el DRO contabilizado coincide con las reglas de One Revenue</td><td>Pestaña <strong>📐 Reglas One Revenue</strong></td><td>DRO %GB esperado con datos reales por país × producto × mes, FY en curso y evolución del FY anterior, contra el DRO contabilizado del P&amp;L. El FY anterior sale de <code>loyalty_pnl_actuals_prev.json</code> y tiene un hueco en sep–dic 2025 (el CSV de actuals de B2B no trae esos meses). Pendiente: apertura por canal (Site / App / Offline).</td></tr>
+          <tr><td>Qué supuestos cargó Control de Gestión en el Budget / Run Rate</td><td>Pestaña <strong>📥 Input proyecciones</strong></td><td>Escenario y país arriba. Una tabla por solapa de <code>Input_budget.xlsx</code> / <code>Input_runrate.xlsx</code> con los meses en columnas. Ver la sección "Input proyecciones" del manual.</td></tr>
           <tr><td>Todo sumado (los 8 países)</td><td>Pestaña <strong>TOTAL</strong></td><td>Primera pestaña, es el default.</td></tr>
         </tbody>
       </table>
@@ -585,9 +600,16 @@ a.ext-link:hover { text-decoration: underline; }
           <tr><td>loyalty_ifood_enroll.json</td><td><code>_IFOOD_ENROLL_SQL</code> — <code>ifood_dim_users</code>. Altas por mes por tipo.</td><td>Programa "IFOOD" (BR + TOTAL)</td></tr>
           <tr><td>loyalty_ratio_acumulacion.json</td><td>Mismo <code>_ACUM_SQL</code> que acumulaciones (cero SQL nuevo) — <code>SUM(points)/SUM(gb)</code>, solo <code>point_type='general'</code>, por mes × país × <code>grupo_pnl</code> (7 productos + Total). "Producto" viene de la pestaña <code>regla producto</code> del Sheet Config, matcheada por <code>purchase_type</code> → <code>product_type</code> → código Comarch, en ese orden.</td><td>Dentro de "Pasaporte D!": gráfico de barras con selector Mes/Año (período elegido vs. el inmediato anterior)</td></tr>
           <tr><td>loyalty_penetracion_gb.json</td><td><code>_PENET_SQL</code>/<code>fetch_penet</code> — % GB de reservas con evento de <strong>acumulación</strong> (<code>clm_transactions</code> tipo <code>GA</code>/<code>B</code>), por mes × país × producto. Renombrada "Penetración GB Acum" (22-sep) para no confundir con % pagado con puntos.</td><td>Dentro de "Pasaporte D!": heatmap producto × mes fiscal</td></tr>
+          <tr><td>loyalty_acum_tier.json</td><td><code>_ACUM_TIER_SQL</code> — acumulación Pasaporte D! por mes × país × tier. El USD (<code>acum_usd_base</code>) se prorratea en <code>enrich_acum_tier_usd()</code> desde la acumulación general (sin SQL extra: <code>_ACUM_SQL</code> está en el límite de 60 stages).</td><td>Pasaporte D! → Por Tier (Q / $) + mix por tier</td></tr>
+          <tr><td>loyalty_ratio_acum_tier.json</td><td><code>_RATIO_ACUM_TIER_SQL</code> — <code>SUM(points)/SUM(gb)</code> por tier. Descarta transacciones sin tier resuelto.</td><td>Pasaporte D! → ratio de acumulación por tier</td></tr>
+          <tr><td>loyalty_acum_channel.json</td><td><code>_ACUM_CHANNEL_SQL</code> — acumulación Pasaporte D! por channel (iFood vs resto), vía <code>bi_transactional_fact_transactions</code>.</td><td>Pasaporte D! → Pasaporte D! vía iFood (BR + TOTAL)</td></tr>
+          <tr><td>loyalty_inputs_real.json</td><td><code>build_inputs_real_json()</code> — sin SQL nuevo, desde los mismos DataFrames de acumulación y redención: numerador y denominador por mes × país × producto × viaje × canal de <code>ssp_red</code> (USD / puntos redimidos) y <code>regla</code> (puntos / GB). Controla que el total por país × mes cierre contra SSP y ratio.</td><td>Input proyecciones → Datos reales</td></tr>
+          <tr><td>loyalty_stock_ifood.json</td><td><code>_STOCK_IFOOD_SQL</code> — flujo mensual de acumulación / redención / vencimiento iFood. Welcome Clube neto (CA + PC).</td><td>IFOOD → Flujo y stock de puntos</td></tr>
           <tr><td>loyalty_proyecciones.json</td><td><code>proyecciones.py</code> — lee <code>Input_budget.xlsx</code> / <code>Input_runrate.xlsx</code> (sin Datalake). Escenario × bloque (acum_partner, precio_partner, reden, breakage, ssp, ratio, penet) × país × clave × mes. Lo sube el sync o <code>py proyecciones.py --upload</code>.</td><td>Métricas → tercera barra "Budget FY27" / "Run Rate FY27" y KPIs "vs Budget"</td></tr>
           <tr><td class="note" colspan="3">Valuación del Budget en $ (definida por Control de Gestión): Cobrand/Partners = puntos × precio de facturación (Bank/Partner Revenue = puntos × (precio − SSP)) · Redenciones = puntos × SSP_Red · Pasaporte D! acumulación: puntos = regla × penetración × GB por producto y viaje; $ = (pts × SSP) / (pts × SSP + GB × pen × take) × (GB × pen × take), con take = (Up Front + Fees + Commercial Discounts) / GB del P&amp;L de Budget (vista Despegar). Breakage en $: pendiente (falta definir el precio pasivo del real).</td></tr>
           <tr><td class="note" colspan="3">ℹ️ <code>loyalty_runrate.json</code> (Run Rate armado a mano el 22-sep, solo Sep-Mar) quedó <strong>en desuso</strong>: el Goal "Run Rate" sale ahora de la misma fuente que Budget/Forecast.</td></tr>
+          <tr><td class="note" colspan="3">ℹ️ <code>loyalty_pnl_actuals_prev.json</code> (no lo sube el sync): P&amp;L actuals del FY anterior, solo Despegar, que usa Reglas One Revenue. Lo arma <code>inputs_contables_loyalty.py</code> desde <code>actuals_fy26_*.csv</code> de Inputs_Planning_PnL (generarlo allá con <code>py plana_actuals_builder.py 2026</code>). Ese CSV no trae sep–dic 2025 y el script avisa <code>[WARN] actuals_prev</code>.</td></tr>
+          <tr><td class="note" colspan="3">⚠️ <strong>Agregar un JSON nuevo al dashboard:</strong> sumarlo a <code>getAllRaw()</code> en <code>Código.js</code> (carga todo en una sola ejecución, en secuencia) y actualizar <code>TOTAL</code> en <code>dashboard.html</code> (claves que espera antes de ocultar el loading; hoy 23). Nunca agregar un <code>google.script.run</code> suelto en el init: las llamadas en paralelo agotan la cuota de Drive y fallan archivos al azar (incidente 16-sep).</td></tr>
         </tbody>
       </table>
     </div>
@@ -610,6 +632,82 @@ a.ext-link:hover { text-decoration: underline; }
         <tr><td>Pestaña TOTAL</td><td>Pseudo-país <code>dataKey='total'</code>. Suma sobre los 8 países (<code>COUNTRY_DATAKEYS</code>), no "todo lo que haya" — así no se cuela un <code>Pais</code> agregado del P&amp;L.</td></tr>
         <tr><td>Banner de datos viejos</td><td><code>checkStale()</code> mira el <code>generated_at</code> más viejo de todos los JSON + avisa si están desparejos o si un archivo no cargó.</td></tr>
         <tr><td>Límite de 50 MB</td><td>Por eso acum/reden se suben agregados por mes. Si un JSON lo supera, la serie LY de los charts se cae a cero.</td></tr>
+      </tbody></table>
+    </div>
+  </div>
+
+  <!-- ══════════════════ INPUT PROYECCIONES ══════════════════ -->
+  <div class="section" id="sec-input-proy">
+    <div class="page-header">
+      <div class="page-tag">Referencia operativa</div>
+      <div class="page-title">Input <span>proyecciones</span></div>
+      <div class="page-sub">Los supuestos de puntos que carga <strong>Control de Gestión</strong> para el Budget y el Run Rate: puntos de Cobrand/Partners y su precio, redenciones, breakage, SSP, regla de acumulación y penetración del GB. Viven en dos Excel con las mismas solapas; el pipeline los convierte en <code>loyalty_proyecciones.json</code>. La pestaña <strong>📥 Input proyecciones</strong> del dashboard tiene dos vistas: <strong>Datos reales</strong> (default), con esos mismos inputs medidos en el Datalake para actualizar las proyecciones, y <strong>Cargado en el Excel</strong>, con lo que hoy tiene cada escenario. No compara una contra la otra: el real vs Budget se sigue en Métricas de Negocio de cada país.</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📁 Los archivos</div>
+      <table class="doc-table"><tbody>
+        <tr><td><strong>Input_budget.xlsx</strong></td><td>Escenario <strong>Budget</strong>. OneDrive <code>Control de Gestión - Loyalty/Loyalty_Ecosystem/</code> (mismo folder que <code>Input_Precios.xlsx</code>). Copia en el repo como fallback.</td></tr>
+        <tr><td><strong>Input_runrate.xlsx</strong></td><td>Escenario <strong>Run Rate</strong>, mismas solapas y formato. <strong>Todavía no existe</strong>: hasta que se cargue, el selector Run Rate aparece deshabilitado y Métricas muestra "no cargada".</td></tr>
+        <tr><td><strong>Orden de lectura</strong></td><td>Por escenario: variable de entorno (<code>BUDGET_XLSX</code> / <code>RUNRATE_XLSX</code>) → OneDrive → copia del repo. Si usa la copia del repo, el log avisa <code>[WARN]</code> y la pestaña lo indica ("copia del repo, puede estar desactualizada").</td></tr>
+        <tr><td><strong>Formato</strong></td><td>Una fila por país × clave; los meses del año fiscal (abr → mar) en columnas, con el encabezado como <strong>fecha</strong>. Las columnas se buscan por <strong>nombre</strong> de encabezado, no por posición: se pueden reordenar, pero no renombrar.</td></tr>
+      </tbody></table>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🗂️ Las solapas</div>
+      <table class="doc-table">
+        <thead><tr><th>Solapa</th><th>Columnas clave</th><th>Qué es · unidad</th><th>Dónde se usa</th></tr></thead>
+        <tbody>
+          <tr><td><code>Cobrands_Partners</code></td><td>Pais, Metrica, Partner</td><td><strong>Cantidad puntos</strong>: puntos acumulados por partner. <strong>Precio_Facturacion</strong>: USD por punto (Partner <code>Todos</code> = precio del resto de los partners del país).</td><td>3ra barra de Cobrand / Partners (Q y $), Bank / Partner Revenue, Análisis variaciones</td></tr>
+          <tr><td><code>Redenciones</code></td><td>Pais, Metrica, Tipo_punto</td><td>Puntos redimidos por tipo (<code>Pasaporte D!</code>, <code>IFOOD</code>, <code>Puntos R&amp;B</code>, <code>FORTUNE</code>, <code>PONTOSBR</code>).</td><td>3ra barra de Redenciones; $ = puntos × SSP_Red</td></tr>
+          <tr><td><code>Breakage</code></td><td>Pais, Metrica</td><td>Puntos vencidos.</td><td>3ra barra de Breakage; $ pendiente (falta el precio pasivo del real)</td></tr>
+          <tr><td><code>SSP_PrecioPasivo</code></td><td>Pais, Metrica</td><td><code>SSP_Red</code>, <code>SSP</code> y <code>Precio Punto Pasivo</code>, en USD por punto.</td><td>Valuación en $ de la proyección; breakage en Análisis variaciones</td></tr>
+          <tr><td><code>Ratio_acumulacion</code></td><td>LOB-Canal, Pais, Producto, Metrica, Viaje</td><td>Regla de acumulación: puntos por USD de GB, por producto y Domestic / International. <strong>Solo se lee B2C-SITE.</strong></td><td>Acumulación de Pasaporte D! del Budget; ratio por producto</td></tr>
+          <tr><td><code>Penetracion_GB</code></td><td>LOB-Canal, Pais, Producto, Metrica, Viaje</td><td>% del GB que acumula puntos (como fracción). <strong>Solo se lee B2C-SITE</strong> (el GB del Budget no viene abierto por canal).</td><td>Acumulación de Pasaporte D! del Budget</td></tr>
+        </tbody>
+      </table>
+      <div class="step-desc" style="margin-top:10px">Las demás solapas del Excel se ignoran. Los mapeos a programas del dashboard están en <code>PROY_PARTNER_PROG</code> (ICBC / INVEX → Cobrand, el resto → Partners) y <code>PROY_REDEN_PROG</code> en <code>dashboard.html</code>.</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📊 Vista "Datos reales"</div>
+      <div class="step-desc" style="margin-bottom:10px">Del inicio del año fiscal en curso al último mes cerrado. Selector de país y de apertura (<strong>Producto</strong>, <strong>Viaje</strong>, <strong>Canal</strong>, combinables). Cada celda se calcula sumando numerador y denominador de la apertura elegida, nunca promediando ratios; la columna <strong>Período</strong> es el ponderado de los meses mostrados.</div>
+      <table class="doc-table">
+        <thead><tr><th>Input</th><th>Cómo se calcula</th><th>Apertura</th><th>Fuente</th></tr></thead>
+        <tbody>
+          <tr><td>SSP de redención</td><td>USD de descuento / puntos redimidos (Pasaporte D! + Cobrand + Partners, misma base que <code>ssp_calculado</code>)</td><td>País · producto · viaje · canal</td><td><code>loyalty_inputs_real.json</code> (<code>ssp_red</code>)</td></tr>
+          <tr><td>SSP</td><td>SSP de redención × (1 − breakage esperado del país y mes)</td><td>País · producto · viaje · canal</td><td>ídem + <code>loyalty_ssp.json</code></td></tr>
+          <tr><td>Regla de acumulación</td><td>Puntos acumulados / GB de las reservas que acumularon (point_type <code>general</code>, misma base que el ratio de acumulación)</td><td>País · producto · viaje · canal</td><td><code>loyalty_inputs_real.json</code> (<code>regla</code>)</td></tr>
+          <tr><td>Penetración del GB</td><td>GB con acumulación / GB total</td><td>País · producto (viaje y canal: pendiente)</td><td><code>loyalty_penetracion_gb.json</code></td></tr>
+          <tr><td>Puntos Cobrand por cobrand</td><td>Puntos acumulados netos de cancelaciones</td><td>País · cobrand</td><td>acumulaciones</td></tr>
+          <tr><td>Precio de puntos Cobrand / Partners</td><td>USD a precio de facturación (<code>Input_Precios.xlsx</code> con FX del mes) / puntos acumulados</td><td>País · partner</td><td>acumulaciones (<code>acum_usd_precio</code>)</td></tr>
+          <tr><td>Precio del punto pasivo</td><td colspan="3"><strong>Pendiente</strong>: falta que Control de Gestión defina cómo se calcula el real.</td></tr>
+          <tr><td>Órdenes con puntos redimidos · puntos promedio por orden</td><td colspan="3"><strong>Pendiente</strong>: la query de redenciones todavía no trae el conteo de órdenes.</td></tr>
+        </tbody>
+      </table>
+      <div class="step-desc" style="margin-top:10px"><strong>Canal</strong>: Site, App y Offline (= Call Center + Sucursales), agrupando el <code>channel_condition</code> de las queries de acumulación y redención. <strong>Viaje</strong>: Domestic / International de cada línea de producto (<code>business</code>); en un paquete, cada línea va por su lado. <strong>Producto</strong>: grupo del P&amp;L con la misma regla que el ratio de acumulación (pestaña <code>regla producto</code> del Sheet Config). La apertura no aplica a Cobrand / Partners: es consumo con tarjeta, no hay reserva detrás.</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🔁 Cómo se actualiza</div>
+      <div class="steps">
+        <div class="step"><div class="step-num">1</div><div><div class="step-title">Control de Gestión edita el Excel en OneDrive</div><div class="step-desc">Mismas solapas y encabezados. Para un escenario nuevo (Run Rate), copiar <code>Input_budget.xlsx</code> como <code>Input_runrate.xlsx</code> y cambiar los valores.</div></div></div>
+        <div class="step"><div class="step-num">2</div><div><div class="step-title">Se sube a Drive</div><div class="step-desc">Solo, en la próxima corrida de <code>loyalty_sync.py</code>, o al momento con <code>py proyecciones.py --upload</code> (segundos, sin Datalake; necesita <code>token_drive.json</code>). Sin <code>--upload</code> solo muestra el resumen por bloque.</div></div></div>
+        <div class="step"><div class="step-num">3</div><div><div class="step-title">Se revisa en el dashboard</div><div class="step-desc">Pestaña <strong>📥 Input proyecciones</strong>: arriba dice qué archivo se leyó (OneDrive o copia del repo), cuándo, y los avisos de la lectura. Una tabla por solapa, por país, con los meses en columnas.</div></div></div>
+        <div class="step"><div class="step-num">4</div><div><div class="step-title">Se actualiza la copia del repo</div><div class="step-desc"><code>cp</code> del Excel al repo + commit, para que el fallback no quede viejo (la máquina del Task Scheduler puede no tener OneDrive).</div></div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">⚠️ Qué tener en cuenta</div>
+      <table class="doc-table"><tbody>
+        <tr><td>Si no sale ninguna fila</td><td>No se sube nada y queda en Drive el <code>loyalty_proyecciones.json</code> anterior: nunca se pisa con uno vacío.</td></tr>
+        <tr><td>Celdas sin dato</td><td><code>#missing</code>, <code>#N/A</code>, <code>#VALUE!</code>, <code>#DIV/0!</code> y <code>-</code> se ignoran sin aviso. Cualquier otro texto en una celda de mes avisa <code>[WARN] valor no numérico</code>.</td></tr>
+        <tr><td>Países</td><td>Las filas de "Other Countries" se descartan (no hay pestaña de país; hoy están en 0). Chile no tiene Budget.</td></tr>
+        <tr><td>Solapa o columna faltante</td><td>Avisa <code>[WARN]</code> (en el log y en la pestaña) y sigue con las demás solapas.</td></tr>
+        <tr><td>Excel abierto o sin descargar</td><td>Si OneDrive no lo puede leer, pasa a la copia del repo y lo avisa.</td></tr>
+        <tr><td>Promedios en la pestaña</td><td>En precios, ratios y penetración la columna Promedio es simple sobre los meses con dato, no ponderada: sirve para leer el supuesto, no para valuar.</td></tr>
       </tbody></table>
     </div>
   </div>
@@ -805,10 +903,11 @@ a.ext-link:hover { text-decoration: underline; }
 
           <!-- 7. escribir_asientos -->
           <rect class="svg-box" x="40" y="920" width="680" height="104" rx="7"></rect>
-          <text class="svg-title" x="58" y="946">[7] escribir_asientos.py</text>
-          <text class="svg-sub" x="58" y="966">Recupera el estado del paso 5 · lee las columnas YA recalculadas</text>
-          <text class="svg-sub" x="58" y="983">(Puntos Valuados / DRO / Reconoc. de Ingresos Diferidos ML)</text>
-          <text class="svg-sub" x="58" y="1000">Pega en Asientos Cierre Loyalty.xlsx — Accounting se pega a valor</text>
+          <text class="svg-title" x="58" y="943">[7] escribir_asientos.py</text>
+          <text class="svg-sub" x="58" y="961">Recupera el estado del paso 5 · lee las columnas YA recalculadas</text>
+          <text class="svg-sub" x="58" y="977">(Puntos Valuados / DRO / Reconoc. de Ingresos Diferidos ML)</text>
+          <text class="svg-sub" x="58" y="993">Pega en Asientos Cierre Loyalty.xlsx — Accounting se pega a valor</text>
+          <text class="svg-sub" x="58" y="1009">+ bloque Run Rate de "P&amp;L Actuals vs RR" (runrate.json; si falta, avisa y sigue)</text>
 
           <path class="flowline" d="M380,1024 V1070" marker-end="url(#ahc)"></path>
 
@@ -827,7 +926,7 @@ a.ext-link:hover { text-decoration: underline; }
       <div class="steps">
         <div class="step"><div class="step-num">1</div><div><div class="step-title"><code>py run_cierre_backup_manual.py</code></div><div class="step-desc">Corre los guardrails (tipos de punto nuevos, columnas/cobertura de las queries, vigencia del TC — ver abajo), baja las 3 queries (Acumulaciones, Redenciones, Puntos Expirados), calcula las columnas derivadas de Etapa 1, y recién si todos los guardrails cierran pega todo en el archivo de cierre del mes. Frena con instrucciones — todavía no toca <code>Asientos Cierre Loyalty.xlsx</code>.</div></div></div>
         <div class="step"><div class="step-num">2</div><div><div class="step-title">Refresco manual en Excel</div><div class="step-desc"><code>openpyxl</code> no recalcula fórmulas — hay que pegar Breakage Esperado a mano (si no se hizo antes), abrir el archivo de cierre, refrescar con <strong>Ctrl+Alt+F9</strong> y guardar. Recién ahí SSP Facturación, Cobrand, Partners, Control de Pasivo ML y Accounting quedan con los valores del mes nuevo.</div></div></div>
-        <div class="step"><div class="step-num">3</div><div><div class="step-title"><code>py escribir_asientos.py</code></div><div class="step-desc">Recupera el estado guardado por el script anterior, lee las columnas ya recalculadas (Puntos Valuados / DRO / Reconocimiento de Ingresos Diferidos ML), y pega todo en <code>Asientos Cierre Loyalty.xlsx</code> — Accounting se pega a valor.</div></div></div>
+        <div class="step"><div class="step-num">3</div><div><div class="step-title"><code>py escribir_asientos.py</code></div><div class="step-desc">Recupera el estado guardado por el script anterior, lee las columnas ya recalculadas (Puntos Valuados / DRO / Reconocimiento de Ingresos Diferidos ML), y pega todo en <code>Asientos Cierre Loyalty.xlsx</code> — Accounting se pega a valor. Al final completa el bloque <strong>Run Rate</strong> de la solapa <code>P&amp;L Actuals vs RR</code> (por país, mes de cierre, USD) con el último <code>runrate.json</code> de Inputs_Planning_PnL, para compararlo contra lo que se manda a contabilizar. Si falta el archivo, la solapa o el mes, avisa y sigue: no frena el cierre.</div></div></div>
       </div>
     </div>
 
@@ -847,6 +946,8 @@ a.ext-link:hover { text-decoration: underline; }
         <tr><td>Config del mes</td><td>Copiar <code>config.yaml.example</code> → <code>config.yaml</code> (gitignoreado — es personal/mensual: tu carpeta de SharePoint, el mes que estás cerrando).</td></tr>
         <tr><td>Credenciales Datalake</td><td><code>C:\Users\&lt;tu.usuario&gt;\.automatizacion_cierre\.env</code> — <strong>fuera</strong> del repo y de cualquier carpeta sincronizada (no es el mismo <code>envs/.env.&lt;usuario&gt;</code> que usa <code>loyalty_sync.py</code>).</td></tr>
         <tr><td>TC del mes</td><td><code>referencia/TC_mensual.xlsx</code> — el único archivo de referencia que se actualiza todos los meses (mail de Finanzas).</td></tr>
+        <tr><td>Run Rate (comparativo)</td><td><code>config.yaml</code> → <code>run_rate</code>: <code>archivo</code> (ruta de <strong>tu</strong> copia de <code>runrate.json</code>; antes de cada cierre, confirmar que es el último: la solapa muestra su fecha), <code>lob: b2c</code>, <code>rg_en_others</code> (false: 'rg' queda fuera de Others) y <code>excluir_productos_en_others: ["corporate"]</code> (en el RR, 'others countries' trae +404k de Deferred Revenue In de corporate que 'rg' compensa con −404k; decisión 2026-10-03). 'Rewards &amp; Benefits' y 'Rewards &amp; Benefits Cost' van juntos en "Cost".</td></tr>
+        <tr><td>Conexión al Datalake</td><td><code>conectar()</code> ya reintenta solo (4 intentos, espera 8 / 16 / 24 s) ante fallas transitorias de VPN. Si sigue fallando, <strong>no reintentar a mano en loop</strong>: con la contraseña mal cargada el error es el mismo y la cuenta del Datalake se bloquea por intentos fallidos (pasó el 12-oct). Verificar primero entrando a Metabase.</td></tr>
         <tr><td>Breakage Esperado</td><td>Se calcula a mano (con la bajada de puntos expirados) y se pega en la solapa "Breakage Esperado" del archivo de cierre antes del paso 2 — sin esto, SSP Facturación recalcula con un breakage viejo o vacío.</td></tr>
       </tbody></table>
     </div>
