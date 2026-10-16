@@ -1643,8 +1643,9 @@ def load_ssp_standard() -> dict:
         return {}
     try:
         df = pd.read_excel(path, sheet_name="SSP_Standard")
-    except ValueError:
-        print(f"  [WARN] SSP: {Path(path).name} no tiene la solapa SSP_Standard → sin SSP standard")
+    except Exception as e:   # opcional: sin solapa (ValueError) o xlsx ilegible no corta la sync
+        print(f"  [WARN] SSP: no se pudo leer la solapa SSP_Standard de {Path(path).name} "
+              f"({str(e)[:100]}) → sin SSP standard")
         return {}
     df.columns = [str(c).strip().lower() for c in df.columns]
     out, bad = {}, []

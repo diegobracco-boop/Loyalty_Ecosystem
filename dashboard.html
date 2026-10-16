@@ -3022,7 +3022,7 @@ function orSspStd(dk, ym) {
   if (!_ORSTD || _ORSTD.src !== RAW.proy) {
     var m = {};
     expand(RAW.proy).forEach(function(p) {
-      if (p.escenario === 'budget' && p.bloque === 'ssp' && p.clave === 'SSP_Red' && +p.valor) m[p.pais + '|' + p.ym] = +p.valor;
+      if (p.escenario === 'budget' && p.bloque === 'ssp' && p.clave === 'SSP_Red' && +p.valor) m[p.pais + '|' + p.ym] = Math.abs(+p.valor);
     });
     _ORSTD = { src: RAW.proy, m: m };
   }
