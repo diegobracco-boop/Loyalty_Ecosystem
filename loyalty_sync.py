@@ -55,7 +55,9 @@ REGLA_PRODUCTO_CSV = str(_SCRIPT_DIR / "regla_producto.csv")
 # Precios de facturación de Cobrand/Partners + FX mensual por moneda.
 # Fuente: Input_Precios.xlsx (lo mantiene Control de Gestión en OneDrive). Solapas:
 # `Cobrand` / `Partners` (fecha_inicio, fecha_fin, pais, cobrand|partner, point_type,
-# moneda, precio_facturacion) y `FX_Currency` (Pais, Moneda, Fecha, FX_Cuerrency).
+# moneda, precio_facturacion), `FX_Currency` (Pais, Moneda, Fecha, FX_Cuerrency) y
+# `SSP_Standard` (Pais, SSP_Standard: USD por punto, fijo por país — 15-oct; lo usa
+# Reglas One Revenue para el DRO %GB a SSP standard, viaja en loyalty_ssp.json).
 # Se prueba: env PRECIOS_XLSX → ruta OneDrive → copia local en el repo (fallback).
 # Si no se encuentra ninguno, `acum_usd_precio` sale 0 (sin romper la corrida).
 PRECIOS_XLSX_CANDIDATES = [
@@ -1632,6 +1634,34 @@ def load_breakage_esperado() -> dict:
     return out
 
 
+def load_ssp_standard() -> dict:
+    """{datakey: SSP standard (USD/pt, positivo)} desde la solapa SSP_Standard de
+    Input_Precios.xlsx. {} si no hay archivo o solapa (el dashboard cae al SSP_Red del Budget)."""
+    path = next((p for p in PRECIOS_XLSX_CANDIDATES if p and Path(p).exists()), None)
+    if not path:
+        print("  [SSP] SSP_Standard: Input_Precios.xlsx no encontrado → sin SSP standard")
+        return {}
+    try:
+        df = pd.read_excel(path, sheet_name="SSP_Standard")
+    except ValueError:
+        print(f"  [WARN] SSP: {Path(path).name} no tiene la solapa SSP_Standard → sin SSP standard")
+        return {}
+    df.columns = [str(c).strip().lower() for c in df.columns]
+    out, bad = {}, []
+    for _, r in df.iterrows():
+        cc = _PAIS_A_CC.get(str(r.get("pais", "")).strip().lower())
+        v = pd.to_numeric(r.get("ssp_standard"), errors="coerce")
+        dk = CC_TO_DATAKEY.get(cc) if cc else None
+        if not dk or pd.isna(v) or not v:
+            bad.append(str(r.get("pais", "")))
+            continue
+        out[dk] = round(abs(float(v)), 6)
+    print(f"  [SSP] SSP_Standard ({Path(path).name}): {out}")
+    if bad:
+        print(f"  [WARN] SSP_Standard: filas ignoradas (país sin mapear o valor vacío): {bad}")
+    return out
+
+
 def build_ssp_json(*reden_clean_dfs) -> bytes:
     frames = [d for d in reden_clean_dfs if d is not None and len(d)]
     if not frames:
@@ -1666,8 +1696,10 @@ def build_ssp_json(*reden_clean_dfs) -> bytes:
         }
     payload = {
         "meta": {"generated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
-                 "fuente": "redenciones Pasaporte D! (point_type=general) / breakage_esperado.csv"},
+                 "fuente": "redenciones Pasaporte D! (point_type=general) / breakage_esperado.csv"
+                           " / Input_Precios.xlsx (SSP_Standard)"},
         "data": out,
+        "ssp_standard": load_ssp_standard(),
     }
     for dk in sorted(out):
         meses = sorted(out[dk])

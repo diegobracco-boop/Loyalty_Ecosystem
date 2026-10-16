@@ -2949,7 +2949,8 @@ function renderVariaciones() {
 //   DRO               = Valor / (Valor + Margen) × Margen
 //   DRO esperado      = DRO × (1 − breakage esperado)
 //   DRO %GB esperado  = DRO esperado / GB
-//   A SSP standard    = mismo cálculo con el SSP_Red del Budget (fijo por país) en vez del SSP
+//   A SSP standard    = mismo cálculo con el SSP standard (Input_Precios.xlsx, solapa SSP_Standard,
+//                       fijo por país; si falta, el SSP_Red del Budget) en vez del SSP
 //                       calculado del mes: aísla cuánto de la variación viene del SSP.
 //   Deferred out P&L %GB = línea "loyalty - deferred revenue out" / GB, para comparar contra la regla.
 // Fuentes: GB y margen = P&L (actuals, solo Despegar, B2C) — FY en curso de RAW.baseline (meses
@@ -3009,10 +3010,15 @@ function orIdx() {
   _ORIDX = { b: RAW.baseline, p: RAW.pnl_prev, idx: idx };
   return idx;
 }
-// SSP standard = SSP_Red del Budget (Input_budget.xlsx, solapa SSP_PrecioPasivo) por país × mes,
-// siempre del escenario Budget (no depende del selector Budget / Run Rate de Métricas). Cacheado.
+// SSP standard por país: solapa SSP_Standard de Input_Precios.xlsx (Control de Gestión), que el
+// sync deja en loyalty_ssp.json → ssp_standard. Fallback: SSP_Red del Budget (Input_budget.xlsx,
+// solapa SSP_PrecioPasivo) por país × mes, siempre escenario Budget (no depende del selector
+// Budget / Run Rate de Métricas). Cacheado.
+function orSspStdSrc() { return ((RAW.ssp || {}).ssp_standard && Object.keys(RAW.ssp.ssp_standard).length) ? 'precios' : 'budget'; }
 var _ORSTD = null;
 function orSspStd(dk, ym) {
+  var tab = (RAW.ssp || {}).ssp_standard;
+  if (tab && Object.keys(tab).length) return +tab[dk] || null;
   if (!_ORSTD || _ORSTD.src !== RAW.proy) {
     var m = {};
     expand(RAW.proy).forEach(function(p) {
@@ -3127,8 +3133,9 @@ function renderOneRevenue() {
      + 'ratio = puntos / GB penetrado, SSP = valor / puntos, margen % = margen / GB penetrado. '
      + '<strong>Deferred out P&amp;L</strong> = línea "loyalty - deferred revenue out" (DRO contabilizado) del P&amp;L por producto, en positivo — incluye también la parte de Cobrand/Partners, '
      + 'que esta regla no calcula. <strong>P&amp;L %GB</strong> = deferred out P&amp;L / GB. '
-     + '<strong>SSP std</strong> = SSP de redención del Budget (fijo por país); <strong>DRO %GB esp. SSP std</strong> = la misma regla con ese SSP y el resto de los drivers reales; '
-     + '<strong>Efecto SSP</strong> = DRO %GB esp. − DRO %GB esp. SSP std (cuánto mueve el SSP real del mes). Chile no tiene Budget: usa el SSP real (efecto 0). '
+     + '<strong>SSP std</strong> = ' + (orSspStdSrc() === 'precios' ? 'SSP standard de Input_Precios.xlsx (solapa SSP_Standard, fijo por país)'
+       : 'SSP de redención del Budget (fijo por país; la solapa SSP_Standard de Input_Precios.xlsx todavía no llegó al JSON)') + '; <strong>DRO %GB esp. SSP std</strong> = la misma regla con ese SSP y el resto de los drivers reales; '
+     + '<strong>Efecto SSP</strong> = DRO %GB esp. − DRO %GB esp. SSP std (cuánto mueve el SSP real del mes). País sin SSP standard: usa el SSP real (efecto 0). '
      + 'Celdas sin GB, penetración o ratio quedan afuera.</div>';
 
   // ---- evolución mensual
