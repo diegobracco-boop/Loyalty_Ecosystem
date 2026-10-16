@@ -2949,6 +2949,9 @@ function renderVariaciones() {
 //   DRO               = Valor / (Valor + Margen) × Margen
 //   DRO esperado      = DRO × (1 − breakage esperado)
 //   DRO %GB esperado  = DRO esperado / GB
+//   A SSP standard    = mismo cálculo con el SSP_Red del Budget (fijo por país) en vez del SSP
+//                       calculado del mes: aísla cuánto de la variación viene del SSP.
+//   Deferred out P&L %GB = línea "loyalty - deferred revenue out" / GB, para comparar contra la regla.
 // Fuentes: GB y margen = P&L (actuals, solo Despegar, B2C) — FY en curso de RAW.baseline (meses
 // cerrados), FY anterior de RAW.pnl_prev; penetración = loyalty_penetracion_gb (GB con puntos /
 // GB total); ratio = loyalty_ratio_acumulacion (puntos / GB); SSP calculado y breakage esperado =
@@ -3006,7 +3009,21 @@ function orIdx() {
   _ORIDX = { b: RAW.baseline, p: RAW.pnl_prev, idx: idx };
   return idx;
 }
+// SSP standard = SSP_Red del Budget (Input_budget.xlsx, solapa SSP_PrecioPasivo) por país × mes,
+// siempre del escenario Budget (no depende del selector Budget / Run Rate de Métricas). Cacheado.
+var _ORSTD = null;
+function orSspStd(dk, ym) {
+  if (!_ORSTD || _ORSTD.src !== RAW.proy) {
+    var m = {};
+    expand(RAW.proy).forEach(function(p) {
+      if (p.escenario === 'budget' && p.bloque === 'ssp' && p.clave === 'SSP_Red' && +p.valor) m[p.pais + '|' + p.ym] = +p.valor;
+    });
+    _ORSTD = { src: RAW.proy, m: m };
+  }
+  return _ORSTD.m[dk + '|' + ym] || null;
+}
 // Cálculo de una celda; devuelve null si falta algún driver (sin GB, sin penetración o sin ratio).
+// Sin SSP standard en el Budget (Chile), la versión standard usa el SSP real (efecto SSP = 0).
 function orCell(dk, ym, pr) {
   var x = orIdx()[dk + '|' + ym + '|' + pr.toLowerCase()];
   if (!x || !x.gb || !x.penD || !x.rG) return null;
@@ -3015,11 +3032,13 @@ function orCell(dk, ym, pr) {
   var pen = x.penN / x.penD, ratio = x.rP / x.rG, take = x.uf / x.gb;
   var pts = x.gb * pen * ratio, valor = pts * ssp, margen = x.gb * pen * take;
   var dro = (valor + margen) ? valor / (valor + margen) * margen : 0;
+  var std = orSspStd(dk, ym), valorStd = std ? pts * std : valor;
+  var droStd = (valorStd + margen) ? valorStd / (valorStd + margen) * margen : 0;
   return { gb: x.gb, penGB: x.gb * pen, pts: pts, valor: valor, margen: margen, dro: dro,
-           droEsp: dro * (1 - bk), defin: -x.defin };
+           droEsp: dro * (1 - bk), valorStd: valorStd, droEspStd: droStd * (1 - bk), defin: -x.defin };
 }
 function orAdd(a, c) {
-  ['gb', 'penGB', 'pts', 'valor', 'margen', 'dro', 'droEsp', 'defin'].forEach(function(k){ a[k] = (a[k] || 0) + c[k]; });
+  ['gb', 'penGB', 'pts', 'valor', 'margen', 'dro', 'droEsp', 'valorStd', 'droEspStd', 'defin'].forEach(function(k){ a[k] = (a[k] || 0) + c[k]; });
   return a;
 }
 function orAgg(keys, months, products) {
@@ -3066,21 +3085,31 @@ function renderOneRevenue() {
   h += '<div class="bk-card"><div class="bk-hdr">Reglas por ' + (showCountry ? 'país y producto' : 'producto') + ' — '
      + fmtMonthLbl(sel[0]) + (sel.length > 1 ? ' a ' + fmtMonthLbl(sel[sel.length - 1]) : '') + '</div>'
      + '<div class="tbl-scroll"><table class="pnl or-tbl"><thead><tr><th class="lc">' + (showCountry ? 'País / producto' : 'Producto') + '</th>'
-     + '<th>GB</th><th>Penetración</th><th>Ratio acum.</th><th>SSP</th><th>Margen %</th><th>Breakage esp.</th>'
+     + '<th>GB</th><th>Penetración</th><th>Ratio acum.</th><th>SSP</th><th>SSP std</th><th>Margen %</th><th>Breakage esp.</th>'
      + '<th class="sep"></th><th>Valor puntos</th><th>Margen $</th><th>DRO</th><th>DRO esperado</th><th>DRO %GB esp.</th>'
-     + '<th class="sep"></th><th>Deferred out P&amp;L</th><th>Calc. − P&amp;L</th></tr></thead><tbody>';
+     + '<th class="sep"></th><th>DRO %GB esp. SSP std</th><th>Efecto SSP</th>'
+     + '<th class="sep"></th><th>Deferred out P&amp;L</th><th>P&amp;L %GB</th><th>Calc. − P&amp;L</th><th>Calc. − P&amp;L %GB</th></tr></thead><tbody>';
   function pct(v, d) { return v === null || !isFinite(v) ? '—' : (v * 100).toFixed(d === undefined ? 1 : d) + '%'; }
   function row(label, a, cls) {
     if (!a.n) return '';
     var pen = a.gb ? a.penGB / a.gb : null, ratio = a.penGB ? a.pts / a.penGB : null, ssp = a.pts ? a.valor / a.pts : null;
     var take = a.penGB ? a.margen / a.penGB : null, bk = a.dro ? 1 - a.droEsp / a.dro : null;
-    var dif = a.droEsp - a.defin;
+    var dif = a.droEsp - a.defin, sspStd = a.pts ? a.valorStd / a.pts : null;
+    var r = a.gb ? a.droEsp / a.gb : null, rStd = a.gb ? a.droEspStd / a.gb : null, rPl = a.gb && a.defin ? a.defin / a.gb : null;
+    function pp(v) {   // diferencia en pp, redondeada antes del signo (sin "-0.00pp")
+      if (v === null || !isFinite(v)) return '<td class="vf neu">—</td>';
+      var r = Math.round(v * 10000) / 100;
+      return r ? '<td class="' + vc(r) + '">' + (r > 0 ? '+' : '') + r.toFixed(2) + 'pp</td>' : '<td class="vf neu">0.00pp</td>';
+    }
     return '<tr' + (cls ? ' class="' + cls + '"' : '') + '><td class="lc">' + label + '</td>'
       + '<td class="vf">' + fmtPnl(a.gb) + '</td><td class="vf">' + pct(pen) + '</td><td class="vf">' + (ratio !== null ? ratio.toFixed(3) : '—') + '</td>'
-      + '<td class="vf">' + (ssp !== null ? fmtPricePerPt(ssp) : '—') + '</td><td class="vf">' + pct(take) + '</td><td class="vf">' + pct(bk) + '</td>'
+      + '<td class="vf">' + (ssp !== null ? fmtPricePerPt(ssp) : '—') + '</td><td class="vf">' + (sspStd !== null ? fmtPricePerPt(sspStd) : '—') + '</td>'
+      + '<td class="vf">' + pct(take) + '</td><td class="vf">' + pct(bk) + '</td>'
       + '<td class="sep"></td><td class="vf">' + fmtPnl(a.valor) + '</td><td class="vf">' + fmtPnl(a.margen) + '</td><td class="vf">' + fmtPnl(a.dro) + '</td>'
-      + '<td class="vf">' + fmtPnl(a.droEsp) + '</td><td class="vf or-key">' + pct(a.gb ? a.droEsp / a.gb : null, 2) + '</td>'
-      + '<td class="sep"></td><td class="vf">' + (a.defin ? fmtPnl(a.defin) : '—') + '</td><td class="' + vc(dif) + '">' + (a.defin ? fmtPnl(dif, true) : '—') + '</td></tr>';
+      + '<td class="vf">' + fmtPnl(a.droEsp) + '</td><td class="vf or-key">' + pct(r, 2) + '</td>'
+      + '<td class="sep"></td><td class="vf">' + pct(rStd, 2) + '</td>' + pp(r !== null && rStd !== null ? r - rStd : null)
+      + '<td class="sep"></td><td class="vf">' + (a.defin ? fmtPnl(a.defin) : '—') + '</td><td class="vf or-key">' + pct(rPl, 2) + '</td>'
+      + '<td class="' + vc(dif) + '">' + (a.defin ? fmtPnl(dif, true) : '—') + '</td>' + pp(r !== null && rPl !== null ? r - rPl : null) + '</tr>';
   }
   keys.forEach(function(dk) {
     if (showCountry) {
@@ -3097,10 +3126,13 @@ function renderOneRevenue() {
   h += '<div class="proj-note">Penetración, ratio, SSP, margen % y breakage de los totales son ponderados (no promedios simples): penetración = GB penetrado / GB, '
      + 'ratio = puntos / GB penetrado, SSP = valor / puntos, margen % = margen / GB penetrado. '
      + '<strong>Deferred out P&amp;L</strong> = línea "loyalty - deferred revenue out" (DRO contabilizado) del P&amp;L por producto, en positivo — incluye también la parte de Cobrand/Partners, '
-     + 'que esta regla no calcula. Celdas sin GB, penetración o ratio quedan afuera.</div>';
+     + 'que esta regla no calcula. <strong>P&amp;L %GB</strong> = deferred out P&amp;L / GB. '
+     + '<strong>SSP std</strong> = SSP de redención del Budget (fijo por país); <strong>DRO %GB esp. SSP std</strong> = la misma regla con ese SSP y el resto de los drivers reales; '
+     + '<strong>Efecto SSP</strong> = DRO %GB esp. − DRO %GB esp. SSP std (cuánto mueve el SSP real del mes). Chile no tiene Budget: usa el SSP real (efecto 0). '
+     + 'Celdas sin GB, penetración o ratio quedan afuera.</div>';
 
   // ---- evolución mensual
-  h += '<div class="cc" style="margin-top:16px"><div class="ct">DRO %GB esperado por mes — ' + fyLbl(fy.cy) + ' vs ' + fyLbl(fy.ly) + '</div>'
+  h += '<div class="cc" style="margin-top:16px"><div class="ct">DRO %GB esperado por mes — ' + fyLbl(fy.cy) + ' vs ' + fyLbl(fy.ly) + ', con SSP standard y P&amp;L</div>'
      + '<div class="cw"><canvas id="ch-or-evo"></canvas></div>'
      + '<div class="dtable-row"><div class="dtable-label">Δ pp</div><div class="yoy-row" id="or-evo-pp"></div></div></div>'
      + '<div class="proj-note">' + fyLbl(fy.ly) + ': sep–dic 2025 sin dato del P&amp;L con apertura por marca (el armado de actuals del FY anterior en Inputs_Planning_PnL no los trae).</div>';
@@ -3114,7 +3146,15 @@ function renderOneRevenue() {
       return a.n && a.gb ? a.droEsp / a.gb * 100 : null;
     });
   }
-  var cy = series(fy.cy), ly = series(fy.ly);
+  function seriesK(num) {
+    return FISCAL_MONTHS.map(function(mm) {
+      var ym = fiscalCalYear(mm, fy.cy) + '-' + mm;
+      if (ym > last) return null;
+      var a = orAgg(keys, [ym], OR_PRODUCTS);
+      return a.n && a.gb && a[num] ? a[num] / a.gb * 100 : null;
+    });
+  }
+  var cy = series(fy.cy), ly = series(fy.ly), cyStd = seriesK('droEspStd'), cyPl = seriesK('defin');
   var fmt = function(v){ return v === null || v === undefined ? '' : v.toFixed(2) + '%'; };
   var ctx = document.getElementById('ch-or-evo');
   if (CHARTS['ch-or-evo']) CHARTS['ch-or-evo'].destroy();
@@ -3123,7 +3163,11 @@ function renderOneRevenue() {
     type: 'bar',
     data: { labels: FISCAL_LABELS, datasets: [
       { label: fyLbl(fy.ly), data: ly, backgroundColor: 'rgba(100,116,139,.3)', borderRadius: 3, datalabels: dl },
-      { label: fyLbl(fy.cy), data: cy, backgroundColor: 'rgba(85,15,237,.75)', borderRadius: 3, datalabels: dl }
+      { label: fyLbl(fy.cy), data: cy, backgroundColor: 'rgba(85,15,237,.75)', borderRadius: 3, datalabels: dl },
+      { type: 'line', label: fyLbl(fy.cy) + ' a SSP std', data: cyStd, borderColor: '#0ea5e9', backgroundColor: '#0ea5e9',
+        borderDash: [5, 4], borderWidth: 2, pointRadius: 3, spanGaps: false, datalabels: { display: false } },
+      { type: 'line', label: 'Deferred out P&L %GB ' + fyLbl(fy.cy), data: cyPl, borderColor: '#f59e0b', backgroundColor: '#f59e0b',
+        borderWidth: 2, pointRadius: 3, spanGaps: false, datalabels: { display: false } }
     ] },
     options: { responsive: true, maintainAspectRatio: false,
       plugins: { legend: { labels: { font: { size: 12 }, boxWidth: 10 } },
