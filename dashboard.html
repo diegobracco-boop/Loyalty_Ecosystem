@@ -4150,7 +4150,10 @@ function renderBreakageEsp() {
   }
   var meta = (RAW.breakage_esp || {}).meta || {};
   var ssp = (RAW.ssp || {}).data || {};
-  function cargado(dk, ym) { var o = (ssp[dk] || {})[ym]; return o && o.breakage_esperado !== undefined ? +o.breakage_esperado : null; }
+  function cargado(dk, ym) {
+    var o = (ssp[dk] || {})[ym];
+    return o && o.breakage_esperado !== undefined && o.breakage_esperado !== null && o.breakage_esperado !== '' ? +o.breakage_esperado : null;
+  }
   var paises = COUNTRY_DATAKEYS.filter(function(dk){ return rows.some(function(r){ return r.dk === dk; }); });
   var by = {};
   rows.forEach(function(r){ (by[r.dk] = by[r.dk] || {})[r.ym] = r; });
