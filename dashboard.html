@@ -4033,8 +4033,21 @@ function ipRenderReal(h) {
               pen.length ? ipRealTable({ unit: 'pct', kind: 'ratio', col: 'País' + (penDims.length ? ' / producto' : '') }, ipGroups(pen, penDims, countries), months)
                          : '<div class="empty">Sin datos de penetración.</div>');
   // 5-6. Órdenes con puntos redimidos
-  h += ipPending('Cantidad de órdenes con puntos redimidos · Promedio de puntos redimidos por orden',
-                 'La query de redenciones todavía no trae el conteo de órdenes (próximo cambio del pipeline).');
+  // ordenes_red: n = puntos redimidos, d = órdenes. Una reserva con puntos en 2 productos cuenta en los 2.
+  var ordRows = real ? real.filter(function(r){ return r.factor === 'ordenes_red' && r.d && months.indexOf(r.ym) !== -1; }) : [];
+  if (!real) {
+    h += ipCard('Órdenes con puntos redimidos', '', noReal);
+  } else if (!ordRows.length) {
+    h += ipPending('Cantidad de órdenes con puntos redimidos · Promedio de puntos redimidos por orden',
+                   'El <code>loyalty_inputs_real.json</code> de Drive todavía no trae el conteo de órdenes: aparece en la próxima corrida de <code>loyalty_sync.py</code>.');
+  } else {
+    var ordNota = 'Pasaporte D! + Cobrand + Partners · una reserva con puntos en 2 productos cuenta como 2';
+    h += ipCard('Cantidad de órdenes con puntos redimidos', ordNota,
+                ipRealTable({ unit: 'pts', kind: 'sum', col: col },
+                            ipGroups(ordRows.map(function(r){ return { dk: r.dk, ym: r.ym, producto: r.producto, viaje: r.viaje, canal: r.canal, n: r.d, d: 0 }; }), dims, countries), months));
+    h += ipCard('Promedio de puntos redimidos por orden', 'puntos redimidos / órdenes · ' + ordNota,
+                ipRealTable({ unit: 'pts', kind: 'ratio', col: col }, ipGroups(ordRows, dims, countries), months));
+  }
   // 7. Regla de acumulación
   h += ipCard('Regla de acumulación', 'puntos acumulados / GB de las reservas que acumularon (Pasaporte D!) · puntos por USD',
               real ? ipRealTable({ unit: 'ratio', kind: 'ratio', col: col }, factorGroups('regla'), months) : noReal);

@@ -1143,6 +1143,7 @@ SELECT processing_date, product, country_code, partner,
        SUM(points) AS points, point_type,
        business, country, produto_original, channel_condition, payment_type, produto_agrupado,
        SUM(descuento_consumo_puntos_usd) AS descuento_consumo_puntos_usd,
+       COUNT(DISTINCT transaction_code) AS ordenes,
        legal_entity
 FROM final_base
 GROUP BY processing_date, product, country_code, partner, point_type, business, country,
@@ -1451,7 +1452,7 @@ def clean_reden(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df["processing_date"] = df["processing_date"].apply(_fix_date)
     df = df.dropna(subset=["processing_date"])
-    for col in ["points", "descuento_consumo_puntos_usd"]:
+    for col in ["points", "descuento_consumo_puntos_usd", "ordenes"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).round(2)
     str_cols = ["product", "country_code", "partner", "point_type", "business",
@@ -1927,6 +1928,17 @@ def build_inputs_real_json(acum_pre_dfs, reden_clean_dfs, by_name: dict, by_code
     g["factor"] = "ssp_red"
     parts.append(g)
 
+    # Órdenes con redención (misma base que ssp_red): num = puntos redimidos, den = órdenes
+    # (COUNT(DISTINCT transaction_code) de _REDEN_SQL por fila día × producto × point_type × …).
+    # Una reserva con puntos en 2 productos cuenta en los 2: el total por país es la suma de
+    # órdenes × producto, no órdenes únicas.
+    o = r.copy()
+    o["num"] = o["den"]
+    o["den"] = pd.to_numeric(o["ordenes"], errors="coerce").fillna(0) if "ordenes" in o else 0.0
+    g = o.groupby(keys, as_index=False).agg(num=("num", "sum"), den=("den", "sum"))
+    g["factor"] = "ordenes_red"
+    parts.append(g)
+
     a = _frames(acum_pre_dfs)
     a = a[a["point_type"].astype(str).str.lower() == _PASAPORTE_GENERAL_POINT_TYPE].copy()
     a["num"] = pd.to_numeric(a["points"], errors="coerce").fillna(0)
@@ -1944,7 +1956,7 @@ def build_inputs_real_json(acum_pre_dfs, reden_clean_dfs, by_name: dict, by_code
     # Control de la agregación: el total por país × mes del JSON tiene que dar lo mismo que
     # las filas de origen (detecta filas perdidas al agrupar). La base de origen es la misma
     # de ssp_calculado (build_ssp_json) y de ratio_acum (aggregate_ratio_acum).
-    for fac, src in (("ssp_red", r), ("regla", a)):
+    for fac, src in (("ssp_red", r), ("ordenes_red", o), ("regla", a)):
         if src.empty:
             print(f"  [WARN] inputs {fac}: 0 filas de origen")
             continue
@@ -1966,6 +1978,7 @@ def build_inputs_real_json(acum_pre_dfs, reden_clean_dfs, by_name: dict, by_code
         "meta": {"generated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
                  "fuente": "redenciones (ssp_red) y acumulaciones point_type=general (regla) del Datalake",
                  "factores": {"ssp_red": "num = USD descuento, den = puntos redimidos",
+                              "ordenes_red": "num = puntos redimidos, den = órdenes con redención (× producto)",
                               "regla": "num = puntos acumulados, den = GB (gb_basebi_2)"},
                  "canal": "Offline = Call Center + Sucursales"},
         "cols": cols,
