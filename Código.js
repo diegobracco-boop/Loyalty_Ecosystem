@@ -29,7 +29,8 @@ var FILES = {
   stock_ifood: 'loyalty_stock_ifood.json',
   proy:       'loyalty_proyecciones.json',
   inputs_real: 'loyalty_inputs_real.json',
-  orders_real: 'loyalty_orders_real.json'   // inputs_contables_loyalty.py (P&L actuals, todas las marcas)
+  orders_real: 'loyalty_orders_real.json',  // inputs_contables_loyalty.py (P&L actuals, todas las marcas)
+  breakage_esp: 'loyalty_breakage_esperado.json'   // breakage_esperado.py (control vs Excel de CG)
 };
 
 var CACHE_TTL   = 21600;  // 6 h
@@ -63,6 +64,7 @@ function getRawAcumChannel()    { return _load(LOYALTY_FOLDER_ID,  FILES.acum_ch
 function getRawStockIfood()     { return _load(LOYALTY_FOLDER_ID,  FILES.stock_ifood, 'stock_ifood'); }
 function getRawInputsReal()     { return _load(LOYALTY_FOLDER_ID,  FILES.inputs_real, 'inputs_real'); }
 function getRawOrdersReal()     { return _load(LOYALTY_FOLDER_ID,  FILES.orders_real, 'orders_real'); }
+function getRawBreakageEsp()    { return _load(LOYALTY_FOLDER_ID,  FILES.breakage_esp, 'breakage_esp'); }
 function getRawProyecciones()   { return _load(LOYALTY_FOLDER_ID,  FILES.proy,       'proy');       }
 
 // Carga TODO en una sola ejecución server-side (secuencial), en vez de que el
@@ -83,7 +85,7 @@ function getAllRaw() {
     ratio_acum: getRawRatioAcum, ratio_acum_tier: getRawRatioAcumTier, acum_tier: getRawAcumTier,
     penet: getRawPenetracionGb, acum_channel: getRawAcumChannel,
     stock_ifood: getRawStockIfood, proy: getRawProyecciones, inputs_real: getRawInputsReal,
-    orders_real: getRawOrdersReal,
+    orders_real: getRawOrdersReal, breakage_esp: getRawBreakageEsp,
     baseline: getLoyBaseline, budget: getLoyBudget, forecast: getLoyForecast,
     runrate: getLoyRunrate, pnl_prev: getLoyPnlPrev
   };
