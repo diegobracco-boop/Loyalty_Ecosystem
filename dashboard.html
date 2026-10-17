@@ -4075,9 +4075,18 @@ function ipRenderReal(h) {
   // 3. Precio del pasivo
   h += ipPending('Precio del punto pasivo', 'Sin definición del valor real todavía: falta que Control de Gestión defina cómo se calcula.');
   // 4. Penetración GB (solo país × producto)
-  h += card({ name: 'Penetración del GB', unit: 'pct', kind: 'ratio', dims: DL }, pen,
+  h += card({ name: 'Penetración del GB (acumulación)', unit: 'pct', kind: 'ratio', dims: DL }, pen,
             '% del GB (Despegar B2C, base P&amp;L) con acumulación de puntos · canal de la query B2C (Site / App / Call Center / Sucursales) · Uruguay va en Other Countries',
             pen.length ? '' : '<div class="empty">Sin datos de penetración.</div>');
+  // 4b. Penetración de redenciones: mismo denominador, numerador = GB de reservas con redención (GR)
+  var penRed = expand(RAW.penet).filter(function(r){ return r.gb_con_redencion !== undefined; }).map(function(r) {
+    return ipRow(ISO_TO_DATAKEY[(r.country_code || '').toLowerCase()], (r.ym || '').substring(0, 7),
+                 { producto: r.grupo_pnl || 'Sin clasificar', marca: r.marca, lob: r.lob, canal: r.canal, viaje: r.viaje },
+                 +r.gb_con_redencion || 0, +r.gb_total || 0);
+  }).filter(function(r){ return r.dk; });
+  h += card({ name: 'Penetración de redenciones', unit: 'pct', kind: 'ratio', dims: DL }, penRed,
+            '% del GB (Despegar B2C, base P&amp;L) de reservas en las que se redimieron puntos · mismo denominador que la penetración del GB',
+            penRed.length ? '' : '<div class="empty">Se genera en la próxima corrida de <code>loyalty_sync.py</code>.</div>');
   // 5-6. Órdenes reales (P&L) y puntos redimidos por orden
   var faltaPo = [];
   if (!RAW.orders_real) faltaPo.push('<code>loyalty_orders_real.json</code> (se genera con <code>py inputs_contables_loyalty.py --upload</code>)');

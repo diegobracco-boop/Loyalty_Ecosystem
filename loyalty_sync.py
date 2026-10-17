@@ -2086,13 +2086,22 @@ GROUP BY processing_date, country_code, tier
 _PENET_SQL = """
 -- Base = query B2C de Diego (bi_pnlop_fact_current_model, 17-oct) + brand = 'Despegar'.
 -- Denominador: GB (gb_without_distorted_taxes_usd) de todas las reservas confirmadas Despegar B2C.
--- Numerador: el GB de las que tuvieron accrual (clm_transactions GA/B).
+-- Numerador (penetración GB): el GB de las que tuvieron accrual (clm_transactions GA/B).
+-- Numerador (penetración redenciones): el GB de las que tuvieron redención (GR/B, el mismo
+-- evento que exige _REDEN_SQL).
 -- Los LEFT JOIN a data.tmp.* / pricing_model de la query original no tocan el GB (verificado
 -- país por país en sep-26: mismo GB y mismas filas con y sin ellos) y se omiten.
 WITH clm_ga AS (
     SELECT DISTINCT CAST(ext_despegar_trn_id AS VARCHAR) AS transaction_code
     FROM   data.lake.clm_transactions
     WHERE  transaction_type = 'GA'
+      AND  status           = 'B'
+      AND  processing_date >= DATE('2023-01-01')
+),
+clm_gr AS (
+    SELECT DISTINCT CAST(ext_despegar_trn_id AS VARCHAR) AS transaction_code
+    FROM   data.lake.clm_transactions
+    WHERE  transaction_type = 'GR'
       AND  status           = 'B'
       AND  processing_date >= DATE('2023-01-01')
 )
@@ -2165,7 +2174,9 @@ SELECT
     COUNT(DISTINCT t.transaction_code) AS trx_total,
     COUNT(DISTINCT CASE WHEN ga.transaction_code IS NOT NULL THEN t.transaction_code END) AS trx_con_puntos,
     SUM(b.gb_without_distorted_taxes_usd) AS gb_total,
-    SUM(CASE WHEN ga.transaction_code IS NOT NULL THEN b.gb_without_distorted_taxes_usd ELSE 0 END) AS gb_con_puntos
+    SUM(CASE WHEN ga.transaction_code IS NOT NULL THEN b.gb_without_distorted_taxes_usd ELSE 0 END) AS gb_con_puntos,
+    COUNT(DISTINCT CASE WHEN gr.transaction_code IS NOT NULL THEN t.transaction_code END) AS trx_con_redencion,
+    SUM(CASE WHEN gr.transaction_code IS NOT NULL THEN b.gb_without_distorted_taxes_usd ELSE 0 END) AS gb_con_redencion
 FROM data.analytics.bi_pnlop_fact_current_model b
 INNER JOIN analytics.bi_transactional_fact_products p
         ON CAST(p.product_id AS VARCHAR) = CAST(b.product_id AS VARCHAR)
@@ -2173,6 +2184,8 @@ INNER JOIN analytics.bi_transactional_fact_transactions t
         ON t.transaction_code = p.transaction_code
 LEFT  JOIN clm_ga ga
         ON CAST(t.transaction_code AS VARCHAR) = ga.transaction_code
+LEFT  JOIN clm_gr gr
+        ON CAST(t.transaction_code AS VARCHAR) = gr.transaction_code
 WHERE b.date_reservation_year_month  >= '2023-01'
   AND p.reservation_year_month_period >= '2023'
   AND t.reservation_year_month_period >= '2023'
@@ -2217,7 +2230,8 @@ def fetch_penet(desde: str, hasta: str) -> pd.DataFrame:
     ver aggregate_ratio_acum).
     """
     keys = ["ym", "country_code", "grupo_pnl", "marca", "lob", "canal", "viaje"]
-    cols = keys + ["trx_total", "trx_con_puntos", "gb_total", "gb_con_puntos"]
+    nums = ["trx_total", "trx_con_puntos", "gb_total", "gb_con_puntos", "trx_con_redencion", "gb_con_redencion"]
+    cols = keys + nums
     df = fetch(build_penet_query(desde, hasta),
                f"Penetración GB Acum ({desde[:7]}→{hasta[:7]})")
     if df.empty:
@@ -2227,7 +2241,7 @@ def fetch_penet(desde: str, hasta: str) -> pd.DataFrame:
     df = df.dropna(subset=["ym"])
     df["ym"] = df["ym"].str.slice(0, 7) + "-01"
     df["country_code"] = df["country_code"].fillna("N/D").astype(str)
-    for c in ("trx_total", "trx_con_puntos", "gb_total", "gb_con_puntos"):
+    for c in nums:
         df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
     df["producto_original"] = df["producto_original"].fillna("N/D").astype(str)
     for c in ("marca", "lob", "canal"):
@@ -2271,13 +2285,9 @@ def fetch_penet(desde: str, hasta: str) -> pd.DataFrame:
               f"{combos[:10]}{'…' if len(combos) > 10 else ''}")
     df = df[df["grupo_pnl"] != "Sin clasificar"]
 
-    out = (df.groupby(keys, as_index=False, dropna=False)
-             .agg(trx_total      =("trx_total",     "sum"),
-                  trx_con_puntos =("trx_con_puntos", "sum"),
-                  gb_total       =("gb_total",       "sum"),
-                  gb_con_puntos  =("gb_con_puntos",  "sum")))
-    out["gb_total"]      = out["gb_total"].round(2)
-    out["gb_con_puntos"] = out["gb_con_puntos"].round(2)
+    out = df.groupby(keys, as_index=False, dropna=False)[nums].sum()
+    for c in ("gb_total", "gb_con_puntos", "gb_con_redencion"):
+        out[c] = out[c].round(2)
     return out[cols]
 
 
