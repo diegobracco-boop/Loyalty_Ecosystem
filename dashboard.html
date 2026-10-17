@@ -4125,7 +4125,7 @@ function ipRenderReal(h) {
 // loyalty_breakage_esperado.json). Es un CONTROL: el valor oficial es el que se carga en la
 // pestaña breakage_esperado del Sheet Config (acá: RAW.ssp.data[país][mes].breakage_esperado).
 //   % del mes M = vencidos acumulados hasta M (Non Tender + Cobrand)
-//                 / acumulados hasta M − 19 meses (Non Tender + Cobrand + Partners)
+//                 / acumulados hasta M − 18 meses (Non Tender + Cobrand + Partners; los puntos vencen a los 18 meses)
 //   breakage esperado = promedio de los últimos 12 % mensuales
 // ============================================================
 var BE_STATE = { mes: null };
@@ -4161,7 +4161,7 @@ function renderBreakageEsp() {
   if (!BE_STATE.mes || ms.indexOf(BE_STATE.mes) === -1) BE_STATE.mes = lastM;
 
   h += '<div class="proj-note"><strong>Cómo se calcula</strong> (réplica del Excel de Control de Gestión, carpeta Cierre/&lt;mes&gt;/Auditoria): '
-     + '<strong>% del mes M</strong> = puntos vencidos acumulados hasta M (Non Tender + Cobrand) ÷ puntos acumulados hasta M − ' + (meta.rezago_meses || 19) + ' meses '
+     + '<strong>% del mes M</strong> = puntos vencidos acumulados hasta M (Non Tender + Cobrand) ÷ puntos acumulados hasta M − ' + (meta.rezago_meses || 18) + ' meses (los puntos vencen a los 18 meses) '
      + '(Non Tender + Cobrand + Partners). <strong>Breakage esperado</strong> = promedio de los últimos ' + (meta.ventana || 12) + ' % mensuales. '
      + 'Vencidos: query de breakage desde 2019, clasificados con el Diccionario Point Type del Excel (quedan afuera R&amp;B, Santander 2, Partner, PAD). '
      + 'Acumulados: historia oficial del archivo de cierre hasta ' + fmtMonthLbl(meta.acum_hist_hasta || '2025-12') + ', después las acumulaciones del ecosystem. '
@@ -4198,7 +4198,7 @@ function renderBreakageEsp() {
     }).join('') + '</tr>';
   });
   t2 += '</tbody></table></div>';
-  h += ipCard('% de vencimiento del mes', 'vencidos acumulados hasta el mes ÷ acumulados hasta 19 meses antes · es lo que se promedia', t2);
+  h += ipCard('% de vencimiento del mes', 'vencidos acumulados hasta el mes ÷ acumulados hasta 18 meses antes · es lo que se promedia', t2);
 
   // 3. Detalle de un mes
   var ctl = '<div class="var-ctl"><span class="ratio-controls-lbl">Mes</span><select class="ratio-sel" onchange="beSet(\'mes\', this.value)">'
