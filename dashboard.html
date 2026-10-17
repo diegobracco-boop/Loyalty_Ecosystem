@@ -4034,11 +4034,16 @@ function ipRenderReal(h) {
 
   var sspRed = fac('ssp_red');
   var sspFac = sspRed.map(function(r){ var x = Object.assign({}, r); x.n = r.n * (1 - bk(r.dk, r.ym)); return x; });
-  var pen = expand(RAW.penet).map(function(r) {
+  // Penetraciones para proyectar: solo Site + App (la proyección se abre así y en canales
+  // offline no se redime). El indicador genérico (heatmap de Pasaporte D!) usa todos los canales.
+  // Con un JSON viejo sin canal no se filtra (todo quedaría afuera).
+  var penRaw = expand(RAW.penet), penCanal = penRaw.some(function(r){ return r.canal; });
+  function penOnline(r) { return !penCanal || r.canal === 'Site' || r.canal === 'App'; }
+  var pen = penRaw.map(function(r) {
     return ipRow(ISO_TO_DATAKEY[(r.country_code || '').toLowerCase()], (r.ym || '').substring(0, 7),
                  { producto: r.grupo_pnl || 'Sin clasificar', marca: r.marca, lob: r.lob, canal: r.canal, viaje: r.viaje },
                  +r.gb_con_puntos || 0, +r.gb_total || 0);
-  }).filter(function(r){ return r.dk; });
+  }).filter(function(r){ return r.dk && penOnline(r); });
   // Puntos por orden: solo aperturas (al detalle más fino) que tuvieron redenciones en algún mes;
   // así, al cerrar Marca / LoB / Canal, las órdenes de Best Day o B2B no entran al denominador.
   var ptsRed = fac('pts_red');
@@ -4076,16 +4081,16 @@ function ipRenderReal(h) {
   h += ipPending('Precio del punto pasivo', 'Sin definición del valor real todavía: falta que Control de Gestión defina cómo se calcula.');
   // 4. Penetración GB (solo país × producto)
   h += card({ name: 'Penetración del GB (acumulación)', unit: 'pct', kind: 'ratio', dims: DL }, pen,
-            '% del GB (Despegar B2C, base P&amp;L) con acumulación de puntos · canal de la query B2C (Site / App / Call Center / Sucursales) · Uruguay va en Other Countries',
+            '% del GB Despegar B2C (base P&amp;L) con acumulación de puntos · <strong>solo Site + App</strong> (apertura de la proyección; el indicador general de Pasaporte D! usa todos los canales) · Uruguay va en Other Countries',
             pen.length ? '' : '<div class="empty">Sin datos de penetración.</div>');
   // 4b. Penetración de redenciones: mismo denominador, numerador = GB de reservas con redención (GR)
-  var penRed = expand(RAW.penet).filter(function(r){ return r.gb_con_redencion !== undefined; }).map(function(r) {
+  var penRed = penRaw.filter(function(r){ return r.gb_con_redencion !== undefined; }).map(function(r) {
     return ipRow(ISO_TO_DATAKEY[(r.country_code || '').toLowerCase()], (r.ym || '').substring(0, 7),
                  { producto: r.grupo_pnl || 'Sin clasificar', marca: r.marca, lob: r.lob, canal: r.canal, viaje: r.viaje },
                  +r.gb_con_redencion || 0, +r.gb_total || 0);
-  }).filter(function(r){ return r.dk; });
+  }).filter(function(r){ return r.dk && penOnline(r); });
   h += card({ name: 'Penetración de redenciones', unit: 'pct', kind: 'ratio', dims: DL }, penRed,
-            '% del GB (Despegar B2C, base P&amp;L) de reservas en las que se redimieron puntos · mismo denominador que la penetración del GB',
+            '% del GB Despegar B2C (base P&amp;L) de reservas en las que se redimieron puntos · <strong>solo Site + App</strong> (solo se redime online) · mismo denominador que la penetración del GB',
             penRed.length ? '' : '<div class="empty">Se genera en la próxima corrida de <code>loyalty_sync.py</code>.</div>');
   // 5-6. Órdenes reales (P&L) y puntos redimidos por orden
   var faltaPo = [];

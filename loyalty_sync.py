@@ -2209,6 +2209,36 @@ def build_penet_query(desde: str, hasta: str) -> str:
 _PENET_VIAJE = {"Nac": "Domestic", "Int": "International"}
 
 
+def check_reglas_programa(reden_clean_dfs, df_penet: pd.DataFrame) -> None:
+    """Reglas del programa (CLAUDE.md, 17-oct): solo Despegar B2C; se redime solo en Site / App.
+    Solo avisa ([WARN]) — un dato que las viola es un problema de datos o de mapeo."""
+    fr = [d for d in reden_clean_dfs if d is not None and len(d)]
+    if fr:
+        r = pd.concat(fr, ignore_index=True)
+        pts = pd.to_numeric(r["points"], errors="coerce").fillna(0).abs()
+        marca = r.get("brand", pd.Series("N/D", index=r.index)).astype(str).str.strip().str.lower()
+        lob = r.get("line_of_business", pd.Series("N/D", index=r.index)).astype(str).str.strip().str.lower()
+        canal = r["channel_condition"].astype(str).str.strip().str.lower()
+        malo = (marca != "despegar") | (lob != "b2c") | (~canal.isin(["site", "app"]))
+        if pts[malo].sum() > 0:
+            det = (pd.DataFrame({"marca": marca, "lob": lob, "canal": canal, "pts": pts})[malo]
+                     .groupby(["marca", "lob", "canal"])["pts"].sum().sort_values(ascending=False))
+            print(f"  [WARN] reglas programa: {pts[malo].sum():,.0f} puntos redimidos "
+                  f"({pts[malo].sum() / max(pts.sum(), 1):.2%}) fuera de Despegar · B2C · Site/App: "
+                  f"{det.head(5).to_dict()}")
+        else:
+            print("  [OK] reglas programa: redenciones 100% Despegar · B2C · Site/App")
+    if df_penet is not None and len(df_penet) and "gb_con_redencion" in df_penet:
+        off = df_penet[~df_penet["canal"].isin(["Site", "App"])]
+        if off["gb_con_redencion"].sum() > 0:
+            print(f"  [WARN] reglas programa: {off['gb_con_redencion'].sum():,.0f} GB con redención en canales "
+                  f"offline (Call Center / Sucursales): {off.groupby('canal')['gb_con_redencion'].sum().to_dict()}")
+        fuera = df_penet[(df_penet["marca"] != "Despegar") & (df_penet["gb_con_puntos"] > 0)]
+        if len(fuera):
+            print(f"  [WARN] reglas programa: {fuera['gb_con_puntos'].sum():,.0f} GB con acumulación fuera de "
+                  f"marca Despegar: {fuera.groupby('marca')['gb_con_puntos'].sum().to_dict()}")
+
+
 def fetch_penet(desde: str, hasta: str) -> pd.DataFrame:
     """GB total y GB con puntos por mes x pais x grupo_pnl x marca x lob x canal x viaje.
 
@@ -3425,6 +3455,7 @@ df_penet = pd.concat([
     fetch_penet(ACTUALS_DESDE, ACTUALS_HASTA),
     fetch_penet(LY_DESDE, LY_HASTA),
 ], ignore_index=True)
+check_reglas_programa([_reden_cy_clean, _reden_ly_clean], df_penet)
 
 print("\n--- Construyendo diccionario de puntos ---")
 dict_bytes = build_dict_json()
