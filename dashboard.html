@@ -4122,8 +4122,9 @@ function ipRenderReal(h) {
 // ============================================================
 // Pestaña "Breakage esperado" (17-oct) — réplica del Excel de Control de Gestión
 // ("Breakage Esperado <MM'AA>.xlsx"), calculada en el pipeline (breakage_esperado.py →
-// loyalty_breakage_esperado.json). Es un CONTROL: el valor oficial es el que se carga en la
-// pestaña breakage_esperado del Sheet Config (acá: RAW.ssp.data[país][mes].breakage_esperado).
+// loyalty_breakage_esperado.json). Desde 17-oct es la FUENTE del SSP de facturación y del DRO
+// (decisión de Diego). El Sheet Config (pestaña breakage_esperado) queda como referencia y como
+// fallback para meses sin cálculo: RAW.ssp.data[país][mes].breakage_sheet.
 //   % del mes M = vencidos acumulados hasta M (Non Tender + Cobrand)
 //                 / acumulados hasta M − 19 meses (Non Tender + Cobrand + Partners; criterio histórico del Excel)
 //   breakage esperado = promedio de los últimos 12 % mensuales
@@ -4138,7 +4139,7 @@ function beInt(v) { return v === null || v === undefined || !isFinite(v) ? '—'
 function renderBreakageEsp() {
   var el = document.getElementById('panel-breakageesp');
   if (!el) return;
-  var h = '<div class="stitle">Breakage esperado — cálculo del ecosystem vs valor cargado</div>';
+  var h = '<div class="stitle">Breakage esperado — cálculo del ecosystem</div>';
   var rows = expand(RAW.breakage_esp).map(function(r) {
     return { dk: ISO_TO_DATAKEY[String(r.country || '').toLowerCase()], iso: r.country, ym: r.ym, corte: r.corte_acum,
              vnt: +r.venc_nt || 0, vcb: +r.venc_cb || 0, ant: +r.acum_nt || 0, acb: +r.acum_cb || 0,
@@ -4150,9 +4151,13 @@ function renderBreakageEsp() {
   }
   var meta = (RAW.breakage_esp || {}).meta || {};
   var ssp = (RAW.ssp || {}).data || {};
+  // Valor del Sheet. Con el loyalty_ssp.json nuevo viene en breakage_sheet (breakage_esperado ya es el
+  // calculado); con uno viejo (sin breakage_fuente) breakage_esperado todavía es el del Sheet.
   function cargado(dk, ym) {
     var o = (ssp[dk] || {})[ym];
-    return o && o.breakage_esperado !== undefined && o.breakage_esperado !== null && o.breakage_esperado !== '' ? +o.breakage_esperado : null;
+    if (!o) return null;
+    var v = o.breakage_fuente !== undefined ? o.breakage_sheet : o.breakage_esperado;
+    return v !== undefined && v !== null && v !== '' ? +v : null;
   }
   var paises = COUNTRY_DATAKEYS.filter(function(dk){ return rows.some(function(r){ return r.dk === dk; }); });
   var by = {};
@@ -4169,19 +4174,19 @@ function renderBreakageEsp() {
      + 'Vencidos: query de breakage desde 2019, clasificados con el Diccionario Point Type del Excel (quedan afuera R&amp;B, Santander 2, Partner, PAD). '
      + 'Acumulados: historia oficial del archivo de cierre hasta ' + fmtMonthLbl(meta.acum_hist_hasta || '2025-12') + ', después las acumulaciones del ecosystem. '
      + 'Ajustes que replica del Excel: Colombia resta el welcome bonus vencido en jun-24 (302.123.640 pts); Perú promedia desde jul-25. '
-     + '<strong>Es un control:</strong> el valor oficial es el del Excel, que se carga en la pestaña <code>breakage_esperado</code> del Sheet Config '
-     + '(y es el que usan el SSP de facturación y el DRO). Se marcan las diferencias de más de ' + BE_TOL_PP.toString().replace('.', ',') + ' pp.</div>';
+     + '<strong>Este cálculo es el que usan el SSP de facturación y el DRO del dashboard.</strong> La pestaña <code>breakage_esperado</code> del Sheet Config '
+     + 'queda como referencia (y solo se usa en meses sin cálculo); se marcan las diferencias de más de ' + BE_TOL_PP.toString().replace('.', ',') + ' pp contra el Sheet.</div>';
 
   // 1. Calculado vs cargado vs Δ
   var th = '<thead><tr><th class="lc">País</th><th class="lc">Serie</th>' + ms.map(function(ym){ return '<th>' + fmtMonthLbl(ym) + '</th>'; }).join('') + '</tr></thead>';
   var t1 = '<div class="tbl-scroll"><table class="pnl ip-tbl">' + th + '<tbody>';
   paises.forEach(function(dk) {
     var lbl = ipEsc(varCountryObj(dk).label);
-    t1 += '<tr class="subtotal"><td class="lc">' + lbl + '</td><td class="lc">Calculado (ecosystem)</td>'
+    t1 += '<tr class="subtotal"><td class="lc">' + lbl + '</td><td class="lc">Calculado (el que se usa)</td>'
         + ms.map(function(ym){ var r = (by[dk] || {})[ym]; var v = r ? r.prom : null; return '<td class="vf' + (v === null ? ' neu' : '') + '">' + bePct(v) + '</td>'; }).join('') + '</tr>';
-    t1 += '<tr><td class="lc"></td><td class="lc">Cargado en el Sheet</td>'
+    t1 += '<tr><td class="lc"></td><td class="lc">Sheet Config (referencia)</td>'
         + ms.map(function(ym){ var v = cargado(dk, ym); return '<td class="vf' + (v === null ? ' neu' : '') + '">' + bePct(v) + '</td>'; }).join('') + '</tr>';
-    t1 += '<tr><td class="lc"></td><td class="lc">Δ cargado − calculado</td>'
+    t1 += '<tr><td class="lc"></td><td class="lc">Δ Sheet − calculado</td>'
         + ms.map(function(ym){
             var r = (by[dk] || {})[ym], c = cargado(dk, ym);
             if (!r || r.prom === null || c === null) return '<td class="vf neu">—</td>';
@@ -4190,7 +4195,7 @@ function renderBreakageEsp() {
           }).join('') + '</tr>';
   });
   t1 += '</tbody></table></div>';
-  h += ipCard('Breakage esperado (promedio 12 meses)', 'calculado por el ecosystem vs el que está cargado en el Sheet Config', t1);
+  h += ipCard('Breakage esperado (promedio 12 meses)', 'calculado por el ecosystem (fuente del SSP y del DRO) vs la pestaña del Sheet Config', t1);
 
   // 2. % mensual
   var t2 = '<div class="tbl-scroll"><table class="pnl ip-tbl"><thead><tr><th class="lc">País</th>' + ms.map(function(ym){ return '<th>' + fmtMonthLbl(ym) + '</th>'; }).join('') + '</tr></thead><tbody>';
@@ -4210,7 +4215,7 @@ function renderBreakageEsp() {
   var t3 = ctl + '<div class="tbl-scroll"><table class="pnl ip-tbl"><thead><tr><th class="lc">País</th>'
          + '<th>Vencidos Non Tender</th><th>Vencidos Cobrand</th><th>Vencidos total</th>'
          + '<th>Acumulados hasta</th><th>Acum. Non Tender</th><th>Acum. Cobrand + Partners</th><th>Acumulados total</th>'
-         + '<th>% del mes</th><th>Promedio 12m</th><th>Cargado</th></tr></thead><tbody>';
+         + '<th>% del mes</th><th>Promedio 12m</th><th>Sheet</th></tr></thead><tbody>';
   paises.forEach(function(dk) {
     var r = (by[dk] || {})[BE_STATE.mes];
     if (!r) return;

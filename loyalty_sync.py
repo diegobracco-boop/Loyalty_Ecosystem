@@ -1664,7 +1664,29 @@ def load_ssp_standard() -> dict:
     return out
 
 
-def build_ssp_json(*reden_clean_dfs) -> bytes:
+def _breakage_para_ssp(brk_calc: dict, brk_sheet: dict):
+    """Resuelve el breakage esperado de cada (country_code, ym) para el SSP de facturación.
+    Desde 17-oct la fuente es el CALCULADO por el ecosystem (breakage_esperado.py, decisión de
+    Diego: es el correcto). Orden: calculado del mes -> último calculado del país (meses posteriores
+    al último cerrado) -> pestaña breakage_esperado del Sheet (solo meses sin cálculo, ej. antes de
+    que haya 12 meses) -> 0. Devuelve (breakage, fuente)."""
+    ultimo = {}
+    for (cc, ym), v in brk_calc.items():
+        if cc not in ultimo or ym > ultimo[cc][0]:
+            ultimo[cc] = (ym, v)
+
+    def resolver(cc, ym):
+        if (cc, ym) in brk_calc:
+            return brk_calc[(cc, ym)], "calculado"
+        if cc in ultimo and ym > ultimo[cc][0]:
+            return ultimo[cc][1], f"calculado ({ultimo[cc][0]})"
+        if (cc, ym) in brk_sheet:
+            return 1.0 - brk_sheet[(cc, ym)], "sheet"
+        return 0.0, "sin dato"
+    return resolver
+
+
+def build_ssp_json(*reden_clean_dfs, brk_calc: dict | None = None) -> bytes:
     frames = [d for d in reden_clean_dfs if d is not None and len(d)]
     if not frames:
         raise RuntimeError(
@@ -1679,9 +1701,11 @@ def build_ssp_json(*reden_clean_dfs) -> bytes:
            .agg(points=("points", "sum"), usd=("usd", "sum")))
     g = g[g["points"] > 0]
 
-    brk = load_breakage_esperado()
+    brk = load_breakage_esperado()            # Sheet: {(cc, ym): 1 − breakage} — fallback y referencia
+    resolver = _breakage_para_ssp(brk_calc or {}, brk)
     out = {}
     _dropped = set()
+    _fuentes = {}
     for _, r in g.iterrows():
         dk = CC_TO_DATAKEY.get(str(r["country_code"]).strip().upper())
         if not dk:
@@ -1689,23 +1713,31 @@ def build_ssp_json(*reden_clean_dfs) -> bytes:
             continue
         ym       = r["ym"]
         ssp_calc = -abs(r["usd"] / r["points"])            # negativo, como en el cierre
-        factor   = brk.get((str(r["country_code"]).strip().upper(), ym), 1.0)
-        out.setdefault(dk, {})[ym] = {
+        cc       = str(r["country_code"]).strip().upper()
+        be_v, fuente = resolver(cc, ym)
+        factor   = 1.0 - be_v
+        _fuentes[fuente.split(" ")[0]] = _fuentes.get(fuente.split(" ")[0], 0) + 1
+        cell = {
             "ssp_calculado":     round(ssp_calc, 6),
-            "breakage_esperado": round(1.0 - factor, 4),
+            "breakage_esperado": round(be_v, 4),
+            "breakage_fuente":   fuente,
             "ssp_facturacion":   round(ssp_calc * factor, 6),
             "puntos":            round(float(r["points"]), 0),
         }
+        if (cc, ym) in brk:                       # valor del Sheet, solo como referencia
+            cell["breakage_sheet"] = round(1.0 - brk[(cc, ym)], 4)
+        out.setdefault(dk, {})[ym] = cell
     payload = {
         "meta": {"generated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
-                 "fuente": "redenciones Pasaporte D! (point_type=general) / breakage_esperado.csv"
-                           " / Input_Precios.xlsx (SSP_Standard)"},
+                 "fuente": "redenciones Pasaporte D! (point_type=general) / breakage esperado CALCULADO"
+                           " (breakage_esperado.py; Sheet solo para meses sin cálculo) / Input_Precios.xlsx (SSP_Standard)"},
         "data": out,
         "ssp_standard": load_ssp_standard(),
     }
     for dk in sorted(out):
         meses = sorted(out[dk])
         print(f"  [SSP] {dk:10s} {meses[0]}..{meses[-1]}  ({len(meses)} meses)")
+    print(f"  [SSP] fuente del breakage esperado (celdas país×mes): {_fuentes}")
     if _dropped:
         print(f"  [WARN] SSP: country_code sin mapear, filas descartadas: {sorted(_dropped)} "
               f"(agregar a CC_TO_DATAKEY si es un país nuevo)")
@@ -3490,7 +3522,9 @@ for _pais, _g in df_be.groupby("country"):
         print(f"  [WARN] breakage esperado {_pais}: % mensual fuera de [0, 100%] en {_raros['ym'].tolist()}")
 
 print("\n--- Construyendo SSP (precio del punto) ---")
-ssp_bytes = build_ssp_json(_reden_cy_clean, _reden_ly_clean)
+ssp_bytes = build_ssp_json(_reden_cy_clean, _reden_ly_clean,
+                           brk_calc={(r.country, r.ym): float(r.prom_12m)
+                                     for r in df_be.itertuples() if pd.notna(r.prom_12m)})
 print(f"  SSP: {len(ssp_bytes)} bytes")
 
 print("\n--- Inputs reales para proyecciones (SSP y regla por producto × viaje × canal) ---")
