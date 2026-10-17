@@ -2122,7 +2122,9 @@ def fetch_penet(desde: str, hasta: str) -> pd.DataFrame:
 
     Grano: transaction_code x product_line (charges level).
     GB = gross_booking - tax_pais - tax_afip_rg4815.
-    Ancillaries quedan 'Sin clasificar' en regla_producto y se excluyen.
+    Ancillaries (purchase_type) no están en regla_producto: caen al 2do nivel
+    (product_type), donde 'Valijas' → Flights (16-oct); lo que no matchee
+    queda 'Sin clasificar' y se excluye.
     El mapeo produto→grupo_pnl usa load_regla_producto() (misma fuente que
     ratio_acum y acum_tier) con el mismo orden de fallback que _grupo() en
     aggregate_ratio_acum: primero 'producto_original' (tr.purchase_type, a
@@ -2147,10 +2149,22 @@ def fetch_penet(desde: str, hasta: str) -> pd.DataFrame:
     for c in ("trx_total", "trx_con_puntos", "gb_total", "gb_con_puntos"):
         df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
     df["producto_original"] = df["producto_original"].fillna("N/D").astype(str)
-    df["producto"] = df["producto"].apply(
-        lambda v: ", ".join(v) if isinstance(v, (list, tuple))
-        else ("" if pd.isna(v) else str(v))
-    )
+    # El ODBC devuelve el array_agg como texto JSON ('["Valijas"]'), no como
+    # lista: sin parsearlo, el split por coma deja los corchetes y comillas y
+    # el nombre nunca matchea 'regla producto' (Valijas quedaba sin clasificar).
+    def _producto_str(v):
+        if isinstance(v, (list, tuple)):
+            return ", ".join(map(str, v))
+        if pd.isna(v):
+            return ""
+        s = str(v).strip()
+        if s.startswith("["):
+            try:
+                return ", ".join(map(str, json.loads(s)))
+            except ValueError:
+                pass
+        return s
+    df["producto"] = df["producto"].apply(_producto_str)
 
     regla_by_name, _ = load_regla_producto()
 
