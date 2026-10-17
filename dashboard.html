@@ -2960,25 +2960,36 @@ function renderVariaciones() {
 // GB total); ratio = loyalty_ratio_acumulacion (puntos / GB); SSP calculado y breakage esperado =
 // loyalty_ssp. Cada celda país × producto × mes se calcula sola y después se suma.
 // ============================================================
-var OR_STATE = { mode: 'fy', months: [], q: 'Q1', h: 'H1', country: 'total' };
+// Período (17-oct, Diego): por defecto el ÚLTIMO MES CERRADO; el analista puede sumar meses (de los
+// últimos 12 cerrados, cruzando FY) si un mes tiene un desvío excepcional. months vacío = default.
+var OR_STATE = { months: [], country: 'total' };
 var OR_PRODUCTS = ['Flights', 'Hotels', 'Packages General', 'Vacation Rentals', 'Cars', 'Insurance', 'Dest. Serv.'];
+// Últimos 12 meses cerrados, del más reciente al más viejo.
+function orMonthOptions() {
+  var last = proyLastClosedYm(), out = [];
+  for (var k = 0; k < 12; k++) {
+    var d = new Date(+last.substring(0, 4), +last.substring(5, 7) - 1 - k, 1);
+    out.push(d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2));
+  }
+  return out;
+}
 function orSet(k, v) {
   if (k === 'month') {
-    var i = OR_STATE.months.indexOf(v);
-    if (i === -1) OR_STATE.months.push(v); else OR_STATE.months.splice(i, 1);
+    var cur = orSelMonths().slice(), i = cur.indexOf(v);
+    if (i === -1) cur.push(v); else cur.splice(i, 1);
+    OR_STATE.months = cur;
+  } else if (k === 'ultimos') {
+    OR_STATE.months = orMonthOptions().slice(0, v);
   } else {
     OR_STATE[k] = v;
-    if (k === 'mode' && v === 'mes' && !OR_STATE.months.length) OR_STATE.months = [proyLastClosedYm()];
   }
   renderOneRevenue();
 }
-// Meses del FY en curso con real (cerrados), según el selector.
+// Meses elegidos (orden cronológico); sin elección = el último mes cerrado.
 function orSelMonths() {
-  var last = proyLastClosedYm(), all = varFyMonths().filter(function(ym){ return ym <= last; });
-  if (OR_STATE.mode === 'mes') return all.filter(function(ym){ return OR_STATE.months.indexOf(ym) !== -1; });
-  if (OR_STATE.mode === 'q') return all.filter(function(ym){ return PNL_Q[ym.substring(5, 7)] === OR_STATE.q; });
-  if (OR_STATE.mode === 'h') return all.filter(function(ym){ return PNL_H[PNL_Q[ym.substring(5, 7)]] === OR_STATE.h; });
-  return all;
+  var opts = orMonthOptions();
+  var m = OR_STATE.months.filter(function(ym){ return opts.indexOf(ym) !== -1; });
+  return (m.length ? m : [opts[0]]).slice().sort();
 }
 // Índice de drivers reales por celda 'dk|ym|producto' (minúscula). Cacheado.
 var _ORIDX = null;
@@ -3043,10 +3054,10 @@ function orCell(dk, ym, pr) {
   var std = orSspStd(dk, ym), valorStd = std ? pts * std : valor;
   var droStd = (valorStd + margen) ? valorStd / (valorStd + margen) * margen : 0;
   return { gb: x.gb, penGB: x.gb * pen, pts: pts, valor: valor, margen: margen, dro: dro,
-           droEsp: dro * (1 - bk), valorStd: valorStd, droEspStd: droStd * (1 - bk), defin: -x.defin };
+           droEsp: dro * (1 - bk), valorStd: valorStd, droStd: droStd, droEspStd: droStd * (1 - bk), defin: -x.defin };
 }
 function orAdd(a, c) {
-  ['gb', 'penGB', 'pts', 'valor', 'margen', 'dro', 'droEsp', 'valorStd', 'droEspStd', 'defin'].forEach(function(k){ a[k] = (a[k] || 0) + c[k]; });
+  ['gb', 'penGB', 'pts', 'valor', 'margen', 'dro', 'droEsp', 'valorStd', 'droStd', 'droEspStd', 'defin'].forEach(function(k){ a[k] = (a[k] || 0) + c[k]; });
   return a;
 }
 function orAgg(keys, months, products) {
@@ -3061,63 +3072,79 @@ function renderOneRevenue() {
   var el = document.getElementById('panel-onerevenue');
   if (!el) return;
   var fy = fyYears(), last = proyLastClosedYm();
-  var closedAll = varFyMonths().filter(function(ym){ return ym <= last; });
+  var opts = orMonthOptions();
   var sel = orSelMonths(), keys = goalKeys(varCountryObj(OR_STATE.country));
-  function seg(k, opts) {
-    return '<div class="seg seg-sm">' + opts.map(function(o){
-      return '<button class="seg-btn' + (OR_STATE[k] === o[0] ? ' active' : '') + '" type="button" onclick="orSet(\'' + k + '\',\'' + o[0] + '\')">' + o[1] + '</button>';
-    }).join('') + '</div>';
+  function chip(lbl, on, js) {
+    return '<button class="seg-btn var-chip' + (on ? ' active' : '') + '" type="button" onclick="' + js + '">' + lbl + '</button>';
   }
-  var h = '<div class="stitle">Reglas One Revenue — DRO %GB esperado con datos reales, ' + fyLbl(fy.cy) + '</div>';
-  h += '<div class="var-ctl"><span class="ratio-controls-lbl">Período</span>'
-     + seg('mode', [['mes', 'Mes'], ['q', 'Quarter'], ['h', 'Half'], ['fy', 'Año fiscal (YTD)']]);
-  if (OR_STATE.mode === 'mes') {
-    h += '<div class="var-months">' + closedAll.map(function(ym){
-      return '<button class="seg-btn var-chip' + (OR_STATE.months.indexOf(ym) !== -1 ? ' active' : '') + '" type="button" onclick="orSet(\'month\',\'' + ym + '\')">' + fmtMonthLbl(ym) + '</button>';
-    }).join('') + '</div>';
-  } else if (OR_STATE.mode === 'q') h += seg('q', [['Q1', 'Q1'], ['Q2', 'Q2'], ['Q3', 'Q3'], ['Q4', 'Q4']]);
-  else if (OR_STATE.mode === 'h') h += seg('h', [['H1', 'H1'], ['H2', 'H2']]);
-  h += '<span class="ratio-controls-lbl" style="margin-left:12px">País</span><select class="ratio-sel" onchange="orSet(\'country\', this.value)">'
+  var h = '<div class="stitle">Reglas One Revenue — DRO %GB esperado con datos reales</div>';
+  var n = sel.length, ultimos = function(k){ return n === k && opts.slice(0, k).every(function(m){ return sel.indexOf(m) !== -1; }); };
+  h += '<div class="var-ctl"><span class="ratio-controls-lbl">Meses</span>'
+     + '<div class="seg seg-sm">'
+     + [[1, 'Último cerrado'], [3, 'Últimos 3'], [6, 'Últimos 6'], [12, 'Últimos 12']].map(function(o) {
+         return '<button class="seg-btn' + (ultimos(o[0]) ? ' active' : '') + '" type="button" onclick="orSet(\'ultimos\',' + o[0] + ')">' + o[1] + '</button>';
+       }).join('') + '</div>'
+     + '<div class="var-months">' + opts.slice().reverse().map(function(ym){
+         return chip(fmtMonthLbl(ym), sel.indexOf(ym) !== -1, 'orSet(\'month\',\'' + ym + '\')');
+       }).join('') + '</div>'
+     + '<span class="ratio-controls-lbl" style="margin-left:12px">País</span><select class="ratio-sel" onchange="orSet(\'country\', this.value)">'
      + COUNTRIES.map(function(c){ return '<option value="' + c.dataKey + '"' + (c.dataKey === OR_STATE.country ? ' selected' : '') + '>' + c.label + '</option>'; }).join('')
      + '</select></div>';
+  var perLbl = !n ? '' : (n === 1 ? fmtMonthLbl(sel[0]) : fmtMonthLbl(sel[0]) + ' a ' + fmtMonthLbl(sel[n - 1]) + ' (' + n + ' meses)');
   h += '<div class="proj-note"><strong>Valor de puntos</strong> = GB × penetración × ratio de acumulación × SSP · '
      + '<strong>Margen</strong> = GB × penetración × (Up Front + Fees + Desc.) / GB · '
      + '<strong>DRO</strong> = Valor / (Valor + Margen) × Margen · '
      + '<strong>DRO %GB esperado</strong> = DRO × (1 − breakage esperado) / GB. '
-     + 'Solo meses cerrados (reales, hasta ' + fmtMonthLbl(last) + '); marca Despegar, B2C. Se calcula por país × producto × mes y se suma. '
-     + 'SSP = SSP calculado (el breakage se aplica aparte). Apertura por canal (Site / App / Offline): pendiente. El filtro de fechas de arriba no aplica acá.</div>';
-  if (!sel.length) { el.innerHTML = h + '<div class="empty">Elegí al menos un mes cerrado.</div>'; return; }
+     + '<strong>El valor a cargar en One Revenue es el calculado con el SSP standard</strong> (' + (orSspStdSrc() === 'precios' ? 'Input_Precios.xlsx, solapa SSP_Standard, fijo por país' : 'SSP de redención del Budget, fijo por país') + '); '
+     + 'el cálculo con el SSP real del mes queda al lado para ver cuánto mueve el SSP. '
+     + 'Por defecto toma el <strong>último mes cerrado</strong> (' + fmtMonthLbl(last) + '); si un mes tiene un desvío excepcional, sumá más meses: '
+     + 'se suman numeradores y denominadores (ponderado por GB, no promedio simple). Marca Despegar, B2C; se calcula por país × producto × mes y se suma.</div>';
+  if (!n) { el.innerHTML = h + '<div class="empty">Elegí al menos un mes cerrado.</div>'; return; }
 
-  // ---- tabla de reglas
-  var showCountry = keys.length > 1;
-  h += '<div class="bk-card"><div class="bk-hdr">Reglas por ' + (showCountry ? 'país y producto' : 'producto') + ' — '
-     + fmtMonthLbl(sel[0]) + (sel.length > 1 ? ' a ' + fmtMonthLbl(sel[sel.length - 1]) : '') + '</div>'
-     + '<div class="tbl-scroll"><table class="pnl or-tbl"><thead><tr><th class="lc">' + (showCountry ? 'País / producto' : 'Producto') + '</th>'
-     + '<th>GB</th><th>Penetración</th><th>Ratio acum.</th><th>SSP</th><th>SSP std</th><th>Margen %</th><th>Breakage esp.</th>'
-     + '<th class="sep"></th><th>Valor puntos</th><th>Margen $</th><th>DRO</th><th>DRO esperado</th><th>DRO %GB esp.</th>'
-     + '<th class="sep"></th><th>DRO %GB esp. SSP std</th><th>Efecto SSP</th>'
-     + '<th class="sep"></th><th>Deferred out P&amp;L</th><th>P&amp;L %GB</th><th>Calc. − P&amp;L</th><th>Calc. − P&amp;L %GB</th></tr></thead><tbody>';
   function pct(v, d) { return v === null || !isFinite(v) ? '—' : (v * 100).toFixed(d === undefined ? 1 : d) + '%'; }
+  function pp(v) {   // diferencia en pp, redondeada antes del signo (sin "-0.00pp")
+    if (v === null || !isFinite(v)) return '<td class="vf neu">—</td>';
+    var r = Math.round(v * 10000) / 100;
+    return r ? '<td class="' + vc(r) + '">' + (r > 0 ? '+' : '') + r.toFixed(2) + 'pp</td>' : '<td class="vf neu">0.00pp</td>';
+  }
+  var showCountry = keys.length > 1;
+
+  // ---- 1. Para cargar en One Revenue: DRO %GB esperado a SSP standard, país × producto
+  var t = '<div class="tbl-scroll"><table class="pnl or-tbl"><thead><tr><th class="lc">País</th>'
+        + OR_PRODUCTS.map(function(p){ return '<th>' + p + '</th>'; }).join('') + '<th class="sep"></th><th>Total</th></tr></thead><tbody>';
+  keys.forEach(function(dk) {
+    var tot = orAgg([dk], sel, OR_PRODUCTS);
+    if (!tot.n) return;
+    t += '<tr><td class="lc">' + varCountryObj(dk).label + '</td>' + OR_PRODUCTS.map(function(pr) {
+      var a = orAgg([dk], sel, [pr]);
+      return '<td class="vf or-key">' + (a.n && a.gb ? pct(a.droEspStd / a.gb, 2) : '—') + '</td>';
+    }).join('') + '<td class="sep"></td><td class="vf or-key">' + pct(tot.gb ? tot.droEspStd / tot.gb : null, 2) + '</td></tr>';
+  });
+  t += '</tbody></table></div>';
+  h += '<div class="bk-card"><div class="bk-hdr">Para cargar en One Revenue — DRO %GB esperado a SSP standard · ' + perLbl + '</div>' + t + '</div>';
+
+  // ---- 2. Detalle de la regla
+  h += '<div class="bk-card"><div class="bk-hdr">Detalle por ' + (showCountry ? 'país y producto' : 'producto') + ' · ' + perLbl + '</div>'
+     + '<div class="tbl-scroll"><table class="pnl or-tbl"><thead><tr><th class="lc">' + (showCountry ? 'País / producto' : 'Producto') + '</th>'
+     + '<th>GB</th><th>Penetración</th><th>Ratio acum.</th><th>Margen %</th><th>Breakage esp.</th>'
+     + '<th class="sep"></th><th>SSP std</th><th>Valor puntos</th><th>DRO</th><th>DRO esperado</th><th>DRO %GB esp. (a cargar)</th>'
+     + '<th class="sep"></th><th>SSP real</th><th>DRO %GB esp. SSP real</th><th>Efecto SSP real</th>'
+     + '<th class="sep"></th><th>Deferred out P&amp;L</th><th>P&amp;L %GB</th><th>A cargar − P&amp;L</th></tr></thead><tbody>';
   function row(label, a, cls) {
     if (!a.n) return '';
-    var pen = a.gb ? a.penGB / a.gb : null, ratio = a.penGB ? a.pts / a.penGB : null, ssp = a.pts ? a.valor / a.pts : null;
-    var take = a.penGB ? a.margen / a.penGB : null, bk = a.dro ? 1 - a.droEsp / a.dro : null;
-    var dif = a.droEsp - a.defin, sspStd = a.pts ? a.valorStd / a.pts : null;
-    var r = a.gb ? a.droEsp / a.gb : null, rStd = a.gb ? a.droEspStd / a.gb : null, rPl = a.gb && a.defin ? a.defin / a.gb : null;
-    function pp(v) {   // diferencia en pp, redondeada antes del signo (sin "-0.00pp")
-      if (v === null || !isFinite(v)) return '<td class="vf neu">—</td>';
-      var r = Math.round(v * 10000) / 100;
-      return r ? '<td class="' + vc(r) + '">' + (r > 0 ? '+' : '') + r.toFixed(2) + 'pp</td>' : '<td class="vf neu">0.00pp</td>';
-    }
+    var pen = a.gb ? a.penGB / a.gb : null, ratio = a.penGB ? a.pts / a.penGB : null;
+    var take = a.penGB ? a.margen / a.penGB : null, bk = a.droStd ? 1 - a.droEspStd / a.droStd : null;
+    var sspStd = a.pts ? a.valorStd / a.pts : null, ssp = a.pts ? a.valor / a.pts : null;
+    var rStd = a.gb ? a.droEspStd / a.gb : null, r = a.gb ? a.droEsp / a.gb : null, rPl = a.gb && a.defin ? a.defin / a.gb : null;
     return '<tr' + (cls ? ' class="' + cls + '"' : '') + '><td class="lc">' + label + '</td>'
       + '<td class="vf">' + fmtPnl(a.gb) + '</td><td class="vf">' + pct(pen) + '</td><td class="vf">' + (ratio !== null ? ratio.toFixed(3) : '—') + '</td>'
-      + '<td class="vf">' + (ssp !== null ? fmtPricePerPt(ssp) : '—') + '</td><td class="vf">' + (sspStd !== null ? fmtPricePerPt(sspStd) : '—') + '</td>'
       + '<td class="vf">' + pct(take) + '</td><td class="vf">' + pct(bk) + '</td>'
-      + '<td class="sep"></td><td class="vf">' + fmtPnl(a.valor) + '</td><td class="vf">' + fmtPnl(a.margen) + '</td><td class="vf">' + fmtPnl(a.dro) + '</td>'
-      + '<td class="vf">' + fmtPnl(a.droEsp) + '</td><td class="vf or-key">' + pct(r, 2) + '</td>'
-      + '<td class="sep"></td><td class="vf">' + pct(rStd, 2) + '</td>' + pp(r !== null && rStd !== null ? r - rStd : null)
-      + '<td class="sep"></td><td class="vf">' + (a.defin ? fmtPnl(a.defin) : '—') + '</td><td class="vf or-key">' + pct(rPl, 2) + '</td>'
-      + '<td class="' + vc(dif) + '">' + (a.defin ? fmtPnl(dif, true) : '—') + '</td>' + pp(r !== null && rPl !== null ? r - rPl : null) + '</tr>';
+      + '<td class="sep"></td><td class="vf">' + (sspStd !== null ? fmtPricePerPt(sspStd) : '—') + '</td><td class="vf">' + fmtPnl(a.valorStd) + '</td>'
+      + '<td class="vf">' + fmtPnl(a.droStd) + '</td><td class="vf">' + fmtPnl(a.droEspStd) + '</td><td class="vf or-key">' + pct(rStd, 2) + '</td>'
+      + '<td class="sep"></td><td class="vf">' + (ssp !== null ? fmtPricePerPt(ssp) : '—') + '</td><td class="vf">' + pct(r, 2) + '</td>'
+      + pp(r !== null && rStd !== null ? r - rStd : null)
+      + '<td class="sep"></td><td class="vf">' + (a.defin ? fmtPnl(a.defin) : '—') + '</td><td class="vf">' + pct(rPl, 2) + '</td>'
+      + pp(rStd !== null && rPl !== null ? rStd - rPl : null) + '</tr>';
   }
   keys.forEach(function(dk) {
     if (showCountry) {
@@ -3131,39 +3158,27 @@ function renderOneRevenue() {
   });
   h += row('TOTAL', orAgg(keys, sel, OR_PRODUCTS), 'grand-total');
   h += '</tbody></table></div></div>';
-  h += '<div class="proj-note">Penetración, ratio, SSP, margen % y breakage de los totales son ponderados (no promedios simples): penetración = GB penetrado / GB, '
-     + 'ratio = puntos / GB penetrado, SSP = valor / puntos, margen % = margen / GB penetrado. '
-     + '<strong>Deferred out P&amp;L</strong> = línea "loyalty - deferred revenue out" (DRO contabilizado) del P&amp;L por producto, en positivo — incluye también la parte de Cobrand/Partners, '
-     + 'que esta regla no calcula. <strong>P&amp;L %GB</strong> = deferred out P&amp;L / GB. '
-     + '<strong>SSP std</strong> = ' + (orSspStdSrc() === 'precios' ? 'SSP standard de Input_Precios.xlsx (solapa SSP_Standard, fijo por país)'
-       : 'SSP de redención del Budget (fijo por país; la solapa SSP_Standard de Input_Precios.xlsx todavía no llegó al JSON)') + '; <strong>DRO %GB esp. SSP std</strong> = la misma regla con ese SSP y el resto de los drivers reales; '
-     + '<strong>Efecto SSP</strong> = DRO %GB esp. − DRO %GB esp. SSP std (cuánto mueve el SSP real del mes). País sin SSP standard: usa el SSP real (efecto 0). '
-     + 'Celdas sin GB, penetración o ratio quedan afuera.</div>';
+  h += '<div class="proj-note">Penetración, ratio, margen %, breakage y SSP de los totales son ponderados (no promedios simples). '
+     + '<strong>Efecto SSP real</strong> = DRO %GB esp. con el SSP real del mes − el valor a cargar (SSP standard): cuánto cambiaría la regla si se usara el SSP que efectivamente hubo. '
+     + '<strong>Deferred out P&amp;L</strong> = línea "loyalty - deferred revenue out" (DRO contabilizado) por producto, en positivo — incluye la parte de Cobrand/Partners, que esta regla no calcula. '
+     + '<strong>A cargar − P&amp;L</strong> = valor a cargar − P&amp;L %GB. País sin SSP standard: usa el SSP real (efecto 0). Celdas sin GB, penetración o ratio quedan afuera.</div>';
 
-  // ---- evolución mensual
-  h += '<div class="cc" style="margin-top:16px"><div class="ct">DRO %GB esperado por mes — ' + fyLbl(fy.cy) + ' vs ' + fyLbl(fy.ly) + ', con SSP standard y P&amp;L</div>'
+  // ---- 3. Evolución mensual (a SSP standard; SSP real y P&L como líneas)
+  h += '<div class="cc" style="margin-top:16px"><div class="ct">DRO %GB esperado a SSP standard por mes — ' + fyLbl(fy.cy) + ' vs ' + fyLbl(fy.ly) + ', con SSP real y P&amp;L</div>'
      + '<div class="cw"><canvas id="ch-or-evo"></canvas></div>'
      + '<div class="dtable-row"><div class="dtable-label">Δ pp</div><div class="yoy-row" id="or-evo-pp"></div></div></div>'
      + '<div class="proj-note">' + fyLbl(fy.ly) + ': sep–dic 2025 sin dato del P&amp;L con apertura por marca (el armado de actuals del FY anterior en Inputs_Planning_PnL no los trae).</div>';
   el.innerHTML = h;
 
-  function series(startYear) {
+  function series(startYear, num) {
     return FISCAL_MONTHS.map(function(mm) {
       var ym = fiscalCalYear(mm, startYear) + '-' + mm;
       if (startYear === fy.cy && ym > last) return null;
       var a = orAgg(keys, [ym], OR_PRODUCTS);
-      return a.n && a.gb ? a.droEsp / a.gb * 100 : null;
-    });
-  }
-  function seriesK(num) {
-    return FISCAL_MONTHS.map(function(mm) {
-      var ym = fiscalCalYear(mm, fy.cy) + '-' + mm;
-      if (ym > last) return null;
-      var a = orAgg(keys, [ym], OR_PRODUCTS);
       return a.n && a.gb && a[num] ? a[num] / a.gb * 100 : null;
     });
   }
-  var cy = series(fy.cy), ly = series(fy.ly), cyStd = seriesK('droEspStd'), cyPl = seriesK('defin');
+  var cy = series(fy.cy, 'droEspStd'), ly = series(fy.ly, 'droEspStd'), cyReal = series(fy.cy, 'droEsp'), cyPl = series(fy.cy, 'defin');
   var fmt = function(v){ return v === null || v === undefined ? '' : v.toFixed(2) + '%'; };
   var ctx = document.getElementById('ch-or-evo');
   if (CHARTS['ch-or-evo']) CHARTS['ch-or-evo'].destroy();
@@ -3171,9 +3186,9 @@ function renderOneRevenue() {
   CHARTS['ch-or-evo'] = new Chart(ctx, {
     type: 'bar',
     data: { labels: FISCAL_LABELS, datasets: [
-      { label: fyLbl(fy.ly), data: ly, backgroundColor: 'rgba(100,116,139,.3)', borderRadius: 3, datalabels: dl },
-      { label: fyLbl(fy.cy), data: cy, backgroundColor: 'rgba(85,15,237,.75)', borderRadius: 3, datalabels: dl },
-      { type: 'line', label: fyLbl(fy.cy) + ' a SSP std', data: cyStd, borderColor: '#0ea5e9', backgroundColor: '#0ea5e9',
+      { label: fyLbl(fy.ly) + ' a SSP std', data: ly, backgroundColor: 'rgba(100,116,139,.3)', borderRadius: 3, datalabels: dl },
+      { label: fyLbl(fy.cy) + ' a SSP std (a cargar)', data: cy, backgroundColor: 'rgba(85,15,237,.75)', borderRadius: 3, datalabels: dl },
+      { type: 'line', label: fyLbl(fy.cy) + ' con SSP real', data: cyReal, borderColor: '#0ea5e9', backgroundColor: '#0ea5e9',
         borderDash: [5, 4], borderWidth: 2, pointRadius: 3, spanGaps: false, datalabels: { display: false } },
       { type: 'line', label: 'Deferred out P&L %GB ' + fyLbl(fy.cy), data: cyPl, borderColor: '#f59e0b', backgroundColor: '#f59e0b',
         borderWidth: 2, pointRadius: 3, spanGaps: false, datalabels: { display: false } }
