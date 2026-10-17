@@ -204,6 +204,7 @@ table.pnl tr.grand-total td.sep { background: #1b1533 !important; border-bottom-
 .ip-tbl tr.or-prod td.lc { padding-left: 40px; }
 .ip-tbl td.ip-tot { font-weight: 700; }
 .ip-tbl td.ip-met { white-space: nowrap; color: var(--muted); }
+.ip-tbl td.be-flag { background: #fef3c7; color: #92400e; font-weight: 700; }
 .bk-hdr .ip-unit { text-transform: none; letter-spacing: 0; font-weight: 400; }
 .var-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-bottom: 10px; }
 .var-months { display: flex; flex-wrap: wrap; gap: 4px; }
@@ -663,7 +664,7 @@ var RAW = { acum_cy: null, acum_ly: null, reden_cy: null, reden_ly: null, breaka
             baseline: null, budget: null, forecast: null, dict: null, ssp: null, ratio_acum: null,
             ratio_acum_tier: null, acum_tier: null };
 var LOADED = 0;
-var TOTAL  = 24;  // = cantidad de claves que devuelve getAllRaw() en Código.js
+var TOTAL  = 25;  // = cantidad de claves que devuelve getAllRaw() en Código.js
 var ACTIVE_COUNTRY = 'total';
 var CHARTS = {};
 
@@ -4118,6 +4119,115 @@ function ipRenderReal(h) {
   return h;
 }
 
+// ============================================================
+// Pestaña "Breakage esperado" (17-oct) — réplica del Excel de Control de Gestión
+// ("Breakage Esperado <MM'AA>.xlsx"), calculada en el pipeline (breakage_esperado.py →
+// loyalty_breakage_esperado.json). Es un CONTROL: el valor oficial es el que se carga en la
+// pestaña breakage_esperado del Sheet Config (acá: RAW.ssp.data[país][mes].breakage_esperado).
+//   % del mes M = vencidos acumulados hasta M (Non Tender + Cobrand)
+//                 / acumulados hasta M − 19 meses (Non Tender + Cobrand + Partners; criterio histórico del Excel)
+//   breakage esperado = promedio de los últimos 12 % mensuales
+// ============================================================
+var BE_STATE = { mes: null };
+var BE_TOL_PP = 0.5;   // diferencia calculado vs cargado que se marca
+function beSet(k, v) { BE_STATE[k] = v; renderBreakageEsp(); }
+function bePct(v) { return v === null || v === undefined || !isFinite(v) ? '—' : (100 * v).toFixed(1).replace('.', ',') + '%'; }
+function bePp(v) { return v === null || !isFinite(v) ? '—' : (v > 0 ? '+' : '') + v.toFixed(1).replace('.', ',') + ' pp'; }
+function beInt(v) { return v === null || v === undefined || !isFinite(v) ? '—' : Math.round(v).toLocaleString('es-AR'); }
+
+function renderBreakageEsp() {
+  var el = document.getElementById('panel-breakageesp');
+  if (!el) return;
+  var h = '<div class="stitle">Breakage esperado — cálculo del ecosystem vs valor cargado</div>';
+  var rows = expand(RAW.breakage_esp).map(function(r) {
+    return { dk: ISO_TO_DATAKEY[String(r.country || '').toLowerCase()], iso: r.country, ym: r.ym, corte: r.corte_acum,
+             vnt: +r.venc_nt || 0, vcb: +r.venc_cb || 0, ant: +r.acum_nt || 0, acb: +r.acum_cb || 0,
+             pct: r.pct_mes === null ? null : +r.pct_mes, prom: r.prom_12m === null ? null : +r.prom_12m, n: +r.n_meses || 0 };
+  }).filter(function(r){ return r.dk; });
+  if (!rows.length) {
+    el.innerHTML = h + '<div class="empty">Falta <code>loyalty_breakage_esperado.json</code> en Drive: se genera en la próxima corrida de <code>loyalty_sync.py</code>.</div>';
+    return;
+  }
+  var meta = (RAW.breakage_esp || {}).meta || {};
+  var ssp = (RAW.ssp || {}).data || {};
+  function cargado(dk, ym) {
+    var o = (ssp[dk] || {})[ym];
+    return o && o.breakage_esperado !== undefined && o.breakage_esperado !== null && o.breakage_esperado !== '' ? +o.breakage_esperado : null;
+  }
+  var paises = COUNTRY_DATAKEYS.filter(function(dk){ return rows.some(function(r){ return r.dk === dk; }); });
+  var by = {};
+  rows.forEach(function(r){ (by[r.dk] = by[r.dk] || {})[r.ym] = r; });
+  // Meses de las tablas: desde que hay valor cargado en el Sheet (2025-01) hasta el último calculado
+  var all = rows.map(function(r){ return r.ym; }).filter(function(ym, i, a){ return a.indexOf(ym) === i; }).sort();
+  var ms = all.filter(function(ym){ return ym >= '2025-01'; });
+  var lastM = ms[ms.length - 1];
+  if (!BE_STATE.mes || ms.indexOf(BE_STATE.mes) === -1) BE_STATE.mes = lastM;
+
+  h += '<div class="proj-note"><strong>Cómo se calcula</strong> (réplica del Excel de Control de Gestión, carpeta Cierre/&lt;mes&gt;/Auditoria): '
+     + '<strong>% del mes M</strong> = puntos vencidos acumulados hasta M (Non Tender + Cobrand) ÷ puntos acumulados hasta M − ' + (meta.rezago_meses || 19) + ' meses (criterio histórico del Excel) '
+     + '(Non Tender + Cobrand + Partners). <strong>Breakage esperado</strong> = promedio de los últimos ' + (meta.ventana || 12) + ' % mensuales. '
+     + 'Vencidos: query de breakage desde 2019, clasificados con el Diccionario Point Type del Excel (quedan afuera R&amp;B, Santander 2, Partner, PAD). '
+     + 'Acumulados: historia oficial del archivo de cierre hasta ' + fmtMonthLbl(meta.acum_hist_hasta || '2025-12') + ', después las acumulaciones del ecosystem. '
+     + 'Ajustes que replica del Excel: Colombia resta el welcome bonus vencido en jun-24 (302.123.640 pts); Perú promedia desde jul-25. '
+     + '<strong>Es un control:</strong> el valor oficial es el del Excel, que se carga en la pestaña <code>breakage_esperado</code> del Sheet Config '
+     + '(y es el que usan el SSP de facturación y el DRO). Se marcan las diferencias de más de ' + BE_TOL_PP.toString().replace('.', ',') + ' pp.</div>';
+
+  // 1. Calculado vs cargado vs Δ
+  var th = '<thead><tr><th class="lc">País</th><th class="lc">Serie</th>' + ms.map(function(ym){ return '<th>' + fmtMonthLbl(ym) + '</th>'; }).join('') + '</tr></thead>';
+  var t1 = '<div class="tbl-scroll"><table class="pnl ip-tbl">' + th + '<tbody>';
+  paises.forEach(function(dk) {
+    var lbl = ipEsc(varCountryObj(dk).label);
+    t1 += '<tr class="subtotal"><td class="lc">' + lbl + '</td><td class="lc">Calculado (ecosystem)</td>'
+        + ms.map(function(ym){ var r = (by[dk] || {})[ym]; var v = r ? r.prom : null; return '<td class="vf' + (v === null ? ' neu' : '') + '">' + bePct(v) + '</td>'; }).join('') + '</tr>';
+    t1 += '<tr><td class="lc"></td><td class="lc">Cargado en el Sheet</td>'
+        + ms.map(function(ym){ var v = cargado(dk, ym); return '<td class="vf' + (v === null ? ' neu' : '') + '">' + bePct(v) + '</td>'; }).join('') + '</tr>';
+    t1 += '<tr><td class="lc"></td><td class="lc">Δ cargado − calculado</td>'
+        + ms.map(function(ym){
+            var r = (by[dk] || {})[ym], c = cargado(dk, ym);
+            if (!r || r.prom === null || c === null) return '<td class="vf neu">—</td>';
+            var d = 100 * (c - r.prom), flag = Math.abs(d) > BE_TOL_PP;
+            return '<td class="vf' + (flag ? ' be-flag' : '') + '"' + (flag ? ' title="Diferencia mayor a ' + BE_TOL_PP + ' pp"' : '') + '>' + bePp(d) + '</td>';
+          }).join('') + '</tr>';
+  });
+  t1 += '</tbody></table></div>';
+  h += ipCard('Breakage esperado (promedio 12 meses)', 'calculado por el ecosystem vs el que está cargado en el Sheet Config', t1);
+
+  // 2. % mensual
+  var t2 = '<div class="tbl-scroll"><table class="pnl ip-tbl"><thead><tr><th class="lc">País</th>' + ms.map(function(ym){ return '<th>' + fmtMonthLbl(ym) + '</th>'; }).join('') + '</tr></thead><tbody>';
+  paises.forEach(function(dk) {
+    t2 += '<tr><td class="lc">' + ipEsc(varCountryObj(dk).label) + '</td>' + ms.map(function(ym){
+      var r = (by[dk] || {})[ym], v = r ? r.pct : null, raro = v !== null && (v > 1 || v < 0);
+      return '<td class="vf' + (v === null ? ' neu' : '') + (raro ? ' be-flag' : '') + '"' + (raro ? ' title="Fuera de 0–100%"' : '') + '>' + bePct(v) + '</td>';
+    }).join('') + '</tr>';
+  });
+  t2 += '</tbody></table></div>';
+  h += ipCard('% de vencimiento del mes', 'vencidos acumulados hasta el mes ÷ acumulados hasta 19 meses antes · es lo que se promedia', t2);
+
+  // 3. Detalle de un mes
+  var ctl = '<div class="var-ctl"><span class="ratio-controls-lbl">Mes</span><select class="ratio-sel" onchange="beSet(\'mes\', this.value)">'
+          + ms.slice().reverse().map(function(ym){ return '<option value="' + ym + '"' + (ym === BE_STATE.mes ? ' selected' : '') + '>' + fmtMonthLbl(ym) + '</option>'; }).join('')
+          + '</select></div>';
+  var t3 = ctl + '<div class="tbl-scroll"><table class="pnl ip-tbl"><thead><tr><th class="lc">País</th>'
+         + '<th>Vencidos Non Tender</th><th>Vencidos Cobrand</th><th>Vencidos total</th>'
+         + '<th>Acumulados hasta</th><th>Acum. Non Tender</th><th>Acum. Cobrand + Partners</th><th>Acumulados total</th>'
+         + '<th>% del mes</th><th>Promedio 12m</th><th>Cargado</th></tr></thead><tbody>';
+  paises.forEach(function(dk) {
+    var r = (by[dk] || {})[BE_STATE.mes];
+    if (!r) return;
+    t3 += '<tr><td class="lc">' + ipEsc(varCountryObj(dk).label) + '</td>'
+        + '<td class="vf">' + beInt(r.vnt) + '</td><td class="vf">' + beInt(r.vcb) + '</td><td class="vf ip-tot">' + beInt(r.vnt + r.vcb) + '</td>'
+        + '<td class="vf">' + fmtMonthLbl(r.corte) + '</td>'
+        + '<td class="vf">' + beInt(r.ant) + '</td><td class="vf">' + beInt(r.acb) + '</td><td class="vf ip-tot">' + beInt(r.ant + r.acb) + '</td>'
+        + '<td class="vf">' + bePct(r.pct) + '</td><td class="vf ip-tot">' + bePct(r.prom) + (r.prom !== null && r.n < 12 ? ' <span class="ip-unit">(' + r.n + ' m)</span>' : '') + '</td>'
+        + '<td class="vf">' + bePct(cargado(dk, BE_STATE.mes)) + '</td></tr>';
+  });
+  t3 += '</tbody></table></div>';
+  h += ipCard('Detalle del cálculo', 'numerador y denominador por país, para cruzar contra las solapas del Excel', t3);
+
+  if (meta.generated_at) h += '<div class="proj-note">Calculado el ' + ipEsc(String(meta.generated_at).replace('T', ' ').substring(0, 16)) + ' · datos hasta ' + fmtMonthLbl(meta.hasta || lastM) + '.</div>';
+  el.innerHTML = h;
+}
+
 // ---- Cargado en el Excel: los supuestos tal como están en Input_budget / Input_runrate
 function ipRenderExcel(h) {
   var meta = (RAW.proy || {}).meta || {}, ix = ipIdx();
@@ -4279,6 +4389,16 @@ function buildPanels() {
   ibtn.addEventListener('click', function(){ switchCountry('inputproy'); });
   ibtn.setAttribute('aria-selected', 'false');
   tabsEl.appendChild(ibtn);
+
+  // Pestaña "Breakage esperado" — réplica del Excel de Control de Gestión (control)
+  var bbtn = document.createElement('button');
+  bbtn.className = 'ctab';
+  bbtn.dataset.key = 'breakageesp';
+  bbtn.setAttribute('role', 'tab');
+  bbtn.textContent = '⏳ Breakage esperado';
+  bbtn.addEventListener('click', function(){ switchCountry('breakageesp'); });
+  bbtn.setAttribute('aria-selected', 'false');
+  tabsEl.appendChild(bbtn);
   tabsEl.setAttribute('role', 'tablist');
 
   var pdiv = document.createElement('div');
@@ -4297,6 +4417,10 @@ function buildPanels() {
   idiv.id = 'panel-inputproy';
   idiv.classList.add('hidden');
   panelsEl.appendChild(idiv);
+  var bdiv = document.createElement('div');
+  bdiv.id = 'panel-breakageesp';
+  bdiv.classList.add('hidden');
+  panelsEl.appendChild(bdiv);
 
   // Botón al Manual — pegado al extremo derecho de la barra de pestañas
   var man = document.createElement('a');
@@ -4326,6 +4450,8 @@ function switchCountry(key) {
   if (por) por.classList.toggle('hidden', key !== 'onerevenue');
   var pip = document.getElementById('panel-inputproy');
   if (pip) pip.classList.toggle('hidden', key !== 'inputproy');
+  var pbe = document.getElementById('panel-breakageesp');
+  if (pbe) pbe.classList.toggle('hidden', key !== 'breakageesp');
   renderCountry(key);
 }
 
@@ -4334,6 +4460,7 @@ function renderCountry(key) {
   if (key === 'variaciones') { renderVariaciones(); return; }
   if (key === 'onerevenue') { renderOneRevenue(); return; }
   if (key === 'inputproy') { renderInputProy(); return; }
+  if (key === 'breakageesp') { renderBreakageEsp(); return; }
   var c = COUNTRIES.filter(function(x){ return x.key === key; })[0];
   if (!c) return;
   renderPnl('pnl-' + key, c);
@@ -4367,7 +4494,7 @@ function onLoaded(key, data) {
 // "carga incompleta" — hoy solo ratio_acum (loyalty_ratio_acumulacion.json aun
 // no se subio a Drive con una sync real; el resto del codigo ya degrada a "Sin
 // datos" sin romper nada, ver ratioRows/buildRatioBarChart).
-var RAW_OPTIONAL = { ratio_acum: 1, ratio_acum_tier: 1, acum_tier: 1, penet: 1, acum_channel: 1, stock_ifood: 1, runrate: 1, proy: 1, pnl_prev: 1, inputs_real: 1, orders_real: 1 };
+var RAW_OPTIONAL = { ratio_acum: 1, ratio_acum_tier: 1, acum_tier: 1, penet: 1, acum_channel: 1, stock_ifood: 1, runrate: 1, proy: 1, pnl_prev: 1, inputs_real: 1, orders_real: 1, breakage_esp: 1 };
 function checkStale() {
   var el = document.getElementById('stale-banner');
   var txt = document.getElementById('stale-banner-text');

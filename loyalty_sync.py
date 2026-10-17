@@ -3406,7 +3406,11 @@ _reden_ly_clean = clean_reden(fetch(build_reden_query(LY_DESDE, LY_HASTA), f"Red
 df_reden_ly = aggregate_reden(_reden_ly_clean)
 
 print("\n--- Breakage ---")
-df_breakage = clean_breakage(fetch(build_breakage_query(LY_DESDE), "Breakage"))
+# Historia completa desde 2019: la necesita el breakage esperado calculado (vencidos acumulados
+# desde el inicio del programa). loyalty_breakage.json sigue desde LY, como antes.
+_breakage_hist = clean_breakage(fetch(build_breakage_query("2019-01-01"), "Breakage (desde 2019)"))
+_exp_ym = _breakage_hist["expiration_date"].str.slice(3, 7) + "-" + _breakage_hist["expiration_date"].str.slice(0, 2)
+df_breakage = _breakage_hist[_exp_ym >= LY_DESDE[:7]].reset_index(drop=True)
 
 print("\n--- Miembros del programa ---")
 df_miembros = clean_miembros(fetch(_MIEMBROS_SQL, "Miembros (snapshot base activa)"))
@@ -3460,6 +3464,30 @@ check_reglas_programa([_reden_cy_clean, _reden_ly_clean], df_penet)
 print("\n--- Construyendo diccionario de puntos ---")
 dict_bytes = build_dict_json()
 print(f"  Dict: {len(dict_bytes)} bytes")
+
+print("\n--- Breakage esperado calculado (control vs Excel de Control de Gestión) ---")
+import breakage_esperado as _be
+_be_acum = pd.concat([_be.load_acum_hist(),
+                      _be.acum_from_ecosystem((df_acum_cy, df_acum_ly), json.loads(dict_bytes)["acum"])],
+                     ignore_index=True)
+_be_hasta = (TODAY.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+df_be = _be.compute(_breakage_hist, _be_acum, _be_hasta)
+breakage_esp_bytes = json.dumps(_be.build_json(df_be, {
+    "generated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+    "hasta": _be_hasta, "rezago_meses": _be.REZAGO_MESES, "ventana": _be.VENTANA,
+    "acum_hist_hasta": _be.ULTIMO_MES_HIST,
+    "ajustes": {f"{k[0]} {k[1]}": v for k, v in _be.AJUSTES_VENCIDOS.items()},
+    "inicio_promedio": _be.INICIO_PROMEDIO,
+    "fuente": "vencidos: query breakage desde 2019 (diccionario_point_type.csv); acumulados: "
+              "breakage_acum_hist.csv (cierre oficial) hasta acum_hist_hasta, después acumulaciones del ecosystem"}),
+    ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+for _pais, _g in df_be.groupby("country"):
+    _u = _g.iloc[-1]
+    _prom = "—" if pd.isna(_u["prom_12m"]) else f"{_u['prom_12m']:.1%}"
+    print(f"  [BREAKAGE] {_pais} {_u['ym']}: mes {_u['pct_mes']:.1%} · promedio 12m {_prom}")
+    _raros = _g[(_g["pct_mes"] > 1) | (_g["pct_mes"] < 0)]
+    if len(_raros):
+        print(f"  [WARN] breakage esperado {_pais}: % mensual fuera de [0, 100%] en {_raros['ym'].tolist()}")
 
 print("\n--- Construyendo SSP (precio del punto) ---")
 ssp_bytes = build_ssp_json(_reden_cy_clean, _reden_ly_clean)
@@ -3639,6 +3667,7 @@ _OUT = [
     (acum_channel_bytes, ACUM_CHANNEL_FILE),
     (stock_ifood_bytes, STOCK_IFOOD_FILE),
     (inputs_real_bytes, INPUTS_REAL_FILE),
+    (breakage_esp_bytes, _be.BREAKAGE_ESP_FILE),
 ]
 if proy_bytes is not None:  # None = no se pudo leer ningún Excel: no pisar el JSON bueno de Drive
     _OUT.append((proy_bytes, PROYECCIONES_FILE))
