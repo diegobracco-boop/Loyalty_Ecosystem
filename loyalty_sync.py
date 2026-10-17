@@ -812,7 +812,7 @@ WITH Redemption AS (
 SELECT
     dsp_transaction_id, product, country_code, partner,
     SUM(points) points, point_type, business, transaction_code, country,
-    produto_original,
+    produto_original, line_of_business, brand,
     CASE
          WHEN channel IN ('viajes-falabella-presencial','viajes-falabella-corporate','vf-presencial-markup','bestday-islas','bestday-islas-markup','tiendas-b2c') THEN 'Sucursales'
          WHEN channel IN ('beneficios-despegar','site','site-smartphone','site-tablet','bestday-site','viajes-falabella-wl','viajes-falabella-viajaya','viajanet-passagens','viajanet-site','agencia-exoticca','phanton-brand','puntosbonus-pe') THEN 'Site'
@@ -832,7 +832,7 @@ FROM (
              (ar.points * -1) points, ar.point_type, ar.business,
              qr1.transaction_code, qr1.country, qr1.produto_original,
              qr1.channel, qr1.payment_type, qr1.produto_agrupado,
-             qr1.transaction_type, qr1.ratio_prd
+             qr1.transaction_type, qr1.ratio_prd, qr1.line_of_business, qr1.brand
     FROM (
         SELECT ar1.dsp_transaction_id, ar1.country AS country_code, ar1.partner,
                SUM(ar1.points) points, ar1.point_type, ar1.business, ar1.product
@@ -847,7 +847,7 @@ FROM (
         SELECT base.transaction_code, t_trn.ext_country AS country_code,
                base.product_type AS produto_agrupado,
                t_trn.transaction_type, b.country, b.purchase_type AS produto_original,
-               b.channel, base.payment_type,
+               b.channel, base.payment_type, b.line_of_business, b.brand,
                CAST(t_prd.ext_ratio AS DECIMAL(18,4)) AS ratio_prd,
                CASE
                    WHEN base.product_type = 'Seguros de Autos'      THEN 'INSURANCE'
@@ -875,7 +875,7 @@ FROM (
             WHERE reservation_year_month > CAST('2024-01-01' AS DATE)
         ) base ON CAST(t_trn.ext_despegar_trn_id AS VARCHAR) = base.transaction_code
         LEFT JOIN (
-            SELECT transaction_code, country, channel, purchase_type
+            SELECT transaction_code, country, channel, purchase_type, line_of_business, brand
             FROM data.analytics.bi_transactional_fact_transactions
             WHERE reservation_year_month > CAST('2024-01-01' AS DATE)
         ) b ON base.transaction_code = b.transaction_code
@@ -902,7 +902,7 @@ FROM (
         WHERE t_trn.transaction_type = 'GR' AND t_trn.status = 'B'
         GROUP BY base.transaction_code, t_trn.ext_country, base.product_type,
                  t_trn.transaction_type, b.country, b.channel, base.payment_type,
-                 b.purchase_type, t_prd.ext_ratio,
+                 b.purchase_type, t_prd.ext_ratio, b.line_of_business, b.brand,
                  CASE
                      WHEN base.product_type = 'Seguros de Autos'      THEN 'INSURANCE'
                      WHEN base.product_type = 'Excursiones'           THEN 'TOUR'
@@ -931,7 +931,7 @@ FROM (
             (rd.points) points, rd.point_type, rd.business,
             qr1.transaction_code, qr1.country, qr1.produto_original,
             qr1.channel, qr1.payment_type, qr1.produto_agrupado,
-            qr1.transaction_type, qr1.ratio_prd
+            qr1.transaction_type, qr1.ratio_prd, qr1.line_of_business, qr1.brand
     FROM (
         SELECT rd1.dsp_transaction_id, rd1.clm_transaction_id, rd1.product,
                rd1.country AS country_code, rd1.partner,
@@ -946,7 +946,7 @@ FROM (
         SELECT base.transaction_code, t_trn.id,
                t_trn.ext_country AS country_code, base.product_type AS produto_agrupado,
                t_trn.transaction_type, b.country, b.purchase_type AS produto_original,
-               b.channel, base.payment_type,
+               b.channel, base.payment_type, b.line_of_business, b.brand,
                CAST(t_prd.ext_ratio AS DECIMAL(18,4)) AS ratio_prd,
                CASE
                    WHEN base.product_type = 'Seguros de Autos'      THEN 'INSURANCE'
@@ -974,7 +974,7 @@ FROM (
             WHERE reservation_year_month > CAST('2024-01-01' AS DATE)
         ) base ON CAST(t_trn.ext_despegar_trn_id AS VARCHAR) = base.transaction_code
         LEFT JOIN (
-            SELECT transaction_code, country, channel, purchase_type
+            SELECT transaction_code, country, channel, purchase_type, line_of_business, brand
             FROM data.analytics.bi_transactional_fact_transactions
             WHERE reservation_year_month > CAST('2024-01-01' AS DATE)
         ) b ON base.transaction_code = b.transaction_code
@@ -1001,7 +1001,7 @@ FROM (
         WHERE t_trn.transaction_type = 'GR' AND t_trn.status = 'B'
         GROUP BY base.transaction_code, t_trn.id, t_trn.ext_country, base.product_type,
                  t_trn.transaction_type, b.country, b.channel, base.payment_type,
-                 b.purchase_type, t_prd.ext_ratio,
+                 b.purchase_type, t_prd.ext_ratio, b.line_of_business, b.brand,
                  CASE
                      WHEN base.product_type = 'Seguros de Autos'      THEN 'INSURANCE'
                      WHEN base.product_type = 'Excursiones'           THEN 'TOUR'
@@ -1026,7 +1026,7 @@ FROM (
 )
 GROUP BY dsp_transaction_id, product, country_code, partner, point_type, business,
     transaction_code, country, produto_original, channel, payment_type,
-    produto_agrupado, transaction_type, ratio_prd
+    produto_agrupado, transaction_type, ratio_prd, line_of_business, brand
 ),
 
 tipopunto_raw AS (
@@ -1130,7 +1130,7 @@ final_base AS (
            END AS point_type,
            a.business, a.transaction_code, a.country, a.produto_original,
            a.channel_condition, a.payment_type, a.produto_agrupado,
-           a.transaction_type, a.ratio_prd, a.legal_entity,
+           a.transaction_type, a.ratio_prd, a.legal_entity, a.line_of_business, a.brand,
            CAST(CASE WHEN a.country_code = 'MX'
                 THEN cc.puntosv2 * a.ratio_prd / 1.16
                 ELSE cc.puntosv2 * a.ratio_prd
@@ -1143,10 +1143,11 @@ SELECT processing_date, product, country_code, partner,
        SUM(points) AS points, point_type,
        business, country, produto_original, channel_condition, payment_type, produto_agrupado,
        SUM(descuento_consumo_puntos_usd) AS descuento_consumo_puntos_usd,
-       legal_entity
+       legal_entity, line_of_business, brand
 FROM final_base
 GROUP BY processing_date, product, country_code, partner, point_type, business, country,
-         produto_original, channel_condition, payment_type, produto_agrupado, legal_entity
+         produto_original, channel_condition, payment_type, produto_agrupado, legal_entity,
+         line_of_business, brand
 ORDER BY point_type, produto_agrupado
 """
 
@@ -1456,7 +1457,7 @@ def clean_reden(df: pd.DataFrame) -> pd.DataFrame:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).round(2)
     str_cols = ["product", "country_code", "partner", "point_type", "business",
                 "country", "produto_original", "channel_condition", "payment_type",
-                "produto_agrupado", "legal_entity"]
+                "produto_agrupado", "legal_entity", "line_of_business", "brand"]
     for col in str_cols:
         if col in df.columns:
             df[col] = df[col].fillna("N/D").astype(str)
@@ -1896,6 +1897,8 @@ def aggregate_ratio_acum(df: pd.DataFrame, by_name: dict, by_code: dict) -> pd.D
 # channel_condition de _ACUM_SQL/_REDEN_SQL agrupado: Offline = Call Center + Sucursales.
 _CANAL_GRUPO = {"site": "Site", "app": "App", "call center": "Offline", "sucursales": "Offline"}
 _VIAJE = {"DOMESTIC": "Domestic", "INTERNATIONAL": "International"}
+# Canal como lo abre el P&L de B2C (Inputs_Planning_PnL): online = Site + App.
+_CANAL_PNL = {"site": "on", "app": "on", "call center": "call center", "sucursales": "sucursales"}
 
 
 def _inputs_dims(d: pd.DataFrame, by_name: dict, by_code: dict) -> pd.DataFrame:
@@ -1927,6 +1930,23 @@ def build_inputs_real_json(acum_pre_dfs, reden_clean_dfs, by_name: dict, by_code
     g["factor"] = "ssp_red"
     parts.append(g)
 
+    # Puntos redimidos con la apertura del P&L (misma base que ssp_red): num = puntos, den = 0.
+    # El dashboard los divide por las órdenes reales del P&L (loyalty_orders_real.json, de
+    # inputs_contables_loyalty.py) en Marca × LoB × Canal × País × Producto × Viaje. Marca y LoB =
+    # brand / line_of_business de bi_transactional_fact_transactions; canal como en el P&L
+    # (Site + App = "on").
+    o = r.copy()
+    o["num"] = o["den"]
+    o["den"] = 0.0
+    o["marca"] = o.get("brand", "N/D")
+    o["lob"] = o.get("line_of_business", "N/D")
+    o["marca"] = o["marca"].astype(str).str.strip().str.lower()
+    o["lob"] = o["lob"].astype(str).str.strip().str.lower()
+    o["canal"] = o["channel_condition"].astype(str).str.strip().str.lower().map(_CANAL_PNL).fillna("n/d")
+    g = o.groupby(keys + ["marca", "lob"], as_index=False).agg(num=("num", "sum"), den=("den", "sum"))
+    g["factor"] = "pts_red"
+    parts.append(g)
+
     a = _frames(acum_pre_dfs)
     a = a[a["point_type"].astype(str).str.lower() == _PASAPORTE_GENERAL_POINT_TYPE].copy()
     a["num"] = pd.to_numeric(a["points"], errors="coerce").fillna(0)
@@ -1944,7 +1964,7 @@ def build_inputs_real_json(acum_pre_dfs, reden_clean_dfs, by_name: dict, by_code
     # Control de la agregación: el total por país × mes del JSON tiene que dar lo mismo que
     # las filas de origen (detecta filas perdidas al agrupar). La base de origen es la misma
     # de ssp_calculado (build_ssp_json) y de ratio_acum (aggregate_ratio_acum).
-    for fac, src in (("ssp_red", r), ("regla", a)):
+    for fac, src in (("ssp_red", r), ("pts_red", o), ("regla", a)):
         if src.empty:
             print(f"  [WARN] inputs {fac}: 0 filas de origen")
             continue
@@ -1961,11 +1981,14 @@ def build_inputs_real_json(acum_pre_dfs, reden_clean_dfs, by_name: dict, by_code
             print(f"  [WARN] inputs {fac}: {nd / tot:.1%} del denominador con {col} '{nd_val}' "
                   f"(revisar la pestaña 'regla producto' del Sheet Config si es producto)")
 
-    cols = ["ym", "country_code", "factor", "producto", "viaje", "canal", "num", "den"]
+    out["marca"] = out["marca"].fillna("") if "marca" in out else ""
+    out["lob"] = out["lob"].fillna("") if "lob" in out else ""
+    cols = ["ym", "country_code", "factor", "marca", "lob", "producto", "viaje", "canal", "num", "den"]
     payload = {
         "meta": {"generated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
                  "fuente": "redenciones (ssp_red) y acumulaciones point_type=general (regla) del Datalake",
                  "factores": {"ssp_red": "num = USD descuento, den = puntos redimidos",
+                              "pts_red": "num = puntos redimidos, den = 0 (se divide por las órdenes del P&L)",
                               "regla": "num = puntos acumulados, den = GB (gb_basebi_2)"},
                  "canal": "Offline = Call Center + Sucursales"},
         "cols": cols,

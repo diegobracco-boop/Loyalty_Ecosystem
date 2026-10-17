@@ -183,6 +183,46 @@ def emit(esc, df_all):
                                                 default=str).encode("utf-8")
 
 
+ORDERS_FILE = "loyalty_orders_real.json"
+ORDERS_COLS = ["Marca", "LoB", "Canal", "Pais", "Producto", "Viaje", "Fecha", "Orders"]
+
+
+def build_orders():
+    """Órdenes reales (actuals) por Marca × LoB × Canal × País × Producto × Viaje × mes, TODAS
+    las marcas y LoB y SIN colapsar el canal de B2C (a diferencia de loyalty_pnl_*.json). Lo usa
+    Input proyecciones > Datos reales para puntos redimidos por orden (puntos del Datalake /
+    estas órdenes). Junta el FY en curso y el anterior: todos los meses cerrados disponibles."""
+    cfg = _config()
+    files = []
+    for fy in (cfg.CURRENT_FY - 1, cfg.CURRENT_FY):
+        f = f"actuals_fy{str(fy)[-2:]}_abr{fy - 1}_mar{fy}.csv"
+        if (B2B_DIR / f).exists():
+            files.append(f)
+        else:
+            print(f"  [WARN] orders: sin {f}")
+    if not files:
+        return None
+    df = pd.concat([_read(f) for f in files], ignore_index=True)
+    n1 = df["P&L N1"].astype(str).str.strip().str.lower()
+    df = df[n1.isin({"orders domestic", "orders international"})].copy()
+    df["Viaje"] = n1[df.index].str.replace("orders ", "", regex=False)
+    df["Fecha"] = df["Fecha"].str[:7]
+    df = df[df["Fecha"] <= str(cfg.LAST_CLOSED_MONTH)[:7]]
+    for c in ["Marca", "LoB", "Canal", "Pais", "Producto"]:
+        df[c] = df[c].fillna("").astype(str).str.strip().str.lower()
+    df["Monto USD"] = pd.to_numeric(df["Monto USD"], errors="coerce").fillna(0)
+    out = df.groupby(ORDERS_COLS[:-1], as_index=False)["Monto USD"].sum().rename(columns={"Monto USD": "Orders"})
+    out = out[out["Orders"] != 0]
+    out["Orders"] = out["Orders"].round(0)
+    meses = sorted(out["Fecha"].unique())
+    print(f"  orders: {len(out):,} filas · {len(meses)} meses ({', '.join(meses)}) desde {files}")
+    payload = {"meta": {"generated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+                        "fuente": f"Inputs_Planning_PnL {files} · P&L N1 orders domestic/international",
+                        "meses": meses},
+               "cols": ORDERS_COLS, "rows": out.values.tolist()}
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str).encode("utf-8")
+
+
 def _drive():
     from google.oauth2.credentials import Credentials
     from googleapiclient.discovery import build
@@ -239,5 +279,11 @@ if __name__ == "__main__":
         print(f"  {name}: {len(data) // 1024} KB")
         if upload:
             _upload(name, data)
+    orders = build_orders()
+    if orders is not None:
+        (out_dir / ORDERS_FILE).write_bytes(orders)
+        print(f"  {ORDERS_FILE}: {len(orders) // 1024} KB")
+        if upload:
+            _upload(ORDERS_FILE, orders)
     if not ok:
         print("\n  [WARN] Hubo diferencias contra los canónicos (ver arriba). Revisar antes de confiar.")
