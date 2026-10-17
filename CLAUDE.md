@@ -67,6 +67,7 @@ La mayoría es Analista. Para setup: skill **`/configurar-entorno`**.
 - **El programa aplica únicamente a marca Despegar y line of business B2C.** Best Day, Viajes Falabella, Viajanet y los canales banco / WL (B2B2C) o B2B no son parte: no acumulan ni redimen. Cualquier denominador de GB / órdenes que se compare contra puntos tiene que estar recortado a Despegar B2C (ej. `_PENET_SQL`: `brand = 'Despegar'` sobre la query B2C).
 - **Se acumula en cualquier canal de compra** (Site, App, Call Center, Sucursales).
 - **Solo se redime en canales online (Site y App).** Call Center y Sucursales siempre dan 0 redenciones (verificado sep-26: penetración de redenciones 0% en esos canales; desde ene-25 ninguna redención en canales banco/WL).
+- **Chile se prendió en octubre 2026 (~1-oct).** Hasta sep-26 da 0% de acumulación y de redención — esperado, no es un bug. Verificado: oct-26 (1–16) ya acumula 41% del GB y tiene las primeras 21 órdenes con redención. Al comparar Chile contra el FY anterior o promediar su historia, arrancar en oct-26.
 - Si un dato contradice estas reglas (redenciones fuera de Despegar B2C online, acumulación en otra marca), es un problema de datos o de mapeo, no un caso de negocio: revisar antes de mostrarlo.
 
 ## Reglas que no romper
