@@ -662,7 +662,7 @@ var RAW = { acum_cy: null, acum_ly: null, reden_cy: null, reden_ly: null, breaka
             baseline: null, budget: null, forecast: null, dict: null, ssp: null, ratio_acum: null,
             ratio_acum_tier: null, acum_tier: null };
 var LOADED = 0;
-var TOTAL  = 23;  // = cantidad de claves que devuelve getAllRaw() en Código.js
+var TOTAL  = 24;  // = cantidad de claves que devuelve getAllRaw() en Código.js
 var ACTIVE_COUNTRY = 'total';
 var CHARTS = {};
 
@@ -3820,7 +3820,8 @@ function syncSegPressed(root) {
 // inputs medidos en el Datalake (loyalty_inputs_real.json + acum + penet + ssp). Solo muestra: no calcula nada
 // nuevo. Lo que se compara contra el real vive en Métricas de Negocio (3ra barra).
 // ============================================================
-var IP_STATE = { fuente: 'real', esc: 'budget', country: 'total', ap: { producto: true, viaje: false, canal: false } };
+var IP_STATE = { fuente: 'real', esc: 'budget', country: 'total', ap: { producto: true, viaje: false, canal: false },
+                 po: 'ratio', poSolo: true };
 // sum: el bloque es aditivo (puntos) → subtotal por país, TOTAL y columna Total FY.
 // Precios, ratios y penetración no se suman: columna Promedio (simple, meses con dato).
 var IP_BLOQUES = [
@@ -3968,7 +3969,8 @@ function ipRealRows() {
   if (_IPREAL && _IPREAL.src === RAW.inputs_real) return _IPREAL.rows;
   var rows = expand(RAW.inputs_real).map(function(r) {
     return { factor: r.factor, dk: ISO_TO_DATAKEY[(r.country_code || '').toLowerCase()], ym: r.ym,
-             producto: r.producto, viaje: r.viaje, canal: r.canal, n: +r.num || 0, d: +r.den || 0 };
+             producto: r.producto, viaje: r.viaje, canal: r.canal, marca: r.marca || '', lob: r.lob || '',
+             n: +r.num || 0, d: +r.den || 0 };
   }).filter(function(r){ return r.dk; });
   _IPREAL = { src: RAW.inputs_real, rows: rows };
   return rows;
@@ -3987,6 +3989,107 @@ function ipPartnerRows(prog) {
     });
   });
   return out;
+}
+
+// Puntos redimidos (Datalake, factor pts_red de loyalty_inputs_real.json) / órdenes reales del P&L
+// (loyalty_orders_real.json, actuals de todas las marcas y LoB) en Marca × LoB × Canal × País × Producto
+// × Viaje, todos los meses con dato en alguna de las dos fuentes. Se suman puntos y órdenes y se divide al final.
+var IP_PO_ORD = { marca: ['despegar', 'best day', 'viajes falabella', 'viajanet'], lob: ['b2c', 'b2b2c', 'b2b'],
+                  canal: ['on', 'call center', 'sucursales'], viaje: ['domestic', 'international'] };
+var IP_PO_LBL = { 'on': 'On', 'call center': 'Call Center', 'sucursales': 'Sucursales', 'domestic': 'Domestic',
+                  'international': 'International', 'b2c': 'B2C', 'b2b2c': 'B2B2C', 'b2b': 'B2B' };
+function ipPoLbl(v) {
+  if (IP_PO_LBL[v]) return IP_PO_LBL[v];
+  return String(v || '').replace(/\b\w/g, function(c){ return c.toUpperCase(); });
+}
+function ipPoProd(v) {
+  var lc = String(v || '').toLowerCase();
+  for (var i = 0; i < OR_PRODUCTS.length; i++) if (OR_PRODUCTS[i].toLowerCase() === lc) return OR_PRODUCTS[i];
+  return ipPoLbl(lc);
+}
+function ipPtsOrdenCard(real, countries) {
+  var title = 'Puntos redimidos por orden';
+  var ord = expand(RAW.orders_real);
+  var pts = real ? real.filter(function(r){ return r.factor === 'pts_red'; }) : [];
+  if (!ord.length || !pts.length) {
+    var falta = [];
+    if (!ord.length) falta.push('<code>loyalty_orders_real.json</code> (se genera con <code>py inputs_contables_loyalty.py --upload</code>)');
+    if (!pts.length) falta.push('los puntos con apertura del P&amp;L en <code>loyalty_inputs_real.json</code> (próxima corrida de <code>loyalty_sync.py</code>)');
+    return ipPending(title, 'Falta ' + falta.join(' y ') + '.');
+  }
+  var by = {}, months = {};
+  function cell(parts, ym) {
+    var k = parts.join('|');
+    var g = (by[k] = by[k] || { parts: parts, v: {} });
+    months[ym] = 1;
+    return (g.v[ym] = g.v[ym] || { p: 0, o: 0 });
+  }
+  pts.forEach(function(r) {
+    if (countries.indexOf(r.dk) === -1) return;
+    cell([r.marca, r.lob, r.canal, r.dk, String(r.producto || '').toLowerCase(), String(r.viaje || '').toLowerCase()], r.ym).p += r.n;
+  });
+  ord.forEach(function(r) {
+    var dk = String(r.Pais || '').toLowerCase();
+    if (countries.indexOf(dk) === -1) return;
+    cell([r.Marca, r.LoB, r.Canal, dk, String(r.Producto || '').toLowerCase(), String(r.Viaje || '').toLowerCase()],
+         String(r.Fecha).substring(0, 7)).o += +r.Orders || 0;
+  });
+  var ms = Object.keys(months).sort();
+  var groups = Object.keys(by).map(function(k){ return by[k]; }).filter(function(g) {
+    return !IP_STATE.poSolo || Object.keys(g.v).some(function(ym){ return g.v[ym].p; });
+  });
+  var ordIdx = [IP_PO_ORD.marca, IP_PO_ORD.lob, IP_PO_ORD.canal, COUNTRY_DATAKEYS,
+                OR_PRODUCTS.map(function(p){ return p.toLowerCase(); }), IP_PO_ORD.viaje];
+  groups.sort(function(a, b) {
+    for (var i = 0; i < 6; i++) {
+      var x = ordIdx[i].indexOf(a.parts[i]), y = ordIdx[i].indexOf(b.parts[i]);
+      x = x === -1 ? 99 : x; y = y === -1 ? 99 : y;
+      if (x !== y) return x - y;
+      if (a.parts[i] !== b.parts[i]) return a.parts[i] < b.parts[i] ? -1 : 1;
+    }
+    return 0;
+  });
+  var mode = IP_STATE.po;
+  function val(c) {
+    if (!c) return null;
+    if (mode === 'ord') return c.o || null;
+    if (mode === 'pts') return c.p || null;
+    return c.o ? c.p / c.o : null;
+  }
+  function tip(c) { return c ? ' title="' + fmtCount(c.p) + ' pts / ' + fmtCount(c.o) + ' órdenes"' : ''; }
+  function cells(v) {
+    var tot = { p: 0, o: 0 };
+    var h = ms.map(function(ym) {
+      var c = v[ym], x = val(c);
+      // Puntos por orden del período: solo meses con órdenes (ej. el mes en curso sin P&L no infla el total)
+      if (c && (mode !== 'ratio' || c.o)) { tot.p += c.p; tot.o += c.o; }
+      return '<td class="vf' + (x === null ? ' neu' : '') + '"' + tip(c) + '>' + ipFmt('pts', x) + '</td>';
+    }).join('');
+    return h + '<td class="sep"></td><td class="vf ip-tot"' + tip(tot) + '>' + ipFmt('pts', val(tot)) + '</td>';
+  }
+  var ctl = '<div class="var-ctl"><span class="ratio-controls-lbl">Valor</span><div class="seg seg-sm">'
+    + [['ratio', 'Puntos por orden'], ['ord', 'Órdenes'], ['pts', 'Puntos redimidos']].map(function(o) {
+        return '<button class="seg-btn' + (mode === o[0] ? ' active' : '') + '" type="button" onclick="ipSet(\'po\',\'' + o[0] + '\')">' + o[1] + '</button>';
+      }).join('') + '</div>'
+    + '<label class="ratio-controls-lbl"><input type="checkbox"' + (IP_STATE.poSolo ? ' checked' : '')
+    + ' onchange="ipSet(\'poSolo\',this.checked)"> Solo aperturas con redenciones</label></div>';
+  var h = ctl + '<div class="tbl-scroll"><table class="pnl ip-tbl"><thead><tr>'
+        + ['Marca', 'LoB', 'Canal', 'País', 'Producto', 'Viaje'].map(function(t){ return '<th class="lc">' + t + '</th>'; }).join('')
+        + ms.map(function(ym){ return '<th>' + fmtMonthLbl(ym) + '</th>'; }).join('')
+        + '<th class="sep"></th><th>Total período</th></tr></thead><tbody>';
+  var all = {};
+  groups.forEach(function(g) {
+    var p = g.parts;
+    h += '<tr>' + [ipPoLbl(p[0]), ipPoLbl(p[1]), ipPoLbl(p[2]), varCountryObj(p[3]).label, ipPoProd(p[4]), ipPoLbl(p[5])]
+           .map(function(t){ return '<td class="lc">' + ipEsc(t) + '</td>'; }).join('') + cells(g.v) + '</tr>';
+    Object.keys(g.v).forEach(function(ym){ var c = (all[ym] = all[ym] || { p: 0, o: 0 }); c.p += g.v[ym].p; c.o += g.v[ym].o; });
+  });
+  if (!groups.length) h += '<tr><td class="lc" colspan="' + (ms.length + 8) + '">Sin datos para el filtro elegido.</td></tr>';
+  else h += '<tr class="grand-total"><td class="lc" colspan="6">TOTAL</td>' + cells(all) + '</tr>';
+  h += '</tbody></table></div>';
+  var sub = 'puntos redimidos (Datalake: Pasaporte D! + Cobrand + Partners) / órdenes reales del P&amp;L (actuals) · '
+          + 'todos los meses con dato · el P&amp;L FY26 no trae sep–dic 2025 (esos meses solo tienen puntos) · Canal On = Site + App';
+  return ipCard(title, sub, h);
 }
 
 function ipRenderReal(h) {
@@ -4032,22 +4135,8 @@ function ipRenderReal(h) {
               + (dims.some(function(d){ return d !== 'producto'; }) ? ' · viaje y canal todavía no disponibles (se muestra por producto)' : ''),
               pen.length ? ipRealTable({ unit: 'pct', kind: 'ratio', col: 'País' + (penDims.length ? ' / producto' : '') }, ipGroups(pen, penDims, countries), months)
                          : '<div class="empty">Sin datos de penetración.</div>');
-  // 5-6. Órdenes con puntos redimidos
-  // ordenes_red: n = puntos redimidos, d = órdenes. Una reserva con puntos en 2 productos cuenta en los 2.
-  var ordRows = real ? real.filter(function(r){ return r.factor === 'ordenes_red' && r.d && months.indexOf(r.ym) !== -1; }) : [];
-  if (!real) {
-    h += ipCard('Órdenes con puntos redimidos', '', noReal);
-  } else if (!ordRows.length) {
-    h += ipPending('Cantidad de órdenes con puntos redimidos · Promedio de puntos redimidos por orden',
-                   'El <code>loyalty_inputs_real.json</code> de Drive todavía no trae el conteo de órdenes: aparece en la próxima corrida de <code>loyalty_sync.py</code>.');
-  } else {
-    var ordNota = 'Pasaporte D! + Cobrand + Partners · una reserva con puntos en 2 productos cuenta como 2';
-    h += ipCard('Cantidad de órdenes con puntos redimidos', ordNota,
-                ipRealTable({ unit: 'pts', kind: 'sum', col: col },
-                            ipGroups(ordRows.map(function(r){ return { dk: r.dk, ym: r.ym, producto: r.producto, viaje: r.viaje, canal: r.canal, n: r.d, d: 0 }; }), dims, countries), months));
-    h += ipCard('Promedio de puntos redimidos por orden', 'puntos redimidos / órdenes · ' + ordNota,
-                ipRealTable({ unit: 'pts', kind: 'ratio', col: col }, ipGroups(ordRows, dims, countries), months));
-  }
+  // 5-6. Órdenes reales (P&L) y puntos redimidos por orden
+  h += ipPtsOrdenCard(real, countries);
   // 7. Regla de acumulación
   h += ipCard('Regla de acumulación', 'puntos acumulados / GB de las reservas que acumularon (Pasaporte D!) · puntos por USD',
               real ? ipRealTable({ unit: 'ratio', kind: 'ratio', col: col }, factorGroups('regla'), months) : noReal);
@@ -4315,7 +4404,7 @@ function onLoaded(key, data) {
 // "carga incompleta" — hoy solo ratio_acum (loyalty_ratio_acumulacion.json aun
 // no se subio a Drive con una sync real; el resto del codigo ya degrada a "Sin
 // datos" sin romper nada, ver ratioRows/buildRatioBarChart).
-var RAW_OPTIONAL = { ratio_acum: 1, ratio_acum_tier: 1, acum_tier: 1, penet: 1, acum_channel: 1, stock_ifood: 1, runrate: 1, proy: 1, pnl_prev: 1, inputs_real: 1 };
+var RAW_OPTIONAL = { ratio_acum: 1, ratio_acum_tier: 1, acum_tier: 1, penet: 1, acum_channel: 1, stock_ifood: 1, runrate: 1, proy: 1, pnl_prev: 1, inputs_real: 1, orders_real: 1 };
 function checkStale() {
   var el = document.getElementById('stale-banner');
   var txt = document.getElementById('stale-banner-text');
