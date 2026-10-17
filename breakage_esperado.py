@@ -39,8 +39,9 @@ ULTIMO_MES_HIST = "2025-12"  # último mes de breakage_acum_hist.csv (cierre ofi
 # Ajustes manuales del Excel sobre los vencidos Non Tender, desde el mes indicado.
 #   CO: welcome bonus Pasaporte CO vencido en 2024-06 (celda 'CO 2025 '!I8), se resta siempre.
 AJUSTES_VENCIDOS = {("CO", "2024-06"): -302123640}
-# Países que arrancaron después: el promedio toma los meses disponibles desde acá (hasta 12).
-#   PE: el Excel promedia desde 2025-07 ($BD) — los meses anteriores dan valores atípicos.
+# Países cuyo breakage recién es estable desde un mes: el promedio toma los meses disponibles desde
+# acá, nunca más de 12 (regla de Diego, 17-oct: nunca promediar más de 12 meses).
+#   PE: breakage estable desde 2025-07 (confirmado por Diego) — hasta jun-26 promedia menos de 12.
 INICIO_PROMEDIO = {"PE": "2025-07"}
 
 
