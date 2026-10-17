@@ -6,7 +6,7 @@ ASC 606) que se carga en la pestaña `breakage_esperado` del Sheet Config.
 Regla (carátula del Excel + fórmulas de las solapas "<PAÍS> 2025" y "Breakage Esperado"):
 
     % del mes M  = vencidos acumulados hasta M (Non Tender + Cobrand)
-                   / acumulados hasta M − 18 meses (Non Tender + Cobrand + Partners)
+                   / acumulados hasta M − 19 meses (Non Tender + Cobrand + Partners)
     breakage esperado de M = promedio simple de los últimos 12 % mensuales
 
 - Vencidos: query de breakage (`clm_transactions` PE) desde 2019, clasificados por
@@ -15,7 +15,7 @@ Regla (carátula del Excel + fórmulas de las solapas "<PAÍS> 2025" y "Breakage
 - Acumulados: hasta 2025-12 la historia OFICIAL del Excel (solapa "Acumulaciones", que sale del
   archivo de cierre) en `breakage_acum_hist.csv` — la fila 2022-12 es el saldo acumulado a esa
   fecha. Desde 2026-01, las acumulaciones del ecosystem (Pasaporte D! -> Non Tender, Cobrand +
-  Partners -> Cobrand). Con el rezago de 18 meses, eso recién entra en el % de 2027-07.
+  Partners -> Cobrand). Con el rezago de 19 meses, eso recién entra en el % de 2027-08.
 - Ajustes del Excel que se replican (AJUSTES_VENCIDOS / INICIO_PROMEDIO).
 """
 import csv
@@ -28,9 +28,10 @@ DICC_CSV = _DIR / "diccionario_point_type.csv"
 ACUM_HIST_CSV = _DIR / "breakage_acum_hist.csv"
 BREAKAGE_ESP_FILE = "loyalty_breakage_esperado.json"
 
-# Los puntos vencen a los 18 meses (confirmado por Diego, 17-oct): lo acumulado en M−18 vence en M,
-# así que entra al denominador de M. El Excel 08'26 usaba 19 en todos los países salvo AR (corregido a 18).
-REZAGO_MESES = 18
+# 19 meses: criterio histórico del Excel de Control de Gestión (decisión de Diego, 17-oct).
+# Los puntos vencen a los 18 meses y 1 día; con 18 el denominador incluiría el mes M−18, que ya
+# venció casi entero en M — se evaluó y se descartó para no cambiar el criterio histórico.
+REZAGO_MESES = 19
 VENTANA = 12               # "promedio de los últimos 12 meses"
 GRUPOS_VENCIDOS = ("Non Tender", "Cobrand")
 ULTIMO_MES_HIST = "2025-12"  # último mes de breakage_acum_hist.csv (cierre oficial)
