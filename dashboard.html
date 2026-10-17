@@ -563,7 +563,7 @@ function getPts(row) {
 function getUsd(row) { return Math.abs(+(row.descuento_consumo_puntos_usd) || 0); }
 
 // Factor SSP de Facturación por país y mes (= SSP_Calculado * (1 - breakage esperado)).
-// Fuente: loyalty_ssp.json (loyalty_sync.py, redenciones Pasaporte D! + breakage_esperado.csv).
+// Fuente: loyalty_ssp.json (loyalty_sync.py: redenciones Pasaporte D! + breakage esperado CALCULADO por breakage_esperado.py desde 17-oct; Sheet solo en meses sin cálculo).
 // Fallbacks: último mes disponible del país -> constante SSP_BREAKAGE hardcodeada.
 function sspFactor(dataKey, ym) {
   var byC = (RAW.ssp && RAW.ssp.data) ? RAW.ssp.data[dataKey] : null;

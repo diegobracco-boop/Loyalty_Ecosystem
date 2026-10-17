@@ -1569,6 +1569,8 @@ def to_compact(df: pd.DataFrame) -> dict:
 #       sobre redenciones "Pasaporte D!" (point_type = 'general'), por país.
 #   SSP_Facturación = SSP_Calculado · (1 − breakage_esperado[país][mes])
 # (mismo criterio que la hoja "SSP Facturación" del cierre mensual de Loyalty).
+# breakage_esperado: desde 17-oct el CALCULADO por breakage_esperado.py (ver _breakage_para_ssp);
+# la pestaña breakage_esperado del Sheet solo cubre meses sin cálculo.
 # ------------------------------------------------------------------------------
 CC_TO_DATAKEY = {"AR": "argentina", "BR": "brasil", "CO": "colombia", "EC": "ecuador",
                  "MX": "mexico", "PE": "peru", "UY": "uruguay", "CL": "chile"}
@@ -1738,6 +1740,9 @@ def build_ssp_json(*reden_clean_dfs, brk_calc: dict | None = None) -> bytes:
         meses = sorted(out[dk])
         print(f"  [SSP] {dk:10s} {meses[0]}..{meses[-1]}  ({len(meses)} meses)")
     print(f"  [SSP] fuente del breakage esperado (celdas país×mes): {_fuentes}")
+    if _fuentes.get("sin"):
+        print(f"  [WARN] SSP: {_fuentes['sin']} celdas país×mes sin breakage esperado (ni calculado ni Sheet) "
+              f"→ SSP de facturación sin descontar breakage")
     if _dropped:
         print(f"  [WARN] SSP: country_code sin mapear, filas descartadas: {sorted(_dropped)} "
               f"(agregar a CC_TO_DATAKEY si es un país nuevo)")
