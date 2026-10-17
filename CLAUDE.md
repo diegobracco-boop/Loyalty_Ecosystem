@@ -62,6 +62,13 @@ La mayoría es Analista. Para setup: skill **`/configurar-entorno`**.
 | `SETUP.md` | Runbook operativo completo |
 | `Proceso_cierre/INSTRUCCIONES.md` | Runbook del módulo de cierre contable (aparte, ver arriba) |
 
+## Reglas del programa de Loyalty (negocio — confirmadas por Diego, 17-oct)
+
+- **El programa aplica únicamente a marca Despegar y line of business B2C.** Best Day, Viajes Falabella, Viajanet y los canales banco / WL (B2B2C) o B2B no son parte: no acumulan ni redimen. Cualquier denominador de GB / órdenes que se compare contra puntos tiene que estar recortado a Despegar B2C (ej. `_PENET_SQL`: `brand = 'Despegar'` sobre la query B2C).
+- **Se acumula en cualquier canal de compra** (Site, App, Call Center, Sucursales).
+- **Solo se redime en canales online (Site y App).** Call Center y Sucursales siempre dan 0 redenciones (verificado sep-26: penetración de redenciones 0% en esos canales; desde ene-25 ninguna redención en canales banco/WL).
+- Si un dato contradice estas reglas (redenciones fuera de Despegar B2C online, acumulación en otra marca), es un problema de datos o de mapeo, no un caso de negocio: revisar antes de mostrarlo.
+
 ## Reglas que no romper
 
 - **Nunca commitear** `token_drive.json`, `credentials_drive.json`, `envs/.env*`. Están gitignoreados.
