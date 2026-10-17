@@ -1929,7 +1929,7 @@ def build_inputs_real_json(acum_pre_dfs, reden_clean_dfs, by_name: dict, by_code
     # Marca y LoB (brand / line_of_business de bi_transactional_fact_transactions), mismas que pts_red
     for col, src_col in (("marca", "brand"), ("lob", "line_of_business")):
         v = r[src_col] if src_col in r else pd.Series("n/d", index=r.index)
-        r[col] = v.astype(str).str.strip().str.lower()
+        r[col] = v.fillna("n/d").astype(str).str.strip().str.lower()
     g = r.groupby(keys + ["marca", "lob"], as_index=False).agg(num=("num", "sum"), den=("den", "sum"))
     g["factor"] = "ssp_red"
     parts.append(g)
