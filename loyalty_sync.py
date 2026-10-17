@@ -1926,7 +1926,11 @@ def build_inputs_real_json(acum_pre_dfs, reden_clean_dfs, by_name: dict, by_code
     r["num"] = pd.to_numeric(r["descuento_consumo_puntos_usd"], errors="coerce").fillna(0).abs()
     r["den"] = pd.to_numeric(r["points"], errors="coerce").fillna(0).abs()
     r = _inputs_dims(r, by_name, by_code)
-    g = r.groupby(keys, as_index=False).agg(num=("num", "sum"), den=("den", "sum"))
+    # Marca y LoB (brand / line_of_business de bi_transactional_fact_transactions), mismas que pts_red
+    for col, src_col in (("marca", "brand"), ("lob", "line_of_business")):
+        v = r[src_col] if src_col in r else pd.Series("n/d", index=r.index)
+        r[col] = v.astype(str).str.strip().str.lower()
+    g = r.groupby(keys + ["marca", "lob"], as_index=False).agg(num=("num", "sum"), den=("den", "sum"))
     g["factor"] = "ssp_red"
     parts.append(g)
 
@@ -1938,9 +1942,6 @@ def build_inputs_real_json(acum_pre_dfs, reden_clean_dfs, by_name: dict, by_code
     o = r.copy()
     o["num"] = o["den"]
     o["den"] = 0.0
-    for col, src_col in (("marca", "brand"), ("lob", "line_of_business")):
-        v = o[src_col] if src_col in o else pd.Series("n/d", index=o.index)
-        o[col] = v.astype(str).str.strip().str.lower()
     o["canal"] = o["channel_condition"].astype(str).str.strip().str.lower().map(_CANAL_PNL).fillna("n/d")
     g = o.groupby(keys + ["marca", "lob"], as_index=False).agg(num=("num", "sum"), den=("den", "sum"))
     g["factor"] = "pts_red"
