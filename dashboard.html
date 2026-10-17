@@ -4036,7 +4036,8 @@ function ipRenderReal(h) {
   var sspFac = sspRed.map(function(r){ var x = Object.assign({}, r); x.n = r.n * (1 - bk(r.dk, r.ym)); return x; });
   var pen = expand(RAW.penet).map(function(r) {
     return ipRow(ISO_TO_DATAKEY[(r.country_code || '').toLowerCase()], (r.ym || '').substring(0, 7),
-                 { producto: r.grupo_pnl || 'Sin clasificar' }, +r.gb_con_puntos || 0, +r.gb_total || 0);
+                 { producto: r.grupo_pnl || 'Sin clasificar', marca: r.marca, lob: r.lob, canal: r.canal, viaje: r.viaje },
+                 +r.gb_con_puntos || 0, +r.gb_total || 0);
   }).filter(function(r){ return r.dk; });
   // Puntos por orden: solo aperturas (al detalle más fino) que tuvieron redenciones en algún mes;
   // así, al cerrar Marca / LoB / Canal, las órdenes de Best Day o B2B no entran al denominador.
@@ -4074,8 +4075,8 @@ function ipRenderReal(h) {
   // 3. Precio del pasivo
   h += ipPending('Precio del punto pasivo', 'Sin definición del valor real todavía: falta que Control de Gestión defina cómo se calcula.');
   // 4. Penetración GB (solo país × producto)
-  h += card({ name: 'Penetración del GB', unit: 'pct', kind: 'ratio', dims: ['producto'] }, pen,
-            '% del GB con acumulación de puntos · viaje y canal todavía no disponibles',
+  h += card({ name: 'Penetración del GB', unit: 'pct', kind: 'ratio', dims: DL }, pen,
+            '% del GB (Despegar B2C, base P&amp;L) con acumulación de puntos · canal de la query B2C (Site / App / Call Center / Sucursales) · Uruguay va en Other Countries',
             pen.length ? '' : '<div class="empty">Sin datos de penetración.</div>');
   // 5-6. Órdenes reales (P&L) y puntos redimidos por orden
   var faltaPo = [];

@@ -2084,6 +2084,11 @@ GROUP BY processing_date, country_code, tier
 # ver memoria epm-calculo-loyalty-mapeo).
 # ──────────────────────────────────────────────────────────────────────────
 _PENET_SQL = """
+-- Base = query B2C de Diego (bi_pnlop_fact_current_model, 17-oct) + brand = 'Despegar'.
+-- Denominador: GB (gb_without_distorted_taxes_usd) de todas las reservas confirmadas Despegar B2C.
+-- Numerador: el GB de las que tuvieron accrual (clm_transactions GA/B).
+-- Los LEFT JOIN a data.tmp.* / pricing_model de la query original no tocan el GB (verificado
+-- país por país en sep-26: mismo GB y mismas filas con y sin ellos) y se omiten.
 WITH clm_ga AS (
     SELECT DISTINCT CAST(ext_despegar_trn_id AS VARCHAR) AS transaction_code
     FROM   data.lake.clm_transactions
@@ -2092,47 +2097,95 @@ WITH clm_ga AS (
       AND  processing_date >= DATE('2023-01-01')
 )
 SELECT
-    DATE_FORMAT(CAST(tr.reservation_date AS DATE), '%Y-%m-01') AS ym,
-    tr.country_code,
-    tr.purchase_type                                             AS producto_original,
-    array_agg(DISTINCT CAST(pr.product_type AS VARCHAR))         AS producto,
-    COUNT(DISTINCT tr.transaction_code)                          AS trx_total,
-    COUNT(DISTINCT CASE WHEN ga.transaction_code IS NOT NULL
-                        THEN tr.transaction_code END)            AS trx_con_puntos,
-    ROUND(SUM(
-        CAST(cg.gross_booking     AS DECIMAL(18,2))
-      - COALESCE(CAST(cg.tax_pais        AS DECIMAL(18,2)), 0)
-      - COALESCE(CAST(cg.tax_afip_rg4815 AS DECIMAL(18,2)), 0)
-    ), 2)                                                        AS gb_total,
-    ROUND(SUM(CASE WHEN ga.transaction_code IS NOT NULL THEN
-        CAST(cg.gross_booking     AS DECIMAL(18,2))
-      - COALESCE(CAST(cg.tax_pais        AS DECIMAL(18,2)), 0)
-      - COALESCE(CAST(cg.tax_afip_rg4815 AS DECIMAL(18,2)), 0)
-    ELSE 0 END), 2)                                              AS gb_con_puntos
-FROM data.analytics.bi_transactional_fact_transactions tr
-INNER JOIN data.analytics.bi_transactional_fact_products pr
-        ON tr.transaction_code = pr.transaction_code
-INNER JOIN data.analytics.bi_transactional_fact_charges cg
-        ON tr.transaction_code = cg.transaction_code
-       AND pr.product_id       = cg.product_id
+    DATE_FORMAT(t.confirmation_date, '%Y-%m-01') AS ym,
+    CASE
+        WHEN t.agency_code IN (
+            'AG00058325','AG00058612','AG00058617','AG00058618','AG00058619',
+            'AG00058620','AG00060920','AG00060921','AG00060922','AG00063172',
+            'AG00063211','AG00064343','AG00064344')
+        THEN 'AR'
+        WHEN t.channel = 'puntosbonus-pe' THEN 'AR'
+        WHEN t.country_code IN ('AR','CO','EC','PE','BR','CL','MX','US') THEN t.country_code
+        ELSE 'OT'
+    END AS country_code,
+    t.brand            AS marca,
+    t.line_of_business AS lob,
+    CASE
+        WHEN t.agency_code IN (
+            'AG00058612','AG00058617','AG00058618','AG00058619','AG00058620',
+            'AG00060920','AG00060921','AG00060922','AG00063172','AG00063211')
+        THEN 'Sucursales'
+        WHEN t.channel IN (
+            'viajes-falabella-presencial','viajes-falabella-corporate',
+            'vf-presencial-markup','bestday-islas','bestday-islas-markup',
+            'tiendas-b2c','franquicia_desp')
+        THEN 'Sucursales'
+        WHEN t.channel IN (
+            'beneficios-despegar','site','site-smartphone','site-tablet',
+            'bestday-site','viajes-falabella-wl','viajes-falabella-viajaya',
+            'viajanet-passagens','viajanet-site','agencia-exoticca',
+            'phanton-brand','puntosbonus-pe')
+        THEN 'Site'
+        WHEN t.channel IN (
+            'call-sales-b2c','call-sales-outbound','bestday-call',
+            'viajes-falabella-call','viajanet-televentas',
+            'videollamada-b2c','whatsapp-b2c')
+        THEN 'Call Center'
+        WHEN t.channel IN (
+            'android-app','iphone-app','bestday-app',
+            'viajes-falabella-app','viajanet-app')
+        THEN 'App'
+        ELSE 'Site'
+    END AS canal,
+    -- Producto de la query B2C (a nivel reserva, con las reasignaciones de Asistencia /
+    -- Alquileres / Seguros de Autos / Bundles+Escapadas -> Carrito). Se mapea a grupo P&L con
+    -- 'regla producto'; si no matchea, cae a p.product_type (ej. Ancillaries -> Valijas -> Flights).
+    CASE
+        WHEN t.purchase_type = 'Autos'
+        THEN IF(p.product_type = 'Seguros de Autos', 'Seguros de Autos', t.purchase_type)
+        ELSE IF(
+            IF(((t.purchase_type = 'Vuelos' OR t.purchase_type = 'Hoteles')
+                    AND p.product_type = 'Asistencia al viajero')
+                OR (t.purchase_type IN ('Bundles','Escapadas','Carrito')
+                    AND p.attach_stage = 'CHECKOUT'
+                    AND p.product_type = 'Asistencia al viajero'),
+               'Asistencia al viajero', t.purchase_type) IN ('Bundles','Escapadas'),
+            'Carrito',
+            IF(((t.purchase_type = 'Vuelos' OR t.purchase_type = 'Hoteles')
+                    AND p.product_type = 'Asistencia al viajero')
+                OR (t.purchase_type IN ('Bundles','Escapadas','Carrito')
+                    AND p.attach_stage = 'CHECKOUT'
+                    AND p.product_type = 'Asistencia al viajero'),
+               'Asistencia al viajero',
+               IF(t.purchase_type = 'Hoteles' AND p.product_type = 'Alquileres',
+                  'Alquileres', t.purchase_type)))
+    END AS producto_original,
+    p.product_type AS producto,
+    p.trip_type    AS viaje,
+    COUNT(DISTINCT t.transaction_code) AS trx_total,
+    COUNT(DISTINCT CASE WHEN ga.transaction_code IS NOT NULL THEN t.transaction_code END) AS trx_con_puntos,
+    SUM(b.gb_without_distorted_taxes_usd) AS gb_total,
+    SUM(CASE WHEN ga.transaction_code IS NOT NULL THEN b.gb_without_distorted_taxes_usd ELSE 0 END) AS gb_con_puntos
+FROM data.analytics.bi_pnlop_fact_current_model b
+INNER JOIN analytics.bi_transactional_fact_products p
+        ON CAST(p.product_id AS VARCHAR) = CAST(b.product_id AS VARCHAR)
+INNER JOIN analytics.bi_transactional_fact_transactions t
+        ON t.transaction_code = p.transaction_code
 LEFT  JOIN clm_ga ga
-        ON CAST(tr.transaction_code AS VARCHAR) = ga.transaction_code
-WHERE  tr.reservation_year_month >= DATE('2023-01-01')
-  AND  pr.reservation_year_month >= DATE('2023-01-01')
-  AND  cg.reservation_year_month >= DATE('2023-01-01')
-  AND  CAST(tr.reservation_date AS DATE) >= {{Desde}}
-  AND  CAST(tr.reservation_date AS DATE) <  {{Hasta}}
-  AND  pr.status      = 'Confirmado'
-  AND  tr.country_code IN ('AR','BR','CL','CO','EC','MX','PE','UY')
-  AND  tr.channel IN (
-    'android-app','banco-icbc-ar','bbva-wl','beneficios-despegar',
-    'call-sales-b2c','expedia','fravegaviajes','grupopetersen','icbcstore',
-    'iphone-app','itau-br-benefits','macro','partner_benefits','santander',
-    'site','site-smartphone','site-tablet','tcb_benefits',
-    'travel-agency-bo','travel-agency-whitelabel'
-  )
-GROUP BY 1, 2, 3
-ORDER BY 1, 2, 3
+        ON CAST(t.transaction_code AS VARCHAR) = ga.transaction_code
+WHERE b.date_reservation_year_month  >= '2023-01'
+  AND p.reservation_year_month_period >= '2023'
+  AND t.reservation_year_month_period >= '2023'
+  AND p.reservation_year_month   >= DATE('2023-01-01')
+  AND t.reservation_year_month   >= DATE('2023-01-01')
+  AND t.confirmation_date >= {{Desde}}
+  AND t.confirmation_date <  {{Hasta}}
+  AND p.is_confirmed_flg = 1
+  AND (t.line_of_business = 'B2C' OR t.channel = 'puntosbonus-pe')
+  AND b.gb_without_distorted_taxes_usd > 0
+  AND t.channel <> 'internal-travel'
+  AND t.brand = 'Despegar'
+GROUP BY 1, 2, 3, 4, 5, 6, 7, 8
 """
 
 
@@ -2140,11 +2193,16 @@ def build_penet_query(desde: str, hasta: str) -> str:
     return _sub(_PENET_SQL, desde, hasta)
 
 
-def fetch_penet(desde: str, hasta: str) -> pd.DataFrame:
-    """GB total y GB con puntos por mes x pais x grupo_pnl.
+_PENET_VIAJE = {"Nac": "Domestic", "Int": "International"}
 
-    Grano: transaction_code x product_line (charges level).
-    GB = gross_booking - tax_pais - tax_afip_rg4815.
+
+def fetch_penet(desde: str, hasta: str) -> pd.DataFrame:
+    """GB total y GB con puntos por mes x pais x grupo_pnl x marca x lob x canal x viaje.
+
+    Base (17-oct): query B2C de Diego sobre bi_pnlop_fact_current_model + brand = 'Despegar'
+    (antes: lista fija de 20 canales que metía bancos/WL sin puntos en el denominador y dejaba
+    afuera iFood / tiendas / Google). Mes = confirmation_date. GB = gb_without_distorted_taxes_usd.
+    País, canal y producto con los CASE de esa query (Uruguay cae en 'OT', como en el P&L).
     Ancillaries (purchase_type) no están en regla_producto: caen al 2do nivel
     (product_type), donde 'Valijas' → Flights (16-oct); lo que no matchee
     queda 'Sin clasificar' y se excluye.
@@ -2158,8 +2216,8 @@ def fetch_penet(desde: str, hasta: str) -> pd.DataFrame:
     esos nombres nunca aparecen en purchase_type (gotcha del 11-sep,
     ver aggregate_ratio_acum).
     """
-    cols = ["ym", "country_code", "grupo_pnl",
-            "trx_total", "trx_con_puntos", "gb_total", "gb_con_puntos"]
+    keys = ["ym", "country_code", "grupo_pnl", "marca", "lob", "canal", "viaje"]
+    cols = keys + ["trx_total", "trx_con_puntos", "gb_total", "gb_con_puntos"]
     df = fetch(build_penet_query(desde, hasta),
                f"Penetración GB Acum ({desde[:7]}→{hasta[:7]})")
     if df.empty:
@@ -2172,6 +2230,9 @@ def fetch_penet(desde: str, hasta: str) -> pd.DataFrame:
     for c in ("trx_total", "trx_con_puntos", "gb_total", "gb_con_puntos"):
         df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
     df["producto_original"] = df["producto_original"].fillna("N/D").astype(str)
+    for c in ("marca", "lob", "canal"):
+        df[c] = df[c].fillna("N/D").astype(str)
+    df["viaje"] = df["viaje"].fillna("").astype(str).str.strip().map(_PENET_VIAJE).fillna("N/D")
     # El ODBC devuelve el array_agg como texto JSON ('["Valijas"]'), no como
     # lista: sin parsearlo, el split por coma deja los corchetes y comillas y
     # el nombre nunca matchea 'regla producto' (Valijas quedaba sin clasificar).
@@ -2210,8 +2271,7 @@ def fetch_penet(desde: str, hasta: str) -> pd.DataFrame:
               f"{combos[:10]}{'…' if len(combos) > 10 else ''}")
     df = df[df["grupo_pnl"] != "Sin clasificar"]
 
-    out = (df.groupby(["ym", "country_code", "grupo_pnl"],
-                      as_index=False, dropna=False)
+    out = (df.groupby(keys, as_index=False, dropna=False)
              .agg(trx_total      =("trx_total",     "sum"),
                   trx_con_puntos =("trx_con_puntos", "sum"),
                   gb_total       =("gb_total",       "sum"),
@@ -3466,14 +3526,10 @@ META_PENET = {
     "generated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
     "snapshot_date": str(TODAY),
     "fuente": (
-        "bi_transactional_fact_transactions x products x charges, "
-        "LEFT JOIN clm_transactions (GA/B, desde 2023-01-01). "
-        "Grano: transaction_code x product_line. "
-        "Ancillaries excluidas (Sin clasificar en regla_producto). "
-        "GB = gross_booking - tax_pais - tax_afip_rg4815 (charges level, "
-        "NO comparable con gb_basebi_2 de _ACUM_SQL / ratio_acum). "
-        "Canales: lista propia de _PENET_SQL (WHERE tr.channel IN (...)), "
-        "distinta del filtro de _ACUM_SQL."
+        "Query B2C (bi_pnlop_fact_current_model x products x transactions) + brand Despegar, "
+        "LEFT JOIN clm_transactions (GA/B, desde 2023-01-01). Mes = confirmation_date. "
+        "GB = gb_without_distorted_taxes_usd (NO comparable con gb_basebi_2 de _ACUM_SQL). "
+        "País / canal / producto con los CASE de la query B2C; Uruguay -> OT."
     ),
 }
 penet_bytes = json.dumps(
