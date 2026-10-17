@@ -1938,10 +1938,9 @@ def build_inputs_real_json(acum_pre_dfs, reden_clean_dfs, by_name: dict, by_code
     o = r.copy()
     o["num"] = o["den"]
     o["den"] = 0.0
-    o["marca"] = o.get("brand", "N/D")
-    o["lob"] = o.get("line_of_business", "N/D")
-    o["marca"] = o["marca"].astype(str).str.strip().str.lower()
-    o["lob"] = o["lob"].astype(str).str.strip().str.lower()
+    for col, src_col in (("marca", "brand"), ("lob", "line_of_business")):
+        v = o[src_col] if src_col in o else pd.Series("n/d", index=o.index)
+        o[col] = v.astype(str).str.strip().str.lower()
     o["canal"] = o["channel_condition"].astype(str).str.strip().str.lower().map(_CANAL_PNL).fillna("n/d")
     g = o.groupby(keys + ["marca", "lob"], as_index=False).agg(num=("num", "sum"), den=("den", "sum"))
     g["factor"] = "pts_red"
@@ -1969,8 +1968,8 @@ def build_inputs_real_json(acum_pre_dfs, reden_clean_dfs, by_name: dict, by_code
             print(f"  [WARN] inputs {fac}: 0 filas de origen")
             continue
         t = out[out["factor"] == fac].groupby(["ym", "country_code"])[["num", "den"]].sum()
-        o = src.groupby(["ym", "country_code"])[["num", "den"]].sum()
-        dif = (t - o.reindex(t.index)).abs().max().max()
+        o_ctl = src.groupby(["ym", "country_code"])[["num", "den"]].sum()
+        dif = (t - o_ctl.reindex(t.index)).abs().max().max()
         msg = "OK" if dif < 1 else f"[WARN] diferencia máx {dif:,.2f}"
         print(f"  [INPUTS] {fac:8s} {len(out[out['factor'] == fac]):>6} filas · control de agregación país×mes: {msg}")
     for fac, col, nd_val in (("ssp_red", "canal", "N/D"), ("regla", "canal", "N/D"), ("regla", "viaje", "N/D"),

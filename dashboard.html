@@ -4087,7 +4087,7 @@ function ipPtsOrdenCard(real, countries) {
   if (!groups.length) h += '<tr><td class="lc" colspan="' + (ms.length + 8) + '">Sin datos para el filtro elegido.</td></tr>';
   else h += '<tr class="grand-total"><td class="lc" colspan="6">TOTAL</td>' + cells(all) + '</tr>';
   h += '</tbody></table></div>';
-  var sub = 'puntos redimidos (Datalake: Pasaporte D! + Cobrand + Partners) / órdenes reales del P&amp;L (actuals) · '
+  var sub = 'puntos redimidos (Datalake: Pasaporte D! + Cobrand + Partners) / TODAS las órdenes reales del P&amp;L (actuals), no solo las que redimieron · '
           + 'todos los meses con dato · el P&amp;L FY26 no trae sep–dic 2025 (esos meses solo tienen puntos) · Canal On = Site + App';
   return ipCard(title, sub, h);
 }
