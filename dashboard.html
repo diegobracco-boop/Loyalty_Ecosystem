@@ -200,6 +200,7 @@ table.pnl tr.grand-total td.sep { background: #1b1533 !important; border-bottom-
 /* ---- Program index chips (saltos rapidos a cada programa) ---- */
 .prog-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
 .or-tbl td.or-key { font-weight: 700; color: var(--accent); }
+.bk-hdr .or-dl { float: right; font-size: var(--fs-small); padding: 3px 10px; }
 .or-tbl tr.or-prod td.lc { padding-left: 40px; }
 .ip-tbl tr.or-prod td.lc { padding-left: 40px; }
 .ip-tbl td.ip-tot { font-weight: 700; }
@@ -3121,7 +3122,8 @@ function renderOneRevenue() {
     }).join('') + '<td class="sep"></td><td class="vf or-key">' + pct(tot.gb ? tot.droEspStd / tot.gb : null, 2) + '</td></tr>';
   });
   t += '</tbody></table></div>';
-  h += '<div class="bk-card"><div class="bk-hdr">Para cargar en One Revenue — DRO %GB esperado a SSP standard · ' + perLbl + '</div>' + t + '</div>';
+  h += '<div class="bk-card"><div class="bk-hdr">Para cargar en One Revenue — DRO %GB esperado a SSP standard · ' + perLbl
+     + ' <button class="seg-btn or-dl" type="button" onclick="orDownloadXlsx()" title="Descarga País / Producto / DRO %GB esp. a cargar">⬇ Descargar Excel</button></div>' + t + '</div>';
 
   // ---- 2. Detalle de la regla
   h += '<div class="bk-card"><div class="bk-hdr">Detalle por ' + (showCountry ? 'país y producto' : 'producto') + ' · ' + perLbl + '</div>'
@@ -3203,6 +3205,40 @@ function renderOneRevenue() {
     return '<div class="yoy-cell"><div class="yoy-m">' + lbl + '</div>' + (d === null ? '<span class="neu">—</span>'
       : '<span class="' + (d >= 0 ? 'pos' : 'neg') + '">' + (d >= 0 ? '+' : '') + d.toFixed(2) + 'pp</span>') + '</div>';
   }).join('');
+}
+
+// Descarga en Excel de la tabla "Para cargar en One Revenue" (País, Producto, DRO %GB esp. a cargar),
+// con los meses y el país elegidos. SheetJS se carga recién al primer clic (no pesa en la carga inicial).
+var OR_XLSX_SRC = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+function orDownloadXlsx() {
+  if (window.XLSX) return orWriteXlsx();
+  var sc = document.createElement('script');
+  sc.src = OR_XLSX_SRC;
+  sc.onload = orWriteXlsx;
+  sc.onerror = function(){ console.error('[OneRevenue] no se pudo cargar SheetJS'); orDlMsg('No se pudo cargar el generador de Excel (sin conexión a cdn.jsdelivr.net).'); };
+  document.head.appendChild(sc);
+}
+function orDlMsg(t) {
+  var b = document.querySelector('#panel-onerevenue .or-dl');
+  if (b) { b.textContent = t; setTimeout(function(){ b.textContent = '⬇ Descargar Excel'; }, 4000); }
+}
+function orWriteXlsx() {
+  var sel = orSelMonths(), keys = goalKeys(varCountryObj(OR_STATE.country));
+  var aoa = [['País', 'Producto', 'DRO %GB esp. a cargar']];
+  keys.forEach(function(dk) {
+    OR_PRODUCTS.forEach(function(pr) {
+      var a = orAgg([dk], sel, [pr]);
+      if (a.n && a.gb) aoa.push([varCountryObj(dk).label, pr, a.droEspStd / a.gb]);
+    });
+  });
+  var ws = XLSX.utils.aoa_to_sheet(aoa);
+  for (var r = 1; r < aoa.length; r++) { var c = ws[XLSX.utils.encode_cell({ r: r, c: 2 })]; if (c) c.z = '0.00%'; }
+  ws['!cols'] = [{ wch: 14 }, { wch: 18 }, { wch: 22 }];
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'One Revenue');
+  var per = sel.length === 1 ? fmtMonthLbl(sel[0]) : fmtMonthLbl(sel[0]) + ' a ' + fmtMonthLbl(sel[sel.length - 1]);
+  XLSX.writeFile(wb, 'One Revenue DRO GB esp - ' + per + '.xlsx');
+  orDlMsg('✓ Descargado');
 }
 
 // Fila debajo del YoY (solo Redenciones): precio/pt de LY + variacion YoY de ese precio.
